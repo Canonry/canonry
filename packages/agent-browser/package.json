@@ -1,0 +1,29 @@
+{
+  "name": "@canonry/canonry-agent-browser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
+    "test": "vitest run --config ../../vitest.package.config.ts",
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0",
+    "@canonry/canonry-contracts": "workspace:*",
+    "@google/genai": "^2.30.0",
+    "chrome-remote-interface": "^0.34.0",
+    "openai": "^7.40.0"
+  },
+  "devDependencies": {
+    "@types/chrome-remote-interface": "^0.34.0"
+  }
+}

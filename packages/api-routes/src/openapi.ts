@@ -8881,6 +8881,98 @@ const routeCatalog: OpenApiOperation[] = [
       404: errorResponse('Project not found.'),
     },
   },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/agent-browser/checks',
+    summary: 'Start an agent-browser check',
+    description:
+      'Queues an `agent-browser-check` run: AI agents try a task on the project\'s site in a real browser, each in its own isolated page. Three agents work from screenshots through their provider\'s computer-use API (`openai`, `claude`, `gemini`); `claude-a11y` is the same Claude model reading the accessibility tree. Every agent run spends on the operator\'s provider account. The browser never lets data out: a submission to the site gets a local success reply, other sites are blocked, and analytics are dropped. Pass/fail is decided by Canonry from `expect` (the final page, the answer, a caught form submission), never by the agent; with no expectation a pass is reported as unverified. In an Advanced Measurement portfolio, `property` checks one Property: its URLs in the published plan (either plan version) count as the site with the project\'s own hosts, agents start on its most specific page, and the request records the Property and plan revision. An identical active check is reused (`reused: true`); a different request while one is active returns 409.',
+    tags: ['agent-browser'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['task'],
+            properties: {
+              task: { ...stringSchema, minLength: 1, maxLength: 4000, description: 'What the agents should do on the site, in plain words.' },
+              property: { ...stringSchema, minLength: 1, maxLength: 128, description: 'An Advanced Measurement Property to check, by its stable key in the published plan. Its URLs count as the site (with the project\'s hosts) and the agents start on its most specific page.' },
+              startUrl: { ...stringSchema, description: 'Where every agent starts. Must be on the site being checked; defaults to the Property\'s page, else the project\'s home page.' },
+              agents: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 4,
+                items: { type: 'string', enum: ['openai', 'claude', 'gemini', 'claude-a11y'] },
+                description: 'Agents that try the task. Defaults to openai, claude and claude-a11y.',
+              },
+              models: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  openai: stringSchema,
+                  claude: stringSchema,
+                  gemini: stringSchema,
+                  'claude-a11y': stringSchema,
+                },
+                description: 'A model per agent, overriding its default (gpt-6.1-sol, claude-opus-5-5, gemini-4-carbon).',
+              },
+              repeats: { ...integerSchema, minimum: 1, maximum: 5, description: 'Runs per agent. Defaults to 1.' },
+              expect: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  urlPath: { ...stringSchema, description: 'The run must end on this path of the site.' },
+                  answerIncludes: { type: 'array', maxItems: 10, items: stringSchema, description: 'Each phrase must appear in the agent\'s final answer, ignoring case.' },
+                  submitPath: { ...stringSchema, description: 'A form submission to this path must have been caught.' },
+                  submitFields: { type: 'object', additionalProperties: stringSchema, description: 'Field values the caught submission must carry (JSON or URL-encoded). Requires submitPath.' },
+                },
+              },
+              maxMinutesPerRun: { ...integerSchema, minimum: 1, maximum: 20, description: 'Wall-clock budget for one agent run. Defaults to 8.' },
+              maxTurnsPerRun: { ...integerSchema, minimum: 5, maximum: 150, description: 'Model turns allowed per agent run. Defaults to 60.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Agent-browser check queued, or the identical active check returned.', 'AgentBrowserCheckRunResponseDto'),
+      400: errorResponse('Invalid request; a Property missing from the published plan (or no plan); or a start URL that is not on the site being checked.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('A check with a different request is already queued or running.'),
+      422: errorResponse('Agent-browser checks are unavailable on this deployment.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/agent-browser/checks',
+    summary: 'List agent-browser checks',
+    description: 'Every agent-browser check for the project, newest first, with its task, agents and result counts. Counts come from the stored results; a check still running counts only the agent runs that have finished.',
+    tags: ['agent-browser'],
+    parameters: [
+      nameParameter,
+      { name: 'limit', in: 'query', description: 'Max checks returned (most recent first). Defaults to 20; max 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+      { name: 'property', in: 'query', description: 'Only checks of this Advanced Measurement Property (its stable key, as recorded on each check, so checks of a Property a later plan dropped still match).', schema: { type: 'string' } },
+    ],
+    responses: {
+      200: jsonResponse('Agent-browser checks returned.', 'AgentBrowserChecksResponseDto'),
+      400: errorResponse('Invalid limit.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/agent-browser/checks/{runId}',
+    summary: 'Get an agent-browser check',
+    description: 'One check with its normalized request and every agent run: status, whether Canonry verified it, the checks it ran, the agent\'s answer, effort (turns, actions, time, tokens), the pages it visited and the submissions the browser caught.',
+    tags: ['agent-browser'],
+    parameters: [nameParameter, { name: 'runId', in: 'path', required: true, description: 'The check\'s run ID.', schema: { type: 'string' } }],
+    responses: {
+      200: jsonResponse('Agent-browser check returned.', 'AgentBrowserCheckDto'),
+      404: errorResponse('Project or check not found.'),
+    },
+  },
 ]
 
 /**

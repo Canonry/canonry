@@ -55,6 +55,8 @@ erDiagram
   queries ||--o{ query_snapshots : "tracked in"
 
   runs ||--o| site_crawl_run_requests : "freezes request identity"
+  runs ||--o| agent_browser_checks : "freezes check request"
+  runs ||--o{ agent_browser_results : "records agent runs"
   runs ||--o{ site_crawl_attempts : "executes"
   runs ||--o| site_crawl_snapshots : "publishes"
   site_crawl_attempts ||--o| site_crawl_graph_layouts : "publishes derived layout"
@@ -162,6 +164,15 @@ assignments point to those nodes. Groups derive their reporting edges from
 member Target assignments. When the queue creates a plan-aware run, it pins the
 published revision and freezes the run manifest. Historical reads retain that
 execution context after the active plan or tracked queries change.
+
+### Agent-Browser Checks
+
+Migration 225. An `agent-browser-check` run has one request row and one result row per agent run.
+
+| Table | Purpose | Key Constraints |
+|-------|---------|----------------|
+| **agent_browser_checks** | The normalized request (task, the Advanced Measurement Property with its plan revision or null, the hosts that count as the site, start page, agents and models, repeats, expectations, limits) and its identity key. The site is frozen here, so a later plan or domain change never moves a stored or queued check. An identical request reuses an active check; a different one gets a conflict. | PK: `runId`; composite FK `(projectId, runId)` → runs |
+| **agent_browser_results** | One agent run: status (`passed`, `failed`, `errored`), whether Canonry verified it and the checks it ran, the agent's answer, effort (turns, actions, screenshots, tokens), pages visited and blocked, submissions the browser caught (answered locally, never sent), and where its evidence is kept. Written as each run finishes. | Unique: `(runId, agent, attempt)`; composite FK to runs |
 
 ### Agent Readiness Crawl Persistence
 

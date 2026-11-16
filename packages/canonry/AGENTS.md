@@ -714,6 +714,20 @@ Agent Readiness is the one product name for the site crawl and page audit (scan,
 
 `agent-readiness issues` and `agent-readiness issue-pages --issue-id` (deprecated names: `site-health …`, `technical-aeo …`) read stored finding groups and affected URLs through typed `ApiClient` methods. They never initiate crawls. Preserve run/attempt/date, finding coverage, nullable totals, and cursors in JSON and each JSONL record; even empty JSONL emits a metadata header. Pin the returned run ID when paging or drilling down. Missing or partial evidence is not a clean audit, and dispositions never grant edit authority. Critical defects retain severity and issue-specific guidance; `recommendationsScope` distinguishes this from broader factor recommendations.
 
+### Agent-browser checks
+
+`canonry agent-browser check|checks|show` (`src/cli-commands/agent-browser.ts`, handlers in `src/commands/agent-browser.ts`) start and read `agent-browser-check` runs through typed `ApiClient` methods; MCP mirrors them as `canonry_agent_browser_check_run`, `canonry_agent_browser_checks_list` and `canonry_agent_browser_check_get`. `check` is `write` (it spends on provider accounts); the reads are `stored`.
+
+`src/execute-agent-browser-check.ts` runs the check that `POST /agent-browser/checks` queued (`server.ts` wires `onAgentBrowserCheckRequested` and aborts it on cancel):
+
+- Reads what counts as the site from the stored request (`siteHosts`, frozen by the route from the project or an Advanced Measurement Property), never from the live project or plan.
+- Claims the run `queued → running`, refuses a start page that is not a public web address (`resolvePublicHttpTarget`), and resolves each agent's key with `resolveApiKeyFor` (config first, then the environment). An agent with no key is recorded as `errored` for each of its runs; the others still run.
+- Browser: a local Chrome it can launch (`findChromeExecutable`, `CANONRY_CHROME_PATH`), else the Chrome from `canonry cdp connect`. Every agent run gets its own browser context, so a connected Chrome's signed-in sessions stay invisible.
+- Egress: every request the browser dials passes `agentBrowserEgress` first, once per origin per agent run: the shared egress policy (`resolvePublicHttpTarget`, `packages/api-routes/src/egress-policy.ts`) refuses an origin whose host resolves to any loopback, private, link-local or other internal address, so a page cannot pull the metadata service or a local port into a screenshot.
+- Each result is written as its agent run finishes (`agent_browser_results`), so reads show progress. Evidence (screenshots, action log) goes under `<config dir>/agent-browser/<runId>/`.
+- Final status (`agentBrowserRunStatus`): `completed` when every run was judged, `partial` when some errored or are missing, `failed` when none could be judged. A failed agent run is a finding about the site and never fails the check.
+- Smoke without spending: run the built CLI against a scratch `canonry serve` (its own `CANONRY_CONFIG_DIR` and port) with no provider keys in its environment. Every agent run records `errored` with "No … API key", so the scope (`request.property`, `siteHosts`, `startUrl`), refusals, `checks --property` and `--wait` exit codes are all visible for free. For a Property, publish a schema v1 plan first (`canonry measurement-plan publish <project> plan.yaml`). A paid smoke adds the operator's keys to that server's environment and runs one or two agents with `--max-turns` and `--max-minutes` set low.
+
 ### Advanced Measurement commands
 
 `src/commands/measurement-plan.ts` — Advanced Measurement plan commands: `measurement-plan show` / `versions` / `publish` / `retire` / `discover` / `report`, plus the two per-Property reads:

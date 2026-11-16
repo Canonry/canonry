@@ -131,6 +131,10 @@ import type {
   SiteAuditIssuePagesResponseDto,
   SiteAuditTrendResponseDto,
   SiteAuditRunResponseDto,
+  AgentBrowserCheckDto,
+  AgentBrowserCheckRequest,
+  AgentBrowserCheckRunResponseDto,
+  AgentBrowserChecksResponseDto,
   SiteAuditRunRequest,
   SiteAuditRunProgressDto,
   SiteCrawlSummaryDto,
@@ -634,6 +638,9 @@ import {
   getApiV1ProjectsByNameAgentReadinessDeadLinks,
   getApiV1ProjectsByNameAgentReadinessRunsByRunIdProgress,
   postApiV1ProjectsByNameAgentReadinessRuns,
+  postApiV1ProjectsByNameAgentBrowserChecks,
+  getApiV1ProjectsByNameAgentBrowserChecks,
+  getApiV1ProjectsByNameAgentBrowserChecksByRunId,
   // Wordpress
   postApiV1ProjectsByNameWordpressConnect,
   deleteApiV1ProjectsByNameWordpressDisconnect,
@@ -4988,6 +4995,42 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         body: (body ?? {}) as never,
+      }),
+    )
+  }
+
+  // ── Agent-browser checks ───────────────────────────────────────────────
+
+  /** Start an agent-browser check, or join an identical one already active. */
+  async triggerAgentBrowserCheck(project: string, body: AgentBrowserCheckRequest): Promise<AgentBrowserCheckRunResponseDto> {
+    return this.invoke<AgentBrowserCheckRunResponseDto>(() =>
+      postApiV1ProjectsByNameAgentBrowserChecks({
+        client: this.heyClient,
+        path: { name: project },
+        body: body as never,
+      }),
+    )
+  }
+
+  async listAgentBrowserChecks(project: string, opts: { limit?: number; property?: string } = {}): Promise<AgentBrowserChecksResponseDto> {
+    const query = {
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      ...(opts.property !== undefined ? { property: opts.property } : {}),
+    }
+    return this.invoke<AgentBrowserChecksResponseDto>(() =>
+      getApiV1ProjectsByNameAgentBrowserChecks({
+        client: this.heyClient,
+        path: { name: project },
+        ...(Object.keys(query).length ? { query } : {}),
+      }),
+    )
+  }
+
+  async getAgentBrowserCheck(project: string, runId: string): Promise<AgentBrowserCheckDto> {
+    return this.invoke<AgentBrowserCheckDto>(() =>
+      getApiV1ProjectsByNameAgentBrowserChecksByRunId({
+        client: this.heyClient,
+        path: { name: project, runId },
       }),
     )
   }

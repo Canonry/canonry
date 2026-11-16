@@ -1,4 +1,5 @@
 import { mcpProfileDtoSchema } from '@canonry/canonry-contracts'
+import { agentBrowserCheckDtoSchema, agentBrowserCheckRunResponseSchema, agentBrowserChecksResponseSchema } from '@canonry/canonry-contracts'
 import { chatGptModelListDtoSchema, chatGptModelSelectionRequestSchema, chatGptStatusDtoSchema, createUserInvitationRequestSchema, userInvitationDtoSchema, userInvitationListDtoSchema } from '@canonry/canonry-contracts'
 import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
@@ -377,6 +378,9 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  AgentBrowserCheckDto: agentBrowserCheckDtoSchema,
+  AgentBrowserCheckRunResponseDto: agentBrowserCheckRunResponseSchema,
+  AgentBrowserChecksResponseDto: agentBrowserChecksResponseSchema,
   SeoOperatorTask: seoOperatorTaskSchema,
   SeoReconcileInput: seoReconcileInputSchema,
   SeoReconcileResult: seoReconcileResultSchema,

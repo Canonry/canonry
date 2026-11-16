@@ -81,6 +81,7 @@ export default defineConfig({
     '@canonry/canonry-provider-claude',
     '@canonry/canonry-provider-local',
     '@canonry/canonry-provider-cdp',
+    '@canonry/canonry-agent-browser',
     '@canonry/canonry-provider-perplexity',
     '@canonry/canonry-provider-muse',
     '@canonry/canonry-integration-google',

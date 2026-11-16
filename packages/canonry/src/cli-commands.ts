@@ -38,6 +38,7 @@ import { INTELLIGENCE_CLI_COMMANDS } from './cli-commands/intelligence.js'
 import { CONTENT_CLI_COMMANDS } from './cli-commands/content.js'
 import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
 import { TECHNICAL_AEO_CLI_COMMANDS } from './cli-commands/technical-aeo.js'
+import { AGENT_BROWSER_CLI_COMMANDS } from './cli-commands/agent-browser.js'
 import { TRENDS_CLI_COMMANDS } from './cli-commands/trends.js'
 import { SITEMAPS_CLI_COMMANDS } from './cli-commands/sitemaps.js'
 import { VISIBILITY_STATS_CLI_COMMANDS } from './cli-commands/visibility-stats.js'
@@ -85,6 +86,7 @@ const REGISTERED_COMMANDS: readonly CliCommandSpec[] = [
   ...DISCOVER_CLI_COMMANDS,
   ...RESEARCH_CLI_COMMANDS,
   ...TECHNICAL_AEO_CLI_COMMANDS,
+  ...AGENT_BROWSER_CLI_COMMANDS,
   ...TRENDS_CLI_COMMANDS,
   ...SITEMAPS_CLI_COMMANDS,
   ...DOCTOR_CLI_COMMANDS,

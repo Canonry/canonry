@@ -571,6 +571,9 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // findings. Agents use the canonical Agent Readiness reads after publication.
   'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview': 'excluded-protocol',
   'POST /api/v1/projects/{name}/agent-readiness/runs': 'included',
+  'POST /api/v1/projects/{name}/agent-browser/checks': 'included',
+  'GET /api/v1/projects/{name}/agent-browser/checks': 'included',
+  'GET /api/v1/projects/{name}/agent-browser/checks/{runId}': 'included',
   // Deprecated `technical-aeo` path aliases. Each answers exactly like its
   // canonical `agent-readiness` operation above, which carries the MCP
   // classification; MCP tools address only the canonical path.

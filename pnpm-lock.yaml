@@ -410,6 +410,28 @@ importers:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
+  packages/agent-browser:
+    dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.137.0
+        version: 0.137.0(zod@4.6.7)
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@google/genai':
+        specifier: ^2.30.0
+        version: 2.30.0(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))
+      chrome-remote-interface:
+        specifier: ^0.34.0
+        version: 0.34.0
+      openai:
+        specifier: ^7.40.0
+        version: 7.40.0(@aws-sdk/credential-provider-node@3.972.87)(@smithy/signature-v4@5.7.4)(undici@8.12.3)(ws@8.22.0)(zod@4.6.7)
+    devDependencies:
+      '@types/chrome-remote-interface':
+        specifier: ^0.34.0
+        version: 0.34.0
+
   packages/api-client-generated:
     devDependencies:
       '@canonry/canonry-api-routes':
@@ -582,6 +604,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@canonry/canonry-agent-browser':
+        specifier: workspace:*
+        version: link:../agent-browser
       '@canonry/canonry-api-client':
         specifier: workspace:*
         version: link:../api-client-generated

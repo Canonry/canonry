@@ -4,6 +4,7 @@ import {
   OUTSTANDING_PROVIDER_BATCH_STATUSES,
   ProviderBatchStatuses,
   RunStatuses,
+  runKindSchema,
   describeError,
   formatMicros,
   formatRunErrorOneLine,
@@ -542,12 +543,14 @@ export async function listRuns(
   }
 
   console.log(`Runs for "${project}" (${runs.length}):\n`)
-  console.log('  ID                                    STATUS      KIND                TRIGGER    CREATED')
-  console.log('  ────────────────────────────────────  ──────────  ──────────────────  ─────────  ───────────────────────')
+  // Wide enough for the longest run kind, so a new kind never breaks the columns.
+  const kindWidth = Math.max(...runKindSchema.options.map((kind) => kind.length))
+  console.log(`  ID                                    STATUS      ${'KIND'.padEnd(kindWidth)}  TRIGGER    CREATED`)
+  console.log(`  ────────────────────────────────────  ──────────  ${'─'.repeat(kindWidth)}  ─────────  ───────────────────────`)
 
   for (const run of runs) {
     console.log(
-      `  ${run.id}  ${run.status.padEnd(10)}  ${run.kind.padEnd(18)}  ${run.trigger.padEnd(9)}  ${run.createdAt}`,
+      `  ${run.id}  ${run.status.padEnd(10)}  ${run.kind.padEnd(kindWidth)}  ${run.trigger.padEnd(9)}  ${run.createdAt}`,
     )
     if ((run.status === RunStatuses.failed || run.status === RunStatuses.partial) && run.error) {
       console.log(`    error: ${formatRunErrorOneLine(run.error)}`)

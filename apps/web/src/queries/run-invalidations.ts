@@ -78,6 +78,9 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['backlink-extract']:
       return
+    case RunKinds['agent-browser-check']:
+      // No dashboard section reads agent-browser checks yet.
+      return
     case RunKinds['seo-sync']:
       void invalidateProjectQueryDomain(queryClient, 'seo', { projectName })
       return

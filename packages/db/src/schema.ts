@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { AgentProviderBackgroundPause } from '@canonry/canonry-contracts'
+import type { AgentBrowserEffectiveRequest, AgentBrowserSubmission, AgentBrowserUsage, AgentProviderBackgroundPause } from '@canonry/canonry-contracts'
 import type { AgentJourneyCorrelationBasis, AgentTrustReason, StoredAgentTrust, CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunProviderFailure, RunSyncSummary, SiteCrawlIssueEvidence, SiteCrawlSiteDto, SnapshotUsage, VerificationStatus } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, SiteAuditScheduleChecks, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
@@ -1500,6 +1500,68 @@ export const siteCrawlRunRequests = sqliteTable('site_crawl_run_requests', {
   index('idx_site_crawl_run_requests_project').on(table.projectId, table.runId),
   foreignKey({
     name: 'site_crawl_run_requests_project_run_fk',
+    columns: [table.projectId, table.runId],
+    foreignColumns: [runs.projectId, runs.id],
+  }).onDelete('cascade'),
+])
+
+/**
+ * One agent-browser check per `agent-browser-check` run: the normalized request it runs with.
+ * `identity_key` lets an identical request reuse an active check while a different one is
+ * refused. `project_id + run_id` is a real FK to runs.
+ */
+export const agentBrowserChecks = sqliteTable('agent_browser_checks', {
+  runId: text('run_id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  identityKey: text('identity_key').notNull(),
+  request: text('request', { mode: 'json' }).$type<AgentBrowserEffectiveRequest>().notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_agent_browser_checks_project').on(table.projectId, table.runId),
+  foreignKey({
+    name: 'agent_browser_checks_project_run_fk',
+    columns: [table.projectId, table.runId],
+    foreignColumns: [runs.projectId, runs.id],
+  }).onDelete('cascade'),
+])
+
+/**
+ * One row per agent run within a check: how it ended, what Canonry verified, the effort it
+ * took, and what the browser caught. Written as each agent run finishes, so a check's
+ * progress is readable while it runs.
+ */
+export const agentBrowserResults = sqliteTable('agent_browser_results', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull(),
+  agent: text('agent').notNull(),
+  model: text('model').notNull(),
+  perception: text('perception').notNull(),
+  attempt: integer('attempt').notNull(),
+  status: text('status').notNull(),
+  verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
+  detail: text('detail').notNull(),
+  checks: text('checks', { mode: 'json' }).$type<Array<{ check: string; passed: boolean; detail: string }>>().notNull().default([]),
+  answer: text('answer').notNull().default(''),
+  stop: text('stop').notNull(),
+  error: text('error'),
+  durationMs: integer('duration_ms').notNull(),
+  turns: integer('turns').notNull().default(0),
+  actions: integer('actions').notNull().default(0),
+  screenshots: integer('screenshots').notNull().default(0),
+  safetyChecks: integer('safety_checks').notNull().default(0),
+  usage: text('usage', { mode: 'json' }).$type<AgentBrowserUsage>().notNull(),
+  finalUrl: text('final_url').notNull().default(''),
+  visited: text('visited', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  blockedPages: text('blocked_pages', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  submissions: text('submissions', { mode: 'json' }).$type<AgentBrowserSubmission[]>().notNull().default([]),
+  evidencePath: text('evidence_path'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_agent_browser_results_run_agent_attempt').on(table.runId, table.agent, table.attempt),
+  index('idx_agent_browser_results_project_run').on(table.projectId, table.runId),
+  foreignKey({
+    name: 'agent_browser_results_project_run_fk',
     columns: [table.projectId, table.runId],
     foreignColumns: [runs.projectId, runs.id],
   }).onDelete('cascade'),

@@ -103,6 +103,7 @@ function kindLabel(kind: RunKind): string {
       void _exhaustive
       return 'Unknown job type'
     }
+    case RunKinds['agent-browser-check']: return 'Agent-browser check'
   }
 }
 

@@ -33,6 +33,10 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Setup",
     "summary": "List or install bundled agent skills (claude/codex)"
   },
+  "agent-browser": {
+    "section": "Agent Readiness",
+    "summary": "Have AI agents try a task on your site in a real browser, then read how each did"
+  },
   "agent-readiness": {
     "section": "Agent Readiness",
     "summary": "Scan your site, then read its Agent Readiness score, pages, issues and links"

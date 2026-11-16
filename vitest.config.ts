@@ -32,6 +32,7 @@ const WEB_SETUP = [...SHARED_SETUP, path.resolve(import.meta.dirname, 'apps/web/
 const AGGREGATE_TIMEOUTS = { testTimeout: 30_000, hookTimeout: 30_000 }
 
 const NODE_PACKAGES = [
+  'agent-browser',
   'api-client-generated',
   'api-routes',
   'canonry',
@@ -87,6 +88,7 @@ const NODE_APPS = ['api', 'mcp-gateway'] as const
  * split a small suite for little gain.
  */
 const SHARED_WORKER_PROJECTS: ReadonlySet<string> = new Set([
+  'agent-browser',
   'api-client-generated',
   'api-routes',
   'config',

@@ -70,6 +70,7 @@ import {
   scheduleDtoSchema,
   siteAuditPageBudgetSchema,
   siteAuditRunRequestSchema,
+  agentBrowserCheckRequestSchema,
   siteAuditIssueListQuerySchema,
   siteAuditIssuesResponseSchema,
   siteAuditIssuePagesResponseSchema,
@@ -1349,6 +1350,21 @@ const technicalAeoRunInputSchema = z.object({
   includeGeo: siteAuditRunRequestSchema.shape.includeGeo.removeDefault().optional().describe('Opt in to geographic signals for a location or service-area business.'),
   includeAgentSkills: siteAuditRunRequestSchema.shape.includeAgentSkills.removeDefault().optional().describe('Check discoverable actions, forms, and agent integrations by default. Set false to disable.'),
   sites: siteAuditRunRequestSchema.shape.sites.describe('Owned domains this scan covers besides the main domain, which every scan covers, at most 20. Each must be one of the project\'s owned domains. Omitted uses the project\'s saved siteAuditDomains (set with canonry_project_update); [] scans the main domain only. The page budget is shared across every site.'),
+})
+
+const agentBrowserCheckRunInputSchema = z.object({
+  project: projectNameSchema,
+}).extend(agentBrowserCheckRequestSchema.shape)
+
+const agentBrowserChecksListInputSchema = z.object({
+  project: projectNameSchema,
+  property: z.string().trim().min(1).max(128).optional().describe('Only checks of this Advanced Measurement Property (its stable key), as recorded on each check.'),
+  limit: z.number().int().min(1).max(100).optional().describe('Max checks returned, newest first. Defaults to 20.'),
+})
+
+const agentBrowserCheckGetInputSchema = z.object({
+  project: projectNameSchema,
+  runId: z.string().min(1).describe('The check\'s run ID, from canonry_agent_browser_check_run or canonry_agent_browser_checks_list.'),
 })
 
 // Query rows are compact and paged, so an ordinary project's summary fits an MCP result.
@@ -4614,6 +4630,43 @@ const rawCanonryMcpTools = [
       includeAgentSkills: input.includeAgentSkills,
       ...(input.sites !== undefined ? { sites: input.sites } : {}),
     }),
+  }),
+  defineTool({
+    name: 'canonry_agent_browser_check_run',
+    title: 'Run an agent-browser check',
+    description:
+      'Have AI agents try a task on the project\'s site in a real browser, each in its own isolated page. Agents: openai, claude and gemini work from screenshots through their computer-use APIs; claude-a11y is Claude reading the accessibility tree. Defaults: openai, claude and claude-a11y, one run each, starting on the project\'s home page. In an Advanced Measurement portfolio, pass property (a Property\'s stable key from the published plan) to check one Property: its URLs count as the site with the project\'s, and agents start on its most specific page. Every run spends on the operator\'s provider accounts, so get approval first. The browser never lets data out: a form submission to the site is answered locally and recorded, other sites are blocked, analytics are dropped. Set expect so Canonry can verify the outcome itself: urlPath (where the run must end), answerIncludes (phrases the answer must contain), submitPath with submitFields (a caught form submission and its values); without it a pass is unverified. Returns {runId, status, reused} and continues in the background; poll canonry_agent_browser_check_get until status is completed, partial, failed or cancelled. An identical active check is joined; a different one is refused while a check is active.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: agentBrowserCheckRunInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/agent-browser/checks'],
+    handler: (client, input) => {
+      const { project, ...request } = input
+      return client.triggerAgentBrowserCheck(project, request)
+    },
+  }),
+  defineTool({
+    name: 'canonry_agent_browser_checks_list',
+    title: 'List agent-browser checks',
+    description: 'The project\'s agent-browser checks, newest first, each with its Property (null for a check of the project\'s site), task, agents and result counts (passed, failed, errored, and passes not verified by an expectation). Pass property to keep one Property\'s checks. Stored results only; nothing runs. Open one with canonry_agent_browser_check_get.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: agentBrowserChecksListInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-browser/checks'],
+    handler: (client, input) => client.listAgentBrowserChecks(input.project, { limit: input.limit, property: input.property }),
+  }),
+  defineTool({
+    name: 'canonry_agent_browser_check_get',
+    title: 'Get an agent-browser check',
+    description: 'One agent-browser check with every agent run: status (passed, failed, or errored when the provider or browser failed, which says nothing about the site), whether Canonry verified it and the checks it ran, the agent\'s own answer, effort (turns, actions, time, tokens), pages visited and the submissions the browser caught. Compare agents by status first, then effort: a pass that took several times the actions points at friction worth fixing. Stored results only.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: agentBrowserCheckGetInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/agent-browser/checks/{runId}'],
+    handler: (client, input) => client.getAgentBrowserCheck(input.project, input.runId),
   }),
   // ----- Google Marketing: Google Ads + Google Tag Manager -----
   // OAuth, selection, disconnect, and contract writes deliberately stay on

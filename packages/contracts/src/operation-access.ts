@@ -310,6 +310,8 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set(withLegacyAge
   'GET /api/v1/projects/{name}/agent-readiness/dead-links',
   'GET /api/v1/projects/{name}/agent-readiness/runs',
   'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/progress',
+  'GET /api/v1/projects/{name}/agent-browser/checks',
+  'GET /api/v1/projects/{name}/agent-browser/checks/{runId}',
 ]))
 
 /**

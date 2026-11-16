@@ -131,6 +131,8 @@ import { statusRoutes, type StatusRoutesOptions } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
+import { agentBrowserRoutes } from './agent-browser.js'
+import type { AgentBrowserRoutesOptions } from './agent-browser.js'
 import { trendsRoutes } from './trends.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
@@ -478,6 +480,8 @@ export interface ApiRoutesOptions {
   embedQueries?: DiscoveryRoutesOptions['embedQueries']
   /** Agent Readiness callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
   onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
+  /** Agent-browser check callback — fires after an `agent-browser-check` run row is created. Wire to `executeAgentBrowserCheck`. */
+  onAgentBrowserCheckRequested?: AgentBrowserRoutesOptions['onAgentBrowserCheckRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
   onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
@@ -1006,6 +1010,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,
     } satisfies TechnicalAeoRoutesOptions)
+    await api.register(agentBrowserRoutes, {
+      onAgentBrowserCheckRequested: opts.onAgentBrowserCheckRequested,
+    } satisfies AgentBrowserRoutesOptions)
     await api.register(trendsRoutes)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,

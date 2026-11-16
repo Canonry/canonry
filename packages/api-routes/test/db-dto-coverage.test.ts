@@ -11,6 +11,8 @@ import {
   adsActivationGrantDtoSchema,
   adsOperationDtoSchema,
   adsOperationStepDtoSchema,
+  agentBrowserCheckDtoSchema,
+  agentBrowserResultSchema,
   backlinkDomainDtoSchema,
   backlinkSummaryDtoSchema,
   bingConnectionDtoSchema,
@@ -958,6 +960,22 @@ const COVERAGE: Record<string, CoverageEntry> = {
       queryText: 'Serialized as the public `query` field.',
       rawResponse: 'Raw provider payload retained for diagnostics.',
       answerEvidence: 'Serialized as the public `evidence` field, only for answers that recorded evidence.',
+    },
+  },
+  agentBrowserChecks: {
+    kind: 'dto',
+    dto: agentBrowserCheckDtoSchema,
+    internal: {
+      projectId: 'Implied by the project-scoped route; the DTO carries the project name.',
+      identityKey: 'Internal comparison key that reuses an identical queued or running check instead of starting a second one.',
+    },
+  },
+  agentBrowserResults: {
+    kind: 'dto',
+    dto: agentBrowserResultSchema,
+    internal: {
+      projectId: 'Implied by the project-scoped route.',
+      runId: 'Implied by the enclosing check detail route (/agent-browser/checks/:runId).',
     },
   },
   backlinkDomains: {

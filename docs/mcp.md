@@ -441,6 +441,9 @@ each page is for AI agents and answer engines. Its tools are in the
 | `canonry_agent_readiness_path` | Find shortest Agent Readiness link path | The shortest followable-link path to a page |
 | `canonry_agent_readiness_changes` | Compare Agent Readiness audit scans | Page and link changes between two complete scans |
 | `canonry_agent_readiness_run` | Run Agent Readiness audit scan | Start an Agent Readiness audit scan (write) |
+| `canonry_agent_browser_check_run` | Run an agent-browser check | AI agents try a task on the site, or on one Advanced Measurement Property (`property`), in a real browser; spends on provider accounts (write) |
+| `canonry_agent_browser_checks_list` | List agent-browser checks | Checks newest first with their Property and result counts; `property` filters (stored) |
+| `canonry_agent_browser_check_get` | Get an agent-browser check | Every agent run: status, verification, answer, effort, caught submissions (stored) |
 
 `canonry_agent_readiness_issues` and `canonry_agent_readiness_issue_pages` read retained
 findings without crawling or calling a provider. The issue list

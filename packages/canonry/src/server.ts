@@ -251,6 +251,7 @@ import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-s
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
 import { executeSiteAudit, type SiteAuditOptions } from "./execute-site-audit.js";
+import { executeAgentBrowserCheck } from "./execute-agent-browser-check.js";
 import { createAnswerFieldRecomputeQueue, type AnswerFieldRecomputeRequest } from "./answer-field-recompute.js";
 import { createCompetitorAutoAliasRunner } from "./competitor-auto-alias-runner.js";
 import { extractStoredAnswerAnchors } from "./stored-answer-anchors.js";
@@ -1604,6 +1605,25 @@ export async function createServer(opts: {
       .finally(() => {
         if (siteAuditAbortControllers.get(runId) === controller) {
           siteAuditAbortControllers.delete(runId);
+        }
+      });
+  };
+
+  // Agent-browser check worker for `POST /agent-browser/checks`. The route created the run row
+  // and stored the request; this runs the agents in a browser and records each result. Like
+  // the site-audit map, it bridges a durable cancel to the in-process controller.
+  const agentBrowserAbortControllers = new Map<string, AbortController>();
+  const runAgentBrowserCheck = (runId: string, projectId: string): void => {
+    const controller = new AbortController();
+    agentBrowserAbortControllers.set(runId, controller);
+    executeAgentBrowserCheck(opts.db, runId, projectId, { config: opts.config, signal: controller.signal })
+      .then(() => runCoordinator.onRunCompleted(runId, projectId))
+      .catch((err: unknown) => {
+        app.log.error({ runId, err }, "Agent-browser check failed");
+      })
+      .finally(() => {
+        if (agentBrowserAbortControllers.get(runId) === controller) {
+          agentBrowserAbortControllers.delete(runId);
         }
       });
   };
@@ -3616,6 +3636,10 @@ export async function createServer(opts: {
       // The route already created the site-audit run row; run the shared worker.
       runSiteAudit(runId, projectId, auditOpts);
     },
+    onAgentBrowserCheckRequested: (runId: string, projectId: string) => {
+      // The route already created the agent-browser-check run row and its request.
+      runAgentBrowserCheck(runId, projectId);
+    },
     onBacklinksPruneCache: (release: string) => {
       try {
         pruneCachedRelease(release);
@@ -3739,6 +3763,10 @@ export async function createServer(opts: {
       const controller = siteAuditAbortControllers.get(runId);
       if (controller && !controller.signal.aborted) {
         controller.abort(new Error("Cancelled by user"));
+      }
+      const agentBrowserController = agentBrowserAbortControllers.get(runId);
+      if (agentBrowserController && !agentBrowserController.signal.aborted) {
+        agentBrowserController.abort(new Error("Cancelled by user"));
       }
       // Stop the run's provider batches (best effort) so nothing is ingested
       // into it; a run already waiting on one has its cancellation reported

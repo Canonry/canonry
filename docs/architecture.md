@@ -29,6 +29,7 @@ flowchart LR
     Registry --> Perplexity["provider-perplexity"]
     Registry --> Local["provider-local"]
     Registry --> CDP["provider-cdp"]
+    API --> AgentBrowser["agent-browser checks<br/>(real Chrome over CDP)"]
     Registry --> AnswerServices["provider-answer-services (profiles)"]
     JobRunner --> SQLite
   end
@@ -91,6 +92,7 @@ flowchart TD
     local["provider-local"]
     perplexity["provider-perplexity"]
     cdp["provider-cdp"]
+    agentBrowser["agent-browser"]
     answerServices["provider-answer-services"]
   end
 
@@ -110,12 +112,14 @@ flowchart TD
   canonry --> contracts
   canonry --> intelligence
   canonry --> gemini & openai & openrouter & muse & claude & local & perplexity & cdp & answerServices
+  canonry --> agentBrowser
 
   routes --> db
   routes --> contracts
   routes --> gsc & ga4 & bing & wp
 
   gemini & openai & openrouter & muse & claude & local & perplexity & cdp & answerServices --> contracts
+  agentBrowser --> contracts
   gsc & ga4 & bing & wp --> contracts
   db --> contracts
 ```

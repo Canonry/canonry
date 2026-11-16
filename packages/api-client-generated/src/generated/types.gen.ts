@@ -4,6 +4,125 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type AgentBrowserCheckDto = {
+    runId: string;
+    project: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+    trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+    request: {
+        schemaVersion: 1;
+        task: string;
+        property: {
+            key: string;
+            label: string;
+            planRevision: number;
+        } | null;
+        siteHosts: Array<string>;
+        startUrl: string;
+        agents: Array<{
+            agent: 'openai' | 'claude' | 'gemini' | 'claude-a11y';
+            model: string;
+            perception: 'screenshots' | 'accessibility-tree';
+        }>;
+        repeats: number;
+        expect: {
+            urlPath: string | null;
+            answerIncludes: Array<string>;
+            submitPath: string | null;
+            submitFields: {
+                [key: string]: string;
+            };
+        };
+        maxMinutesPerRun: number;
+        maxTurnsPerRun: number;
+    };
+    summary: {
+        expected: number;
+        results: number;
+        passed: number;
+        failed: number;
+        errored: number;
+        unverifiedPasses: number;
+    };
+    results: Array<{
+        id: string;
+        agent: 'openai' | 'claude' | 'gemini' | 'claude-a11y';
+        model: string;
+        perception: 'screenshots' | 'accessibility-tree';
+        attempt: number;
+        status: 'passed' | 'failed' | 'errored';
+        verified: boolean;
+        detail: string;
+        checks: Array<{
+            check: string;
+            passed: boolean;
+            detail: string;
+        }>;
+        answer: string;
+        stop: string;
+        error: string | null;
+        durationMs: number;
+        turns: number;
+        actions: number;
+        screenshots: number;
+        safetyChecks: number;
+        usage: {
+            requests: number;
+            inputTokens: number;
+            cachedInputTokens: number;
+            cacheWriteTokens: number;
+            outputTokens: number;
+        };
+        finalUrl: string;
+        visited: Array<string>;
+        blockedPages: Array<string>;
+        submissions: Array<{
+            url: string;
+            method: string;
+            body: string | null;
+            answeredLocally: boolean;
+        }>;
+        evidencePath: string | null;
+        createdAt: string;
+    }>;
+};
+
+export type AgentBrowserCheckRunResponseDto = {
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+    reused: boolean;
+};
+
+export type AgentBrowserChecksResponseDto = {
+    project: string;
+    checks: Array<{
+        runId: string;
+        property: {
+            key: string;
+            label: string;
+        } | null;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
+        createdAt: string;
+        finishedAt: string | null;
+        task: string;
+        startUrl: string;
+        agents: Array<'openai' | 'claude' | 'gemini' | 'claude-a11y'>;
+        summary: {
+            expected: number;
+            results: number;
+            passed: number;
+            failed: number;
+            errored: number;
+            unverifiedPasses: number;
+        };
+    }>;
+};
+
 export type SeoOperatorTask = {
     id: string;
     runId: string;
@@ -6911,7 +7030,7 @@ export type InstanceStatusDto = {
         integrations: Array<{
             integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'bing-search' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
             label: string;
-            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
             sourceId: string | null;
             state: 'ok' | 'failing' | 'stale' | 'never-synced';
             lastSuccessAt: string | null;
@@ -9757,7 +9876,7 @@ export type LatestProjectRunDto = {
         sourceId?: string | null;
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         measurementPlanVersionId?: string | null;
@@ -15052,7 +15171,7 @@ export type ProjectOverviewDto = {
             sourceId?: string | null;
             id: string;
             projectId: string;
-            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
             measurementPlanVersionId?: string | null;
@@ -16426,7 +16545,7 @@ export type RunDetailDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -16767,7 +16886,7 @@ export type RunDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -26764,15 +26883,15 @@ export type GetApiV1ProjectsByNameRunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -27002,15 +27121,15 @@ export type GetApiV1RunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'agent-browser-check'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -41304,6 +41423,183 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewRespon
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponse = GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses[keyof GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses];
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max checks returned (most recent first). Defaults to 20; max 100.
+         */
+        limit?: number;
+        /**
+         * Only checks of this Advanced Measurement Property (its stable key, as recorded on each check, so checks of a Property a later plan dropped still match).
+         */
+        property?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-browser/checks';
+};
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksErrors = {
+    /**
+     * Invalid limit.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksError = GetApiV1ProjectsByNameAgentBrowserChecksErrors[keyof GetApiV1ProjectsByNameAgentBrowserChecksErrors];
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksResponses = {
+    /**
+     * Agent-browser checks returned.
+     */
+    200: AgentBrowserChecksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksResponse = GetApiV1ProjectsByNameAgentBrowserChecksResponses[keyof GetApiV1ProjectsByNameAgentBrowserChecksResponses];
+
+export type PostApiV1ProjectsByNameAgentBrowserChecksData = {
+    body: {
+        /**
+         * What the agents should do on the site, in plain words.
+         */
+        task: string;
+        /**
+         * An Advanced Measurement Property to check, by its stable key in the published plan. Its URLs count as the site (with the project's hosts) and the agents start on its most specific page.
+         */
+        property?: string;
+        /**
+         * Where every agent starts. Must be on the site being checked; defaults to the Property's page, else the project's home page.
+         */
+        startUrl?: string;
+        /**
+         * Agents that try the task. Defaults to openai, claude and claude-a11y.
+         */
+        agents?: Array<'openai' | 'claude' | 'gemini' | 'claude-a11y'>;
+        /**
+         * A model per agent, overriding its default (gpt-6.1-sol, claude-opus-5-5, gemini-4-carbon).
+         */
+        models?: {
+            openai?: string;
+            claude?: string;
+            gemini?: string;
+            'claude-a11y'?: string;
+        };
+        /**
+         * Runs per agent. Defaults to 1.
+         */
+        repeats?: number;
+        expect?: {
+            /**
+             * The run must end on this path of the site.
+             */
+            urlPath?: string;
+            /**
+             * Each phrase must appear in the agent's final answer, ignoring case.
+             */
+            answerIncludes?: Array<string>;
+            /**
+             * A form submission to this path must have been caught.
+             */
+            submitPath?: string;
+            /**
+             * Field values the caught submission must carry (JSON or URL-encoded). Requires submitPath.
+             */
+            submitFields?: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * Wall-clock budget for one agent run. Defaults to 8.
+         */
+        maxMinutesPerRun?: number;
+        /**
+         * Model turns allowed per agent run. Defaults to 60.
+         */
+        maxTurnsPerRun?: number;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-browser/checks';
+};
+
+export type PostApiV1ProjectsByNameAgentBrowserChecksErrors = {
+    /**
+     * Invalid request; a Property missing from the published plan (or no plan); or a start URL that is not on the site being checked.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * A check with a different request is already queued or running.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Agent-browser checks are unavailable on this deployment.
+     */
+    422: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAgentBrowserChecksError = PostApiV1ProjectsByNameAgentBrowserChecksErrors[keyof PostApiV1ProjectsByNameAgentBrowserChecksErrors];
+
+export type PostApiV1ProjectsByNameAgentBrowserChecksResponses = {
+    /**
+     * Agent-browser check queued, or the identical active check returned.
+     */
+    200: AgentBrowserCheckRunResponseDto;
+};
+
+export type PostApiV1ProjectsByNameAgentBrowserChecksResponse = PostApiV1ProjectsByNameAgentBrowserChecksResponses[keyof PostApiV1ProjectsByNameAgentBrowserChecksResponses];
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksByRunIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * The check's run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-browser/checks/{runId}';
+};
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksByRunIdErrors = {
+    /**
+     * Project or check not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksByRunIdError = GetApiV1ProjectsByNameAgentBrowserChecksByRunIdErrors[keyof GetApiV1ProjectsByNameAgentBrowserChecksByRunIdErrors];
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksByRunIdResponses = {
+    /**
+     * Agent-browser check returned.
+     */
+    200: AgentBrowserCheckDto;
+};
+
+export type GetApiV1ProjectsByNameAgentBrowserChecksByRunIdResponse = GetApiV1ProjectsByNameAgentBrowserChecksByRunIdResponses[keyof GetApiV1ProjectsByNameAgentBrowserChecksByRunIdResponses];
 
 export type GetApiV1ProjectsByNameAgentConversationsData = {
     body?: never;

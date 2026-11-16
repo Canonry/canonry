@@ -5670,6 +5670,55 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_sentiment_alert_runs_run ON sentiment_alert_runs(run_id)`,
     ],
   },
+  {
+    version: 225,
+    name: 'agent-browser-checks',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_browser_checks (
+        run_id       TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        identity_key TEXT NOT NULL,
+        request      TEXT NOT NULL,
+        created_at   TEXT NOT NULL,
+        FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_browser_checks_project
+        ON agent_browser_checks(project_id, run_id)`,
+      `CREATE TABLE IF NOT EXISTS agent_browser_results (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id        TEXT NOT NULL,
+        agent         TEXT NOT NULL,
+        model         TEXT NOT NULL,
+        perception    TEXT NOT NULL,
+        attempt       INTEGER NOT NULL,
+        status        TEXT NOT NULL,
+        verified      INTEGER NOT NULL DEFAULT 0,
+        detail        TEXT NOT NULL,
+        checks        TEXT NOT NULL DEFAULT '[]',
+        answer        TEXT NOT NULL DEFAULT '',
+        stop          TEXT NOT NULL,
+        error         TEXT,
+        duration_ms   INTEGER NOT NULL,
+        turns         INTEGER NOT NULL DEFAULT 0,
+        actions       INTEGER NOT NULL DEFAULT 0,
+        screenshots   INTEGER NOT NULL DEFAULT 0,
+        safety_checks INTEGER NOT NULL DEFAULT 0,
+        usage         TEXT NOT NULL,
+        final_url     TEXT NOT NULL DEFAULT '',
+        visited       TEXT NOT NULL DEFAULT '[]',
+        blocked_pages TEXT NOT NULL DEFAULT '[]',
+        submissions   TEXT NOT NULL DEFAULT '[]',
+        evidence_path TEXT,
+        created_at    TEXT NOT NULL,
+        FOREIGN KEY (project_id, run_id) REFERENCES runs(project_id, id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_browser_results_run_agent_attempt
+        ON agent_browser_results(run_id, agent, attempt)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_browser_results_project_run
+        ON agent_browser_results(project_id, run_id)`,
+    ],
+  },
 ]
 
 /** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */
