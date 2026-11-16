@@ -5670,6 +5670,33 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_sentiment_alert_runs_run ON sentiment_alert_runs(run_id)`,
     ],
   },
+  {
+    version: 225,
+    name: 'inspection-local-block',
+    // Uses the `run` hook so the schema edit only fires when the target
+    // tables exist. The legacy-keyword test scenario seeds a DB at v46
+    // without gsc_url_inspections / bing_url_inspections (they're created in
+    // v6 but the test bypasses the bootstrap) — without the guard, this
+    // version's ALTER fails with "no such table".
+    //
+    // Idempotent: the column-existence guards make re-running this version a
+    // no-op.
+    statements: [],
+    run: (db) => {
+      if (tableExists(db, 'gsc_url_inspections') && !columnExists(db, 'gsc_url_inspections', 'local_blocked')) {
+        db.run(sql.raw(`ALTER TABLE gsc_url_inspections ADD COLUMN local_blocked INTEGER`))
+      }
+      if (tableExists(db, 'gsc_url_inspections') && !columnExists(db, 'gsc_url_inspections', 'local_block_reason')) {
+        db.run(sql.raw(`ALTER TABLE gsc_url_inspections ADD COLUMN local_block_reason TEXT`))
+      }
+      if (tableExists(db, 'bing_url_inspections') && !columnExists(db, 'bing_url_inspections', 'local_blocked')) {
+        db.run(sql.raw(`ALTER TABLE bing_url_inspections ADD COLUMN local_blocked INTEGER`))
+      }
+      if (tableExists(db, 'bing_url_inspections') && !columnExists(db, 'bing_url_inspections', 'local_block_reason')) {
+        db.run(sql.raw(`ALTER TABLE bing_url_inspections ADD COLUMN local_block_reason TEXT`))
+      }
+    },
+  },
 ]
 
 /** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */
