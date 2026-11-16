@@ -4784,6 +4784,8 @@ export type BingCoverageSummaryDto = {
         documentSize?: number | null;
         anchorCount?: number | null;
         discoveryDate?: string | null;
+        localBlocked?: boolean | null;
+        localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
     }>;
     notIndexed: Array<{
         id: string;
@@ -4796,6 +4798,8 @@ export type BingCoverageSummaryDto = {
         documentSize?: number | null;
         anchorCount?: number | null;
         discoveryDate?: string | null;
+        localBlocked?: boolean | null;
+        localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
     }>;
     unknown?: Array<{
         id: string;
@@ -4808,6 +4812,8 @@ export type BingCoverageSummaryDto = {
         documentSize?: number | null;
         anchorCount?: number | null;
         discoveryDate?: string | null;
+        localBlocked?: boolean | null;
+        localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
     }>;
 };
 
@@ -4868,6 +4874,8 @@ export type BingUrlInspectionDto = {
     documentSize?: number | null;
     anchorCount?: number | null;
     discoveryDate?: string | null;
+    localBlocked?: boolean | null;
+    localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
 };
 
 export type BrandMetricsDto = {
@@ -8554,6 +8562,8 @@ export type GscCoverageSummaryDto = {
         isMobileFriendly?: boolean | null;
         richResults: Array<string>;
         referringUrls: Array<string>;
+        localBlocked?: boolean | null;
+        localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
         inspectedAt: string;
     }>;
     notIndexed: Array<{
@@ -8569,6 +8579,8 @@ export type GscCoverageSummaryDto = {
         isMobileFriendly?: boolean | null;
         richResults: Array<string>;
         referringUrls: Array<string>;
+        localBlocked?: boolean | null;
+        localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
         inspectedAt: string;
     }>;
     deindexed: Array<{
@@ -8593,6 +8605,8 @@ export type GscCoverageSummaryDto = {
             isMobileFriendly?: boolean | null;
             richResults: Array<string>;
             referringUrls: Array<string>;
+            localBlocked?: boolean | null;
+            localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
             inspectedAt: string;
         }>;
     }>;
@@ -8858,6 +8872,8 @@ export type GscUrlInspectionDto = {
     isMobileFriendly?: boolean | null;
     richResults: Array<string>;
     referringUrls: Array<string>;
+    localBlocked?: boolean | null;
+    localBlockReason?: 'robots-disallow' | 'meta-noindex' | 'x-robots-tag-noindex' | null;
     inspectedAt: string;
 };
 
