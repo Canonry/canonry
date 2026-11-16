@@ -377,6 +377,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       documentSize: r.documentSize ?? null,
       anchorCount: r.anchorCount ?? null,
       discoveryDate: r.discoveryDate ?? null,
+      localBlocked: r.localBlocked ?? null,
+      localBlockReason: r.localBlockReason ?? null,
     })
 
     // Save a daily coverage snapshot (idempotent per day via upsert)
@@ -473,6 +475,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       documentSize: r.documentSize ?? null,
       anchorCount: r.anchorCount ?? null,
       discoveryDate: r.discoveryDate ?? null,
+      localBlocked: r.localBlocked ?? null,
+      localBlockReason: r.localBlockReason ?? null,
     }))
   })
 

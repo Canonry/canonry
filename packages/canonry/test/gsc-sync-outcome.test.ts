@@ -165,12 +165,23 @@ describe('search_console inspect outcome', () => {
   const urls = (count: number) => Array.from({ length: count }, (_, i) => `https://harborline.example.com/p${i}`)
   const indexed = { inspectionResult: { indexStatusResult: { verdict: 'PASS', indexingState: 'INDEXING_ALLOWED' } } }
 
+  // The post-inspect discoverability pass must never touch the network in
+  // tests: the fixture URLs live on a domain that does not resolve, so the
+  // real guarded fetch would burn retry delays on every inspected URL and
+  // push the run out of the `under_1s` duration bucket these tests assert.
+  // A 404 robots.txt and 404 pages read as "no local signal", so the stored
+  // rows keep `localBlocked: false` and a null reason.
+  const discoverabilityDeps = {
+    fetchImpl: async (): Promise<Response> => new Response('', { status: 404 }),
+    sleep: async () => {},
+  }
+
   it('reports every sitemap URL inspected', async () => {
     const db = setup({ kind: 'inspect-sitemap', trigger: 'scheduled' })
     fetchAndParseSitemapMock.mockResolvedValue(urls(3))
     inspectUrlMock.mockResolvedValue(indexed)
 
-    await executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config() })
+    await executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config(), discoverabilityDeps })
 
     expect(featureCompleted()).toEqual([
       {
@@ -189,7 +200,7 @@ describe('search_console inspect outcome', () => {
       return indexed
     })
 
-    await executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config() })
+    await executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config(), discoverabilityDeps })
 
     expect(featureCompleted()).toEqual([
       {
@@ -205,7 +216,7 @@ describe('search_console inspect outcome', () => {
     fetchAndParseSitemapMock.mockResolvedValue(urls(6))
     inspectUrlMock.mockResolvedValue(indexed)
 
-    await executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config() })
+    await executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config(), discoverabilityDeps })
 
     expect(featureCompleted()).toEqual([
       {
@@ -221,7 +232,7 @@ describe('search_console inspect outcome', () => {
     fetchAndParseSitemapMock.mockResolvedValue(urls(5))
     inspectUrlMock.mockRejectedValue(new GoogleApiError('Google API rate limit exceeded', 429))
 
-    await expect(executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config() })).rejects.toThrow(/aborted/)
+    await expect(executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config(), discoverabilityDeps })).rejects.toThrow(/aborted/)
 
     expect(featureCompleted()).toEqual([
       {
@@ -236,7 +247,7 @@ describe('search_console inspect outcome', () => {
     const db = setup({ kind: 'inspect-sitemap' })
     fetchAndParseSitemapMock.mockResolvedValue([])
 
-    await expect(executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config() })).rejects.toThrow(/No URLs/)
+    await expect(executeInspectSitemap(db, 'run_1', 'proj_gsc', { config: config(), discoverabilityDeps })).rejects.toThrow(/No URLs/)
 
     expect(featureCompleted()).toEqual([
       {

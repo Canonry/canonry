@@ -125,6 +125,16 @@ describe('executeBingInspectSitemap', () => {
     return runId
   }
 
+  // The post-inspect discoverability pass must never touch the network in
+  // tests: the fixture URLs live on a domain that does not resolve, so the
+  // real guarded fetch would burn retry delays on every inspected URL. A 404
+  // robots.txt and 404 pages read as "no local signal", so the stored rows
+  // keep `localBlocked: false` and a null reason.
+  const discoverabilityDeps = {
+    fetchImpl: async (): Promise<Response> => new Response('', { status: 404 }),
+    sleep: async () => {},
+  }
+
   it('discovers sitemap URLs missing from the tracked set, inspects each, and writes a coverage snapshot', async () => {
     // Seed: only 2 of the 4 sitemap URLs are tracked (issue #352 scenario —
     // newer sitemap URLs were silently absent from Bing tracking).
@@ -174,6 +184,7 @@ describe('executeBingInspectSitemap', () => {
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
     })
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get()
@@ -195,6 +206,10 @@ describe('executeBingInspectSitemap', () => {
     // Newly discovered URLs are now tracked + indexed
     for (const row of newInspections) {
       expect(row.inIndex).toBe(true)
+      // The stub fetch answers 404 to robots.txt and every page, so the
+      // discoverability pass ran and recorded "no local signal" on each row.
+      expect(row.localBlocked).toBe(false)
+      expect(row.localBlockReason).toBeNull()
     }
 
     // Coverage snapshot covers the full discovered set, not just the originally
@@ -230,6 +245,7 @@ describe('executeBingInspectSitemap', () => {
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
     })
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get()
@@ -286,6 +302,7 @@ describe('executeBingInspectSitemap', () => {
         sitemapUrl: `${s.baseUrl}/sitemap.xml`,
         config: buildConfig('harborline-coatings.example.com'),
         pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
       }),
     ).rejects.toThrow(/failed for every URL/i)
 
@@ -322,6 +339,7 @@ describe('executeBingInspectSitemap', () => {
       sitemapUrl: `${s.baseUrl}/sitemap.xml`,
       config: buildConfig('harborline-coatings.example.com'),
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
     })
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get()
@@ -342,6 +360,7 @@ describe('executeBingInspectSitemap', () => {
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
     })).rejects.toThrow('No URLs found in sitemap')
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get()
@@ -358,6 +377,7 @@ describe('executeBingInspectSitemap', () => {
       // real ~1s spacing plus retry backoff would otherwise outrun the
       // default test timeout on a fixture with a failing URL.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
     })).rejects.toThrow('No Bing connection')
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get()
@@ -406,6 +426,7 @@ describe('executeBingInspectSitemap', () => {
       // Instant pacing — the sweep now runs through inspectUrlsPaced, whose
       // real ~1s spacing plus retry backoff outruns the default timeout.
       pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps,
     })
 
     const inspections = db.select().from(bingUrlInspections)
@@ -414,6 +435,59 @@ describe('executeBingInspectSitemap', () => {
     const ok = inspections.find((r) => r.url.endsWith('/ok'))
     expect(blocked?.inIndex).toBe(false)
     expect(ok?.inIndex).toBe(true)
+  })
+
+  it('records the local discoverability signal on each inspected row (issue #357)', async () => {
+    const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset>
+  <url><loc>https://harborline-coatings.example.com/blocked</loc></url>
+  <url><loc>https://harborline-coatings.example.com/noindexed</loc></url>
+  <url><loc>https://harborline-coatings.example.com/ok</loc></url>
+</urlset>`
+    const s = await startSitemapServer({ '/sitemap.xml': sitemapXml })
+    server = s.server
+
+    const bingModule = await import('@canonry/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({
+      Url: url, HttpStatus: 200, DocumentSize: 1234,
+    }))
+
+    // robots.txt disallows /blocked; /noindexed carries a meta noindex;
+    // /ok carries no local signal. The pass reads for Bingbot.
+    const localFetch = async (url: string): Promise<Response> => {
+      if (url.endsWith('/robots.txt')) {
+        return new Response('User-agent: *\nDisallow: /blocked\n', { status: 200 })
+      }
+      if (url.endsWith('/noindexed')) {
+        return new Response('<meta name="robots" content="noindex">', { status: 200 })
+      }
+      return new Response('<html><head></head></html>', { status: 200 })
+    }
+
+    const runId = await queueRun()
+    await executeBingInspectSitemap(db, runId, projectId, {
+      sitemapUrl: `${s.baseUrl}/sitemap.xml`,
+      config: buildConfig('harborline-coatings.example.com'),
+      pacedDeps: { sleep: async () => {}, jitter: () => 0 },
+      discoverabilityDeps: { fetchImpl: localFetch, sleep: async () => {} },
+    })
+
+    const inspections = db.select().from(bingUrlInspections)
+      .where(eq(bingUrlInspections.syncRunId, runId)).all()
+    expect(inspections).toHaveLength(3)
+    const byUrl = new Map(inspections.map((r) => [r.url, r]))
+    expect(byUrl.get('https://harborline-coatings.example.com/blocked')).toMatchObject({
+      localBlocked: true,
+      localBlockReason: 'robots-disallow',
+    })
+    expect(byUrl.get('https://harborline-coatings.example.com/noindexed')).toMatchObject({
+      localBlocked: true,
+      localBlockReason: 'meta-noindex',
+    })
+    expect(byUrl.get('https://harborline-coatings.example.com/ok')).toMatchObject({
+      localBlocked: false,
+      localBlockReason: null,
+    })
   })
 
   describe('outcome telemetry', () => {
@@ -439,7 +513,7 @@ describe('executeBingInspectSitemap', () => {
 
       const runId = await queueRun()
       await executeBingInspectSitemap(db, runId, projectId, {
-        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant, discoverabilityDeps,
       })
 
       expect(featureCompleted()).toEqual([
@@ -463,7 +537,7 @@ describe('executeBingInspectSitemap', () => {
 
       const runId = await queueRun()
       await executeBingInspectSitemap(db, runId, projectId, {
-        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant, discoverabilityDeps,
       })
 
       expect(featureCompleted()).toEqual([
@@ -484,7 +558,7 @@ describe('executeBingInspectSitemap', () => {
 
       const runId = await queueRun()
       await expect(executeBingInspectSitemap(db, runId, projectId, {
-        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant, discoverabilityDeps,
       })).rejects.toThrow(/failed for every URL/i)
 
       expect(featureCompleted()).toEqual([
@@ -501,7 +575,7 @@ describe('executeBingInspectSitemap', () => {
     it('reports a missing connection and a missing site by reason', async () => {
       const noConnection = await queueRun()
       await expect(executeBingInspectSitemap(db, noConnection, projectId, {
-        config: { apiUrl: 'http://localhost:4100', database: '/tmp/x', apiKey: 'cnry_test' }, pacedDeps: instant,
+        config: { apiUrl: 'http://localhost:4100', database: '/tmp/x', apiKey: 'cnry_test' }, pacedDeps: instant, discoverabilityDeps,
       })).rejects.toThrow('No Bing connection')
       const noSite = await queueRun()
       await expect(executeBingInspectSitemap(db, noSite, projectId, {
@@ -512,7 +586,7 @@ describe('executeBingInspectSitemap', () => {
             createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
           }] },
         },
-        pacedDeps: instant,
+        pacedDeps: instant, discoverabilityDeps,
       })).rejects.toThrow('No Bing site configured')
 
       expect(trackEvent.mock.calls.map((call) => call.slice(1))).toEqual([
@@ -537,7 +611,7 @@ describe('executeBingInspectSitemap', () => {
         if (url.endsWith('/p2')) throw throttle
         return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
       })
-      const opts = { sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant }
+      const opts = { sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant, discoverabilityDeps}
 
       const first = await queueRun()
       await executeBingInspectSitemap(db, first, projectId, opts)
@@ -575,7 +649,7 @@ describe('executeBingInspectSitemap', () => {
       const runId = await queueRun()
 
       await executeBingInspectSitemap(db, runId, projectId, {
-        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant, discoverabilityDeps,
       })
 
       expect(db.select().from(runs).where(eq(runs.id, runId)).get()).toMatchObject({ status: RunStatuses.partial, error: expect.stringContaining('1 of 1501') })
@@ -599,7 +673,7 @@ describe('executeBingInspectSitemap', () => {
       const runId = await queueRun()
 
       await expect(executeBingInspectSitemap(db, runId, projectId, {
-        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant, discoverabilityDeps,
       })).rejects.toThrow('ThrottleHost')
 
       expect(read).not.toHaveBeenCalled()

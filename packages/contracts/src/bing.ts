@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { gscPeriodComparisonSchema } from './google.js'
+import { localBlockReasonSchema } from './discoverability.js'
 import { fraction, percent } from './ratio-unit.js'
 import { linearTrendSchema } from './statistics.js'
 
@@ -24,6 +25,11 @@ export const bingUrlInspectionDtoSchema = z.object({
   documentSize: z.number().nullable().optional(),
   anchorCount: z.number().nullable().optional(),
   discoveryDate: z.string().nullable().optional(),
+  // Local discoverability (issue #357): the site's own robots.txt / meta
+  // robots / X-Robots-Tag signal for this URL. Null when the check did not
+  // run or could not be read; never a verdict about the engine's index.
+  localBlocked: z.boolean().nullable().optional(),
+  localBlockReason: localBlockReasonSchema.nullable().optional(),
 })
 export type BingUrlInspectionDto = z.infer<typeof bingUrlInspectionDtoSchema>
 

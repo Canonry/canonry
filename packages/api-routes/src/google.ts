@@ -1543,6 +1543,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       isMobileFriendly: r.isMobileFriendly,
       richResults: r.richResults,
       referringUrls: r.referringUrls,
+      localBlocked: r.localBlocked ?? null,
+      localBlockReason: r.localBlockReason ?? null,
       inspectedAt: r.inspectedAt,
     }))
   })

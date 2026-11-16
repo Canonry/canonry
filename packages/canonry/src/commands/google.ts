@@ -4,11 +4,12 @@ import type {
   GscSubmitSitemapsResponseDto,
   GscUrlInspectionDto,
   IndexingRequestResultDto,
+  LocalBlockReason,
 } from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { formatPercent } from '@canonry/canonry-contracts'
+import { formatPercent, localBlockReasonShortLabel } from '@canonry/canonry-contracts'
 import {
   dedupeGscSitemapUrls,
   requireGscSitemapUrls,
@@ -657,15 +658,7 @@ export async function googleInspections(project: string, opts: { url?: string; f
   const params: Record<string, string> = {}
   if (opts.url) params.url = opts.url
 
-  const rows = await client.gscInspections(project, Object.keys(params).length > 0 ? params : undefined) as Array<{
-    id: string
-    url: string
-    indexingState?: string
-    verdict?: string
-    coverageState?: string
-    isMobileFriendly?: boolean
-    inspectedAt: string
-  }>
+  const rows = await client.gscInspections(project, Object.keys(params).length > 0 ? params : undefined) as GscUrlInspectionDto[]
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
@@ -680,14 +673,23 @@ export async function googleInspections(project: string, opts: { url?: string; f
     return
   }
 
+  // Local discoverability (issue #357): the site's own signal for the URL.
+  // `—` means the check did not run or could not be read, never "not blocked".
+  const blockLabel = (row: { localBlocked?: boolean | null; localBlockReason?: LocalBlockReason | null }): string => {
+    if (row.localBlocked !== true) return row.localBlocked === false ? '—' : '?'
+    return row.localBlockReason !== null && row.localBlockReason !== undefined
+      ? localBlockReasonShortLabel(row.localBlockReason)
+      : 'blocked'
+  }
+
   console.log(`URL inspection history (${rows.length} records):\n`)
   const urlWidth = Math.min(50, Math.max(10, ...rows.map((r) => r.url.length)))
-  console.log(`  ${'URL'.padEnd(urlWidth)}  ${'INDEXING'.padEnd(14)}${'VERDICT'.padEnd(10)}${'INSPECTED'.padEnd(22)}`)
-  console.log(`  ${'─'.repeat(urlWidth)}  ${'─'.repeat(14)}${'─'.repeat(10)}${'─'.repeat(22)}`)
+  console.log(`  ${'URL'.padEnd(urlWidth)}  ${'INDEXING'.padEnd(14)}${'VERDICT'.padEnd(10)}${'BLOCKED'.padEnd(9)}${'INSPECTED'.padEnd(22)}`)
+  console.log(`  ${'─'.repeat(urlWidth)}  ${'─'.repeat(14)}${'─'.repeat(10)}${'─'.repeat(9)}${'─'.repeat(22)}`)
   for (const row of rows) {
     const url = row.url.length > urlWidth ? row.url.slice(0, urlWidth - 3) + '...' : row.url
     console.log(
-      `  ${url.padEnd(urlWidth)}  ${(row.indexingState ?? 'unknown').padEnd(14)}${(row.verdict ?? '-').padEnd(10)}${row.inspectedAt}`,
+      `  ${url.padEnd(urlWidth)}  ${(row.indexingState ?? 'unknown').padEnd(14)}${(row.verdict ?? '-').padEnd(10)}${blockLabel(row).padEnd(9)}${row.inspectedAt}`,
     )
   }
 }

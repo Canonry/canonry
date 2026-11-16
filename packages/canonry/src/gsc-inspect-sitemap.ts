@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { runs, projects, gscUrlInspections } from '@canonry/canonry-db'
 import {
@@ -10,6 +10,7 @@ import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
+import { enrichInspectedUrlsWithDiscoverability, type DiscoverabilityCheckerOptions } from './discoverability.js'
 import { writeCoverageSnapshot } from './gsc-coverage-snapshot.js'
 import { createLogger } from './logger.js'
 import { inspectUrlsPaced, INSPECT_FAILFAST_THRESHOLD, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
@@ -23,6 +24,12 @@ interface InspectSitemapOptions {
   config: CanonryConfig
   /** Persists a refreshed access token; defaults to the active config.yaml. */
   saveConfigPatch?: (patch: Partial<CanonryConfig>) => void
+  /**
+   * Discoverability-check seam for tests. Production leaves it unset and
+   * gets the guarded fetch; a test injects a stub fetch so the post-inspect
+   * pass never touches the network.
+   */
+  discoverabilityDeps?: Pick<DiscoverabilityCheckerOptions, 'fetchImpl' | 'sleep'>
 }
 
 export async function executeInspectSitemap(
@@ -109,6 +116,9 @@ export async function executeInspectSitemap(
     }
 
     let lastInspectError: unknown
+    // URLs that got a stored row this run — the discoverability pass below
+    // enriches exactly these, never older rows from earlier runs.
+    const inspectedUrls: string[] = []
     const { inspected, errors, aborted, abortError } = await inspectUrlsPaced(
       targetUrls,
       {
@@ -138,6 +148,7 @@ export async function executeInspectSitemap(
             inspectedAt,
             createdAt: inspectedAt,
           }).run()
+          inspectedUrls.push(pageUrl)
 
           log.info('inspect.url-done', { runId, projectId, url: pageUrl, progress: `${index + 1}/${urls.length}` })
         },
@@ -167,6 +178,29 @@ export async function executeInspectSitemap(
         `URL inspection aborted after ${INSPECT_FAILFAST_THRESHOLD} consecutive rate/access failures (likely GSC URL Inspection quota exhaustion or property access loss). Last error: ${detail}`,
       )
     }
+
+    // Local discoverability (issue #357): the provider verdict says what the
+    // engine thinks; the site's own robots.txt / meta robots / X-Robots-Tag
+    // say what the site tells it. Read for Googlebot and record the result
+    // on the same rows, before the coverage snapshot is derived from them.
+    const discoverability = await enrichInspectedUrlsWithDiscoverability(
+      inspectedUrls,
+      ['googlebot'],
+      (url, check) => {
+        db.update(gscUrlInspections)
+          .set({ localBlocked: check.localBlocked, localBlockReason: check.localBlockReason })
+          .where(
+            and(
+              eq(gscUrlInspections.projectId, projectId),
+              eq(gscUrlInspections.syncRunId, runId),
+              eq(gscUrlInspections.url, url),
+            ),
+          )
+          .run()
+      },
+      opts.discoverabilityDeps ?? {},
+    )
+    log.info('inspect.discoverability', { runId, projectId, ...discoverability })
 
     // Record coverage snapshot
     // Single writer — see gsc-coverage-snapshot.ts. This run chains off

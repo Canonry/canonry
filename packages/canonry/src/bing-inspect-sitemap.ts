@@ -1,11 +1,12 @@
 import crypto from 'node:crypto'
-import { eq, desc } from 'drizzle-orm'
+import { and, eq, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { runs, projects, bingUrlInspections, bingCoverageSnapshots } from '@canonry/canonry-db'
 import { RunStatuses, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomePhases, OutcomeOperationKinds, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
 import { BingApiError, getUrlInfo, getCrawlIssues, isBlockingCrawlIssue, parseBingDate } from '@canonry/canonry-integration-bing'
 import type { CanonryConfig } from './config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
+import { enrichInspectedUrlsWithDiscoverability, type DiscoverabilityCheckerOptions } from './discoverability.js'
 import { inspectUrlsPaced, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
 import type { PacedInspectDeps } from './gsc-inspect-paced.js'
 import { credentialGateKey, sharedRateGate } from './inspect-rate-gate.js'
@@ -42,6 +43,12 @@ interface BingInspectSitemapOptions {
    * failing URL takes longer than a default test timeout.
    */
   pacedDeps?: Pick<PacedInspectDeps, 'sleep' | 'jitter'>
+  /**
+   * Discoverability-check seam for tests, same shape as `pacedDeps`.
+   * Production leaves it unset and gets the guarded fetch; a test injects a
+   * stub fetch so the post-inspect pass never touches the network.
+   */
+  discoverabilityDeps?: Pick<DiscoverabilityCheckerOptions, 'fetchImpl' | 'sleep'>
 }
 
 export async function executeBingInspectSitemap(
@@ -169,6 +176,9 @@ export async function executeBingInspectSitemap(
 
     let lastInspectError: unknown
     let lastInspectFailurePhase: OutcomePhase | undefined
+    // URLs that got a stored row this run — the discoverability pass below
+    // enriches exactly these, never older rows from earlier runs.
+    const inspectedUrls: string[] = []
 
     // Paced through the shared driver rather than a bare setTimeout loop: it
     // adds jitter (so two overlapping sweeps don't phase-lock), per-URL retry,
@@ -227,6 +237,7 @@ export async function executeBingInspectSitemap(
           }).run()
 
           inspected++
+          inspectedUrls.push(pageUrl)
           log.info('inspect.url-done', { runId, projectId, url: pageUrl, progress: `${inspected}/${targetUrls.length}` })
         },
         onError: (pageUrl, err) => {
@@ -293,6 +304,29 @@ export async function executeBingInspectSitemap(
           `coverage was left unchanged rather than re-dated from stored inspections. Last error: ${detail}`,
       )
     }
+
+    // Local discoverability (issue #357): the provider verdict says what the
+    // engine thinks; the site's own robots.txt / meta robots / X-Robots-Tag
+    // say what the site tells it. Read for Bingbot and record the result on
+    // the same rows, before the coverage snapshot is derived from them.
+    const discoverability = await enrichInspectedUrlsWithDiscoverability(
+      inspectedUrls,
+      ['bingbot'],
+      (url, check) => {
+        db.update(bingUrlInspections)
+          .set({ localBlocked: check.localBlocked, localBlockReason: check.localBlockReason })
+          .where(
+            and(
+              eq(bingUrlInspections.projectId, projectId),
+              eq(bingUrlInspections.syncRunId, runId),
+              eq(bingUrlInspections.url, url),
+            ),
+          )
+          .run()
+      },
+      opts.discoverabilityDeps ?? {},
+    )
+    log.info('inspect.discoverability', { runId, projectId, ...discoverability })
 
     // Coverage snapshot — pick the latest definitive (non-null) inspection per
     // URL across all history, mirroring the GET /bing/coverage logic so the

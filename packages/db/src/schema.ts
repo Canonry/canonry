@@ -1404,6 +1404,11 @@ export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
   crawlTime: text('crawl_time'),
   lastCrawlResult: text('last_crawl_result'),
   isMobileFriendly: integer('is_mobile_friendly', { mode: 'boolean' }),
+  // Local discoverability signals (migration 225, issue #357): the sitemap
+  // URL is blocked from indexing by a local signal, independent of the GSC
+  // verdict. NULL means the check did not run or could not be read.
+  localBlocked: integer('local_blocked', { mode: 'boolean' }),
+  localBlockReason: text('local_block_reason'),
   richResults: text('rich_results', { mode: 'json' }).$type<string[]>().notNull().default([]),
   referringUrls: text('referring_urls', { mode: 'json' }).$type<string[]>().notNull().default([]),
   inspectedAt: text('inspected_at').notNull(),
@@ -2009,6 +2014,10 @@ export const bingUrlInspections = sqliteTable('bing_url_inspections', {
   documentSize: integer('document_size'),
   anchorCount: integer('anchor_count'),
   discoveryDate: text('discovery_date'),
+  // Local discoverability signals (migration 225, issue #357): same meaning
+  // as on `gscUrlInspections`, read for Bingbot instead of Googlebot.
+  localBlocked: integer('local_blocked', { mode: 'boolean' }),
+  localBlockReason: text('local_block_reason'),
 }, (table) => [
   index('idx_bing_inspect_project_url').on(table.projectId, table.url),
   index('idx_bing_inspect_url_time').on(table.url, table.inspectedAt),
