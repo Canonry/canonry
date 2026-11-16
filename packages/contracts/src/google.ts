@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { localBlockReasonSchema } from './discoverability.js'
 import { fraction, percent } from './ratio-unit.js'
 import { linearTrendSchema } from './statistics.js'
 
@@ -409,6 +410,11 @@ export const gscUrlInspectionDtoSchema = z.object({
   // anything else reading from this DTO) lost the data silently. Adding
   // here restores end-to-end visibility.
   referringUrls: z.array(z.string()).default([]),
+  // Local discoverability (issue #357): the site's own robots.txt / meta
+  // robots / X-Robots-Tag signal for this URL. Null when the check did not
+  // run or could not be read; never a verdict about the engine's index.
+  localBlocked: z.boolean().nullable().optional(),
+  localBlockReason: localBlockReasonSchema.nullable().optional(),
   inspectedAt: z.string(),
 })
 export type GscUrlInspectionDto = z.infer<typeof gscUrlInspectionDtoSchema>
