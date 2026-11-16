@@ -37,10 +37,16 @@ export interface AgentRunOutput {
   answer: string
   turns: number
   actions: number
-  /** Why the loop ended: `final`, `turn-limit`, `time-limit`, `refusal`, or the provider's own reason. */
+  /**
+   * Why the loop ended: `final`, `turn-limit`, `time-limit`, `cancelled`, `refusal`,
+   * `incomplete` (the provider cut its response short), `safety-check` (the provider asked a
+   * person to confirm an action, so an unattended run stops there), or the provider's own reason.
+   */
   stop: string
+  /** What the provider said about a stop that was not `final`, such as its safety explanation. */
+  stopDetail?: string
   usage: AgentUsage
-  /** Provider safety prompts the run acknowledged; each is a point where a person would be asked. */
+  /** Provider safety prompts the run met; the run stops at the first one instead of acknowledging it. */
   safetyChecks: number
 }
 
@@ -61,8 +67,49 @@ function a11yPrompt(startUrl: string, task: string): string {
   return `You are using a website the way a visitor would, through its accessibility tree. The browser is open on ${startUrl}. You don't see pixels: after every action you get a fresh snapshot of the page, and each element you can act on has a ref like [ref=e12]. Use the tools with those refs.\n\nTask: ${task}\n\n${RULES}`
 }
 
-const limitStop = (input: AgentRunInput, turns: number): string | null =>
-  input.signal?.aborted ? 'cancelled' : Date.now() > input.deadline ? 'time-limit' : turns >= input.maxTurns ? 'turn-limit' : null
+/** Why the run stops before its next turn, or null to go on. The signal fires at the deadline too. */
+const limitStop = (input: AgentRunInput, turns: number): string | null => {
+  if (input.signal?.aborted || Date.now() > input.deadline) return Date.now() >= input.deadline ? 'time-limit' : 'cancelled'
+  return turns >= input.maxTurns ? 'turn-limit' : null
+}
+
+/** A provider call may take only the run's remaining time; the signal aborts it at the deadline. */
+const timeLeft = (input: AgentRunInput) => Math.max(1_000, input.deadline - Date.now())
+
+/** A thrown error while the signal has fired is the time limit or a cancel taking effect. */
+const abortedStop = (input: AgentRunInput): string | null => (input.signal?.aborted ? limitStop(input, 0) : null)
+
+/** OpenAI's terminal state for a response with no computer call: a refusal or a cut-off response is not a finish. */
+export function openAIResponseStop(resp: { status?: string | null; incomplete_details?: { reason?: string | null } | null; output: Array<{ type: string; content?: unknown }>; output_text?: string }): { stop: string; answer: string; stopDetail?: string } {
+  for (const item of resp.output) {
+    if (item.type !== 'message' || !Array.isArray(item.content)) continue
+    const refusal = (item.content as Array<{ type?: string; refusal?: string }>).find((part) => part.type === 'refusal')
+    if (refusal) return { stop: 'refusal', answer: refusal.refusal ?? '', stopDetail: refusal.refusal ?? undefined }
+  }
+  if (resp.status === 'incomplete') return { stop: 'incomplete', answer: resp.output_text ?? '', stopDetail: resp.incomplete_details?.reason ?? undefined }
+  return { stop: 'final', answer: resp.output_text ?? '' }
+}
+
+/** Gemini's finish reason for a turn with no function call: anything but STOP is not a finish. */
+export function geminiFinishStop(finishReason: string | null | undefined): string {
+  if (!finishReason || finishReason === 'STOP') return 'final'
+  if (finishReason === 'MAX_TOKENS') return 'incomplete'
+  if (['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY'].includes(finishReason)) return 'refusal'
+  return finishReason.toLowerCase()
+}
+
+/**
+ * A Gemini action the model marked for a person's confirmation (or blocked): an unattended run
+ * must stop before it. Null for an action with no safety decision, or one marked allowed.
+ */
+export function geminiSafetyStop(args: Record<string, unknown>): string | null {
+  const decision = args.safety_decision as { decision?: unknown; explanation?: unknown } | undefined
+  if (!decision || typeof decision !== 'object') return null
+  const kind = typeof decision.decision === 'string' ? decision.decision : ''
+  if (kind === 'allowed') return null
+  const why = typeof decision.explanation === 'string' ? decision.explanation : ''
+  return [kind || 'safety decision', why].filter(Boolean).join(': ')
+}
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
@@ -124,52 +171,63 @@ export async function runOpenAIAgent(input: AgentRunInput): Promise<AgentRunOutp
     usage.outputTokens += num(u.output_tokens)
   }
   let actions = 0
-  let safetyChecks = 0
-  const first = await session.screenshot()
-  let resp = await client.responses.create(
-    {
-      model: input.model,
-      tools,
-      input: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: visionPrompt(input.startUrl, input.task) },
-            { type: 'input_image', image_url: jpegDataUrl(first), detail: 'original' },
-          ],
-        },
-      ],
-    },
-    { signal: input.signal },
-  )
-  addUsage(resp.usage)
-  let turns = 1
-  for (;;) {
-    const calls = resp.output.filter((item) => item.type === 'computer_call')
-    if (!calls.length) return { answer: resp.output_text ?? '', turns, actions, stop: 'final', usage, safetyChecks }
-    const stop = limitStop(input, turns)
-    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks }
-    const outputs = []
-    for (const call of calls) {
-      const batch = (call.actions ?? (call.action ? [call.action] : [])) as OpenAIComputerAction[]
-      for (const action of batch) {
-        actions += 1
-        session.record({ ...action })
-        await execOpenAIAction(session, action)
-      }
-      const checks = call.pending_safety_checks ?? []
-      safetyChecks += checks.length
-      const shot = await session.screenshot()
-      outputs.push({
-        type: 'computer_call_output' as const,
-        call_id: call.call_id,
-        output: { type: 'computer_screenshot' as const, image_url: jpegDataUrl(shot), detail: 'original' as const },
-        ...(checks.length ? { acknowledged_safety_checks: checks } : {}),
-      })
-    }
-    resp = await client.responses.create({ model: input.model, tools, previous_response_id: resp.id, input: outputs }, { signal: input.signal })
+  let turns = 0
+  try {
+    const first = await session.screenshot()
+    let resp = await client.responses.create(
+      {
+        model: input.model,
+        tools,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: visionPrompt(input.startUrl, input.task) },
+              { type: 'input_image', image_url: jpegDataUrl(first), detail: 'original' },
+            ],
+          },
+        ],
+      },
+      { signal: input.signal, timeout: timeLeft(input) },
+    )
     addUsage(resp.usage)
-    turns += 1
+    turns = 1
+    for (;;) {
+      if (resp.status === 'failed') throw new Error(resp.error?.message ?? 'The OpenAI response failed.')
+      const calls = resp.output.filter((item) => item.type === 'computer_call')
+      if (!calls.length) return { ...openAIResponseStop(resp), turns, actions, usage, safetyChecks: 0 }
+      const stop = limitStop(input, turns)
+      if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+      // OpenAI asks for a person's approval through pending safety checks. Nobody is there to
+      // approve, so the run stops before the gated action instead of acknowledging it.
+      const gated = calls.flatMap((call) => call.pending_safety_checks ?? [])
+      if (gated.length) {
+        const stopDetail = gated.map((check) => [check.code, check.message].filter(Boolean).join(': ')).join('; ')
+        return { answer: '', turns, actions, stop: 'safety-check', stopDetail, usage, safetyChecks: gated.length }
+      }
+      const outputs = []
+      for (const call of calls) {
+        const batch = (call.actions ?? (call.action ? [call.action] : [])) as OpenAIComputerAction[]
+        for (const action of batch) {
+          actions += 1
+          session.record({ ...action })
+          await execOpenAIAction(session, action)
+        }
+        const shot = await session.screenshot()
+        outputs.push({
+          type: 'computer_call_output' as const,
+          call_id: call.call_id,
+          output: { type: 'computer_screenshot' as const, image_url: jpegDataUrl(shot), detail: 'original' as const },
+        })
+      }
+      resp = await client.responses.create({ model: input.model, tools, previous_response_id: resp.id, input: outputs }, { signal: input.signal, timeout: timeLeft(input) })
+      addUsage(resp.usage)
+      turns += 1
+    }
+  } catch (err) {
+    const stop = abortedStop(input)
+    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+    throw err
   }
 }
 
@@ -260,52 +318,65 @@ export async function runClaudeAgent(input: AgentRunInput): Promise<AgentRunOutp
   const usage = emptyUsage()
   let actions = 0
   let turns = 0
-  const first = await session.screenshot()
-  const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: [{ type: 'text', text: visionPrompt(input.startUrl, input.task) }, jpegBlock(first)] }]
-  for (;;) {
-    const stop = limitStop(input, turns)
-    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
-    const resp = await client.messages.create(
-      // The computer toolset and top-level automatic caching are newer than this SDK's types.
-      { model: input.model, max_tokens: 16_000, tools: [{ type: 'computer_toolset_20260801' }], messages, cache_control: { type: 'ephemeral' } } as unknown as Anthropic.Messages.MessageCreateParamsNonStreaming,
-      { signal: input.signal },
-    )
-    turns += 1
-    addClaudeUsage(usage, resp.usage)
-    messages.push({ role: 'assistant', content: resp.content as unknown as ClaudeContent[] })
-    if (resp.stop_reason === 'refusal') return { answer: textOf(resp.content), turns, actions, stop: 'refusal', usage, safetyChecks: 0 }
-    const uses = resp.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use')
-    if (!uses.length) return { answer: textOf(resp.content), turns, actions, stop: 'final', usage, safetyChecks: 0 }
-    const results: Array<Record<string, unknown>> = []
-    let failed = false
-    let endedOnImage = false
-    for (const use of uses) {
-      const base = { type: 'tool_result', tool_use_id: use.id, toolset_name: 'computer' }
-      if (failed) {
-        results.push({ ...base, is_error: true, content: 'Not executed: an earlier computer action in this turn failed.' })
-        continue
-      }
-      try {
-        actions += 1
-        const inp = (use.input ?? {}) as Record<string, unknown>
-        session.record({ name: use.name, ...inp })
-        const out = await execClaudeAction(session, use.name, inp)
-        if (out.image) {
-          results.push({ ...base, content: [jpegBlock(out.image)] })
-          endedOnImage = true
-        } else {
-          results.push({ ...base, content: [{ type: 'text', text: out.text ?? 'OK' }] })
-          endedOnImage = false
+  try {
+    const first = await session.screenshot()
+    const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: [{ type: 'text', text: visionPrompt(input.startUrl, input.task) }, jpegBlock(first)] }]
+    for (;;) {
+      const stop = limitStop(input, turns)
+      if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+      const resp = await client.messages.create(
+        // The computer toolset and top-level automatic caching are newer than this SDK's types.
+        { model: input.model, max_tokens: 16_000, tools: [{ type: 'computer_toolset_20260801' }], messages, cache_control: { type: 'ephemeral' } } as unknown as Anthropic.Messages.MessageCreateParamsNonStreaming,
+        { signal: input.signal, timeout: timeLeft(input) },
+      )
+      turns += 1
+      addClaudeUsage(usage, resp.usage)
+      messages.push({ role: 'assistant', content: resp.content as unknown as ClaudeContent[] })
+      if (resp.stop_reason === 'refusal') return { answer: textOf(resp.content), turns, actions, stop: 'refusal', usage, safetyChecks: 0 }
+      const uses = resp.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use')
+      if (!uses.length) return { answer: textOf(resp.content), turns, actions, stop: claudeFinishStop(resp.stop_reason), usage, safetyChecks: 0 }
+      const results: Array<Record<string, unknown>> = []
+      let failed = false
+      let endedOnImage = false
+      for (const use of uses) {
+        const base = { type: 'tool_result', tool_use_id: use.id, toolset_name: 'computer' }
+        if (failed) {
+          results.push({ ...base, is_error: true, content: 'Not executed: an earlier computer action in this turn failed.' })
+          continue
         }
-      } catch (err) {
-        failed = true
-        results.push({ ...base, is_error: true, content: `Error: ${describeError(err)}` })
+        try {
+          actions += 1
+          const inp = (use.input ?? {}) as Record<string, unknown>
+          session.record({ name: use.name, ...inp })
+          const out = await execClaudeAction(session, use.name, inp)
+          if (out.image) {
+            results.push({ ...base, content: [jpegBlock(out.image)] })
+            endedOnImage = true
+          } else {
+            results.push({ ...base, content: [{ type: 'text', text: out.text ?? 'OK' }] })
+            endedOnImage = false
+          }
+        } catch (err) {
+          failed = true
+          results.push({ ...base, is_error: true, content: `Error: ${describeError(err)}` })
+        }
       }
+      const lastResult = results.at(-1)
+      if (!failed && !endedOnImage && lastResult && Array.isArray(lastResult.content)) lastResult.content.push(jpegBlock(await session.screenshot()))
+      messages.push({ role: 'user', content: results as unknown as ClaudeContent[] })
     }
-    const lastResult = results.at(-1)
-    if (!failed && !endedOnImage && lastResult && Array.isArray(lastResult.content)) lastResult.content.push(jpegBlock(await session.screenshot()))
-    messages.push({ role: 'user', content: results as unknown as ClaudeContent[] })
+  } catch (err) {
+    const stop = abortedStop(input)
+    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+    throw err
   }
+}
+
+/** Claude's stop reason for a turn with no tool use: a response cut off by a limit is not a finish. */
+export function claudeFinishStop(stopReason: string | null | undefined): string {
+  if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') return 'incomplete'
+  if (stopReason === 'refusal') return 'refusal'
+  return 'final'
 }
 
 // ---------- Gemini: generateContent, computerUse tool ----------
@@ -419,68 +490,74 @@ async function execGeminiAction(s: BrowserSession, name: string, a: Record<strin
 export async function runGeminiAgent(input: AgentRunInput): Promise<AgentRunOutput> {
   const { session } = input
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
-  const config = {
-    abortSignal: input.signal,
-    tools: [{ computerUse: { environment: Environment.ENVIRONMENT_BROWSER, excludedPredefinedFunctions: ['navigate'] } }],
-  }
+  const tools = [{ computerUse: { environment: Environment.ENVIRONMENT_BROWSER, excludedPredefinedFunctions: ['navigate'] } }]
   const usage = emptyUsage()
   let actions = 0
   let turns = 0
-  let safetyChecks = 0
-  const first = await session.screenshot()
-  const contents: Array<{ role: string; parts: unknown[] }> = [
-    { role: 'user', parts: [{ text: visionPrompt(input.startUrl, input.task) }, { inlineData: { mimeType: 'image/jpeg', data: first.toString('base64') } }] },
-  ]
-  for (;;) {
-    const stop = limitStop(input, turns)
-    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks }
-    const resp = await ai.models.generateContent({ model: input.model, contents: contents as never, config })
-    turns += 1
-    const meta = resp.usageMetadata
-    if (meta) {
-      usage.requests += 1
-      usage.inputTokens += num(meta.promptTokenCount)
-      usage.cachedInputTokens += num(meta.cachedContentTokenCount)
-      usage.outputTokens += num(meta.candidatesTokenCount) + num(meta.thoughtsTokenCount)
-    }
-    const candidate = resp.candidates?.[0]
-    const content = candidate?.content
-    if (!content?.parts?.length) return { answer: '', turns, actions, stop: String(candidate?.finishReason ?? 'empty'), usage, safetyChecks }
-    contents.push(content as { role: string; parts: unknown[] })
-    const calls = content.parts.flatMap((part) => (part.functionCall ? [part.functionCall] : []))
-    if (!calls.length) {
-      const answer = content.parts.filter((part) => part.text && !part.thought).map((part) => part.text).join('\n')
-      return { answer, turns, actions, stop: 'final', usage, safetyChecks }
-    }
-    const parts: unknown[] = []
-    for (const call of calls) {
-      const name = call.name ?? ''
-      const args = (call.args ?? {}) as Record<string, unknown>
-      actions += 1
-      session.record({ name, ...args })
-      const extra: Record<string, unknown> = {}
-      const decision = args.safety_decision as { decision?: string } | undefined
-      if (decision) {
-        safetyChecks += 1
-        if (decision.decision === 'require_confirmation') extra.safety_acknowledgement = 'true'
+  try {
+    const first = await session.screenshot()
+    const contents: Array<{ role: string; parts: unknown[] }> = [
+      { role: 'user', parts: [{ text: visionPrompt(input.startUrl, input.task) }, { inlineData: { mimeType: 'image/jpeg', data: first.toString('base64') } }] },
+    ]
+    for (;;) {
+      const stop = limitStop(input, turns)
+      if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+      const resp = await ai.models.generateContent({ model: input.model, contents: contents as never, config: { tools, abortSignal: input.signal, httpOptions: { timeout: timeLeft(input) } } })
+      turns += 1
+      const meta = resp.usageMetadata
+      if (meta) {
+        usage.requests += 1
+        usage.inputTokens += num(meta.promptTokenCount)
+        usage.cachedInputTokens += num(meta.cachedContentTokenCount)
+        usage.outputTokens += num(meta.candidatesTokenCount) + num(meta.thoughtsTokenCount)
       }
-      let out: Record<string, unknown>
-      try {
-        out = await execGeminiAction(session, name, args)
-      } catch (err) {
-        out = { error: describeError(err) }
+      const candidate = resp.candidates?.[0]
+      const content = candidate?.content
+      if (!content?.parts?.length) {
+        // An empty turn is never a finish, whatever reason came with it.
+        const reason = geminiFinishStop(candidate?.finishReason)
+        return { answer: '', turns, actions, stop: reason === 'final' ? 'empty' : reason, usage, safetyChecks: 0 }
       }
-      const shot = await session.screenshot()
-      parts.push({
-        functionResponse: {
-          name,
-          ...(call.id ? { id: call.id } : {}),
-          response: { url: await session.url(), ...out, ...extra },
-          parts: [{ inlineData: { mimeType: 'image/jpeg', data: shot.toString('base64') } }],
-        },
-      })
+      contents.push(content as { role: string; parts: unknown[] })
+      const calls = content.parts.flatMap((part) => (part.functionCall ? [part.functionCall] : []))
+      if (!calls.length) {
+        const answer = content.parts.filter((part) => part.text && !part.thought).map((part) => part.text).join('\n')
+        return { answer, turns, actions, stop: geminiFinishStop(candidate?.finishReason), usage, safetyChecks: 0 }
+      }
+      // Gemini marks an action that needs a person's confirmation with a safety decision. Nobody
+      // is there to confirm, so the run stops before that action instead of acknowledging it.
+      for (const call of calls) {
+        const gated = geminiSafetyStop((call.args ?? {}) as Record<string, unknown>)
+        if (gated) return { answer: '', turns, actions, stop: 'safety-check', stopDetail: gated, usage, safetyChecks: 1 }
+      }
+      const parts: unknown[] = []
+      for (const call of calls) {
+        const name = call.name ?? ''
+        const args = (call.args ?? {}) as Record<string, unknown>
+        actions += 1
+        session.record({ name, ...args })
+        let out: Record<string, unknown>
+        try {
+          out = await execGeminiAction(session, name, args)
+        } catch (err) {
+          out = { error: describeError(err) }
+        }
+        const shot = await session.screenshot()
+        parts.push({
+          functionResponse: {
+            name,
+            ...(call.id ? { id: call.id } : {}),
+            response: { url: await session.url(), ...out },
+            parts: [{ inlineData: { mimeType: 'image/jpeg', data: shot.toString('base64') } }],
+          },
+        })
+      }
+      contents.push({ role: 'user', parts })
     }
-    contents.push({ role: 'user', parts })
+  } catch (err) {
+    const stop = abortedStop(input)
+    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+    throw err
   }
 }
 
@@ -532,43 +609,49 @@ export async function runClaudeA11yAgent(input: AgentRunInput): Promise<AgentRun
   const usage = emptyUsage()
   let actions = 0
   let turns = 0
-  await session.screenshot() // kept as evidence only; this agent never sees pixels
-  let snapshot = await takeA11ySnapshot(session)
-  const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: [{ type: 'text', text: `${a11yPrompt(input.startUrl, input.task)}\n\nThe page now:\n${snapshot.text}` }] }]
-  for (;;) {
-    const stop = limitStop(input, turns)
-    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
-    const resp = await client.messages.create(
-      { model: input.model, max_tokens: 16_000, tools: A11Y_TOOLS, messages, cache_control: { type: 'ephemeral' } } as unknown as Anthropic.Messages.MessageCreateParamsNonStreaming,
-      { signal: input.signal },
-    )
-    turns += 1
-    addClaudeUsage(usage, resp.usage)
-    messages.push({ role: 'assistant', content: resp.content as unknown as ClaudeContent[] })
-    if (resp.stop_reason === 'refusal') return { answer: textOf(resp.content), turns, actions, stop: 'refusal', usage, safetyChecks: 0 }
-    const uses = resp.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use')
-    if (!uses.length) return { answer: textOf(resp.content), turns, actions, stop: 'final', usage, safetyChecks: 0 }
-    const results: Array<{ type: 'tool_result'; tool_use_id: string; is_error?: boolean; content: string }> = []
-    let failed = false
-    for (const use of uses) {
-      if (failed) {
-        results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Not executed: an earlier action in this turn failed.' })
-        continue
+  try {
+    await session.screenshot() // kept as evidence only; this agent never sees pixels
+    let snapshot = await takeA11ySnapshot(session)
+    const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: [{ type: 'text', text: `${a11yPrompt(input.startUrl, input.task)}\n\nThe page now:\n${snapshot.text}` }] }]
+    for (;;) {
+      const stop = limitStop(input, turns)
+      if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+      const resp = await client.messages.create(
+        { model: input.model, max_tokens: 16_000, tools: A11Y_TOOLS, messages, cache_control: { type: 'ephemeral' } } as unknown as Anthropic.Messages.MessageCreateParamsNonStreaming,
+        { signal: input.signal, timeout: timeLeft(input) },
+      )
+      turns += 1
+      addClaudeUsage(usage, resp.usage)
+      messages.push({ role: 'assistant', content: resp.content as unknown as ClaudeContent[] })
+      if (resp.stop_reason === 'refusal') return { answer: textOf(resp.content), turns, actions, stop: 'refusal', usage, safetyChecks: 0 }
+      const uses = resp.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use')
+      if (!uses.length) return { answer: textOf(resp.content), turns, actions, stop: claudeFinishStop(resp.stop_reason), usage, safetyChecks: 0 }
+      const results: Array<{ type: 'tool_result'; tool_use_id: string; is_error?: boolean; content: string }> = []
+      let failed = false
+      for (const use of uses) {
+        if (failed) {
+          results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Not executed: an earlier action in this turn failed.' })
+          continue
+        }
+        try {
+          actions += 1
+          const inp = (use.input ?? {}) as Record<string, unknown>
+          session.record({ name: use.name, ...inp })
+          results.push({ type: 'tool_result', tool_use_id: use.id, content: await execA11yAction(session, snapshot.refs, use.name, inp) })
+        } catch (err) {
+          failed = true
+          results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: `Error: ${describeError(err).split('\n')[0]}` })
+        }
       }
-      try {
-        actions += 1
-        const inp = (use.input ?? {}) as Record<string, unknown>
-        session.record({ name: use.name, ...inp })
-        results.push({ type: 'tool_result', tool_use_id: use.id, content: await execA11yAction(session, snapshot.refs, use.name, inp) })
-      } catch (err) {
-        failed = true
-        results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: `Error: ${describeError(err).split('\n')[0]}` })
-      }
+      await session.screenshot()
+      snapshot = await takeA11ySnapshot(session)
+      const last = results.at(-1)
+      if (last) last.content = `${last.content}\n\nThe page now:\n${snapshot.text}`
+      messages.push({ role: 'user', content: results })
     }
-    await session.screenshot()
-    snapshot = await takeA11ySnapshot(session)
-    const last = results.at(-1)
-    if (last) last.content = `${last.content}\n\nThe page now:\n${snapshot.text}`
-    messages.push({ role: 'user', content: results })
+  } catch (err) {
+    const stop = abortedStop(input)
+    if (stop) return { answer: '', turns, actions, stop, usage, safetyChecks: 0 }
+    throw err
   }
 }

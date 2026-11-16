@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { judgeAgentRun, parseSubmittedFields } from '../src/index.js'
-import type { CapturedWrite } from '../src/index.js'
+import type { CapturedWrite, ObservedRun } from '../src/index.js'
 
-const write = (url: string, body: string | null): CapturedWrite => ({ url, method: 'POST', body, answeredLocally: true, at: 0 })
+const write = (url: string, body: string | null, answeredLocally = true): CapturedWrite => ({ url, method: 'POST', body, answeredLocally, at: 0 })
 const finished = (answer: string) => ({ answer, stop: 'final' })
-const nothing = { finalUrl: 'https://canonry.ai/', writes: [] as CapturedWrite[] }
+const observed = (finalUrl: string, writes: CapturedWrite[] = [], blockedPages: string[] = []): ObservedRun => ({ finalUrl, writes, blockedPages, siteHosts: ['canonry.ai'] })
+const nothing = observed('https://canonry.ai/')
 
 describe('judgeAgentRun', () => {
   it('passes, verified, when the run ends on the expected page', () => {
-    const verdict = judgeAgentRun(finished('ANSWER: done'), null, { finalUrl: 'https://canonry.ai/blog/x', writes: [] }, { urlPath: 'blog/x/' })
+    const verdict = judgeAgentRun(finished('ANSWER: done'), null, observed('https://canonry.ai/blog/x'), { urlPath: 'blog/x/' })
     expect(verdict).toEqual({
       status: 'passed',
       verified: true,
@@ -21,7 +22,7 @@ describe('judgeAgentRun', () => {
     const verdict = judgeAgentRun(
       finished('ANSWER: Valley services at 41%'),
       null,
-      { finalUrl: 'https://canonry.ai/', writes: [] },
+      observed('https://canonry.ai/'),
       { urlPath: '/blog/x', answerIncludes: ['valley SERVICES', '38'] },
     )
     expect(verdict.status).toBe('failed')
@@ -39,7 +40,7 @@ describe('judgeAgentRun', () => {
       write('https://canonry.ai/api/agency-access', '{"name":"Wrong","interest":"custom"}'),
       write('https://canonry.ai/api/agency-access/', '{"name":" Jordan Lee ","interest":"MANAGED","clientCount":"6-20"}'),
     ]
-    const verdict = judgeAgentRun(finished('ANSWER: sent'), null, { finalUrl: 'https://canonry.ai/agency-access', writes }, {
+    const verdict = judgeAgentRun(finished('ANSWER: sent'), null, observed('https://canonry.ai/agency-access', writes), {
       submitPath: '/api/agency-access',
       submitFields: { name: 'jordan lee', interest: 'managed', email: 'jordan@example.com' },
     })
@@ -53,7 +54,7 @@ describe('judgeAgentRun', () => {
   })
 
   it('fails when nothing was submitted to the expected path', () => {
-    const verdict = judgeAgentRun(finished('ANSWER: sent'), null, { finalUrl: '', writes: [write('https://canonry.ai/api/other', '{}')] }, { submitPath: '/api/agency-access' })
+    const verdict = judgeAgentRun(finished('ANSWER: sent'), null, observed('', [write('https://canonry.ai/api/other', '{}')]), { submitPath: '/api/agency-access' })
     expect(verdict).toMatchObject({ status: 'failed', verified: true, detail: 'nothing was submitted to /api/agency-access' })
   })
 
@@ -66,6 +67,28 @@ describe('judgeAgentRun', () => {
     expect(judgeAgentRun(finished('ANSWER: done'), null, nothing, {})).toMatchObject({ status: 'passed', verified: false })
     expect(judgeAgentRun(finished('ANSWER: FAILED the form never loaded'), null, nothing, {})).toMatchObject({ status: 'failed', verified: false })
     expect(judgeAgentRun({ answer: '', stop: 'time-limit' }, null, nothing, {})).toMatchObject({ status: 'failed', verified: false, detail: 'stopped: time-limit' })
+  })
+
+  // The browser's own fence must never produce a pass: the check's blocked page, another
+  // site's page or a dropped write can sit at any path.
+  it.each([
+    ['the check\'s blocked page at the expected path', observed('https://canonry.ai/thank-you#done', [], ['https://canonry.ai/thank-you']), 'ended on the check\'s blocked page for https://canonry.ai/thank-you#done, not /thank-you'],
+    ['another site\'s page at the expected path', observed('https://evil.example/thank-you'), 'ended on evil.example, outside the site, not /thank-you'],
+  ])('fails on %s', (_label, seen, detail) => {
+    expect(judgeAgentRun(finished('ANSWER: done'), null, seen, { urlPath: '/thank-you' })).toMatchObject({ status: 'failed', verified: true, detail })
+  })
+
+  it('counts only submissions the check answered on the site, never a dropped write elsewhere', () => {
+    const dropped = observed('https://canonry.ai/', [write('https://collector.example/submit', '{"email":"j@x.io"}', false)])
+    expect(judgeAgentRun(finished('ANSWER: sent'), null, dropped, { submitPath: '/submit' })).toMatchObject({ status: 'failed', detail: 'nothing was submitted to /submit' })
+    const answered = observed('https://canonry.ai/', [write('https://www.canonry.ai/submit', '{"email":"j@x.io"}')])
+    expect(judgeAgentRun(finished('ANSWER: sent'), null, answered, { submitPath: '/submit' })).toMatchObject({ status: 'passed', detail: '1 submission to /submit' })
+  })
+
+  it('fails a run the provider stopped, saying why, instead of passing it unverified', () => {
+    const gated = { answer: '', stop: 'safety-check', stopDetail: 'require_confirmation: submits user data' }
+    expect(judgeAgentRun(gated, null, nothing, {})).toEqual({ status: 'failed', verified: false, detail: 'stopped: safety-check (require_confirmation: submits user data)', checks: [] })
+    expect(judgeAgentRun({ answer: 'I can’t help with that.', stop: 'refusal' }, null, nothing, {})).toMatchObject({ status: 'failed', detail: 'stopped: refusal' })
   })
 
   it('is errored, never failed, when the provider or browser broke the run', () => {

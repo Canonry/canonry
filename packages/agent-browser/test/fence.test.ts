@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { blockedPageHtml, decideFence, egressOrigin } from '../src/index.js'
+import { blockedPageHtml, decideFence, egressTarget } from '../src/index.js'
 
 // The fence is what makes a check safe to run on a live site: no lead, analytics hit or ad
 // conversion may leave the browser, and the agent must stay on the site under test.
@@ -25,19 +25,20 @@ describe('decideFence', () => {
   })
 })
 
-// The origin the host's egress policy classifies before a request leaves the browser.
-describe('egressOrigin', () => {
+// The host and port the egress policy is asked about before a request leaves the browser.
+describe('egressTarget', () => {
   it.each([
-    ['a page, without its path, query or fragment', 'https://www.canonry.ai/blog?x=1#top', 'https://www.canonry.ai'],
-    ['a non-default port', 'http://canonry.ai:8080/a', 'http://canonry.ai:8080'],
-    ['a URL with credentials, which never reach the check', 'https://user:pass@canonry.ai/a', 'https://canonry.ai'],
-    ['an IPv6 literal', 'http://[::1]:4100/', 'http://[::1]:4100'],
-    ['the cloud metadata address', 'http://169.254.169.254/latest/meta-data/', 'http://169.254.169.254'],
+    ['a page, its default https port', 'https://www.canonry.ai/blog?x=1#top', { host: 'www.canonry.ai', port: 443 }],
+    ['plain http, its default port', 'http://canonry.ai/a', { host: 'canonry.ai', port: 80 }],
+    ['a non-default port', 'http://canonry.ai:8080/a', { host: 'canonry.ai', port: 8080 }],
+    ['a URL with credentials, which never reach the check', 'https://user:pass@canonry.ai/a', { host: 'canonry.ai', port: 443 }],
+    ['an IPv6 literal, without brackets', 'http://[::1]:4100/', { host: '::1', port: 4100 }],
+    ['the cloud metadata address', 'http://169.254.169.254/latest/meta-data/', { host: '169.254.169.254', port: 80 }],
     ['a data URL, which dials nothing', 'data:image/png;base64,AAAA', null],
     ['a blob URL', 'blob:https://canonry.ai/1234', null],
     ['text that is not a URL', 'nonsense', null],
   ])('%s', (_label, url, want) => {
-    expect(egressOrigin(url)).toBe(want)
+    expect(egressTarget(url)).toEqual(want)
   })
 })
 

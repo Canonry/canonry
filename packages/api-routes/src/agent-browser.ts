@@ -138,6 +138,10 @@ export async function agentBrowserRoutes(app: FastifyInstance, opts: AgentBrowse
     const scope = resolveCheckScope(app, project, parsed.data.property, parsed.data.startUrl)
     const effective = normalizeAgentBrowserCheckRequest(parsed.data, scope)
     const start = new URL(effective.startUrl)
+    // Refused before anything is stored: a stored request is readable by everyone on the project.
+    if (start.username || start.password) {
+      throw validationError('"startUrl" must not contain a user name or password.', { reason: 'credentials-in-url' })
+    }
     if ((start.protocol !== 'https:' && start.protocol !== 'http:') || !isAgentBrowserSiteHost(start.hostname, effective.siteHosts)) {
       const site = effective.property ? `Property "${effective.property.label}"'s site or the project's` : 'the project\'s site'
       throw validationError(`"startUrl" must be a page on ${site} (${effective.siteHosts.join(', ')}).`, { siteHosts: effective.siteHosts })

@@ -75,15 +75,16 @@ export function decideFence(request: FenceRequest, siteHosts: readonly string[])
 }
 
 /**
- * The origin (`scheme://host[:port]`, without credentials, path or query) whose addresses the
- * host's egress policy must accept before a request leaves the browser. Null for a request
- * that dials nothing, such as a data: or blob: URL.
+ * The host and port a request dials, which the host's egress policy must accept before it
+ * leaves the browser (the default port when the URL names none). Null for a request that
+ * dials nothing, such as a data: or blob: URL.
  */
-export function egressOrigin(url: string): string | null {
+export function egressTarget(url: string): { host: string; port: number } | null {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-    return `${parsed.protocol}//${parsed.host}`
+    const host = parsed.hostname.startsWith('[') ? parsed.hostname.slice(1, -1) : parsed.hostname
+    return { host, port: parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80 }
   } catch {
     return null
   }

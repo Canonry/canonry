@@ -15,14 +15,8 @@ import {
   summarizeAgentBrowserResults,
 } from '@canonry/canonry-contracts'
 import type { AgentBrowserAgent, AgentBrowserEffectiveRequest, AgentBrowserResultStatus, RunStatus } from '@canonry/canonry-contracts'
-import {
-  connectedChrome,
-  emptyUsage,
-  findChromeExecutable,
-  launchChrome,
-  runAgentBrowserCheck,
-} from '@canonry/canonry-agent-browser'
-import type { AgentBrowserRunResult, AgentRunSpec, ChromeHandle } from '@canonry/canonry-agent-browser'
+import { emptyUsage, findChromeExecutable, runAgentBrowserCheck } from '@canonry/canonry-agent-browser'
+import type { AgentBrowserRunResult, AgentRunSpec, EgressVerdict } from '@canonry/canonry-agent-browser'
 import { resolvePublicHttpTarget } from '@canonry/canonry-api-routes'
 import { resolveApiKeyFor } from './agent/providers.js'
 import { getConfigDir } from './config.js'
@@ -39,32 +33,31 @@ const MAX_SUBMISSIONS = 50
 const MAX_SUBMISSION_BODY_CHARS = 10_000
 
 export interface AgentBrowserCheckOptions {
-  config: Pick<CanonryConfig, 'providers' | 'cdp'>
+  config: Pick<CanonryConfig, 'providers'>
   signal?: AbortSignal
 }
 
 /**
- * A browser for the check: a local Chrome this host can launch (found on PATH-like install
- * locations or through `CANONRY_CHROME_PATH`), else the Chrome connected with
- * `canonry cdp connect`. Each agent run still gets its own isolated browser context, so a
- * connected Chrome's signed-in sessions are never visible to a check.
+ * The Chrome each agent run launches: one on this host (the usual install locations, or
+ * `CANONRY_CHROME_PATH`). Checks never use a Chrome connected with `canonry cdp connect`:
+ * every run launches its own browser behind its egress proxy, which needs launch flags.
  */
-export async function resolveAgentBrowserChrome(config: Pick<CanonryConfig, 'cdp'>): Promise<ChromeHandle> {
+export async function agentBrowserChromePath(): Promise<string> {
   const executable = await findChromeExecutable()
-  if (executable) return launchChrome(executable)
-  if (config.cdp?.host || config.cdp?.port) return connectedChrome({ host: config.cdp.host ?? 'localhost', port: config.cdp.port ?? 9222 })
-  throw new Error('No Chrome is available. Install Chrome or Chromium, set CANONRY_CHROME_PATH, or connect one with `canonry cdp connect`.')
+  if (executable) return executable
+  throw new Error('No Chrome is available on this host. Install Chrome or Chromium, or set CANONRY_CHROME_PATH.')
 }
 
 /**
  * The check browser's outbound address policy, the same one every other gate that dials a URL
- * Canonry did not choose uses: an origin may be dialed only when every address its host
- * resolves to is public. A page on the site under test cannot load the cloud metadata
- * service, a loopback port or a private network into a screenshot.
+ * Canonry did not choose uses: a host may be dialed only when every address it resolves to is
+ * public, and the run's proxy dials the address checked here. A page on the site under test
+ * cannot load the cloud metadata service, a loopback port or a private network.
  */
-export async function agentBrowserEgress(origin: string): Promise<string | null> {
-  const target = await resolvePublicHttpTarget(`${origin}/`)
-  return target.ok ? null : target.message
+export async function agentBrowserEgress(host: string, port: number): Promise<EgressVerdict> {
+  const authority = host.includes(':') ? `[${host}]` : host
+  const target = await resolvePublicHttpTarget(`http://${authority}:${port}/`)
+  return target.ok ? { ok: true, address: target.target.address } : { ok: false, reason: target.message }
 }
 
 const clipText = (value: string, max: number) => (value.length > max ? `${value.slice(0, max)}…` : value)
@@ -157,7 +150,6 @@ export async function executeAgentBrowserCheck(
     .where(and(eq(runs.id, runId), eq(runs.projectId, projectId), eq(runs.status, RunStatuses.queued)))
     .run()
   if (claim.changes === 0) return
-  let chrome: ChromeHandle | null = null
   try {
     const check = db.select().from(agentBrowserChecks).where(and(eq(agentBrowserChecks.runId, runId), eq(agentBrowserChecks.projectId, projectId))).get()
     if (!check) throw new Error('The check has no stored request.')
@@ -182,10 +174,10 @@ export async function executeAgentBrowserCheck(
     }
 
     if (specs.length) {
-      chrome = await resolveAgentBrowserChrome(opts.config)
+      const chromePath = await agentBrowserChromePath()
       const evidenceRoot = path.join(getConfigDir(), 'agent-browser')
       await runAgentBrowserCheck({
-        endpoint: chrome.endpoint,
+        chromePath,
         startUrl: request.startUrl,
         task: request.task,
         siteHosts: [...request.siteHosts],
@@ -230,7 +222,5 @@ export async function executeAgentBrowserCheck(
       .run()
     log.error('failed', { runId, projectId, cancelled, error: message })
     throw error
-  } finally {
-    await chrome?.close().catch(() => undefined)
   }
 }

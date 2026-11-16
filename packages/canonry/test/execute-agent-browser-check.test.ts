@@ -89,19 +89,21 @@ describe('agentBrowserRunStatus', () => {
   })
 })
 
-// The browser asks this before any request leaves it, so a page on the site cannot pull an
-// internal address into a screenshot. Address literals only: the policy reads them without DNS.
+// The check browser's proxy asks this for every host and port before anything leaves the
+// browser, and dials the address it returns. Address literals only: the policy reads them without DNS.
 describe('agentBrowserEgress', () => {
   it.each([
-    ['the cloud metadata service', 'http://169.254.169.254', 'which is link-local'],
-    ['a loopback port', 'http://127.0.0.1:4100', 'which is loopback'],
-    ['a private network', 'https://10.0.0.5', 'which is private space'],
-    ['IPv6 loopback', 'http://[::1]:4100', 'which is reserved IPv6 space'],
-  ])('refuses %s', async (_label, origin, reason) => {
-    expect(await agentBrowserEgress(origin)).toContain(reason)
+    ['the cloud metadata service', '169.254.169.254', 80, 'which is link-local'],
+    ['a loopback port', '127.0.0.1', 4100, 'which is loopback'],
+    ['a private network', '10.0.0.5', 443, 'which is private space'],
+    ['IPv6 loopback', '::1', 4100, 'which is reserved IPv6 space'],
+  ])('refuses %s', async (_label, host, port, reason) => {
+    const verdict = await agentBrowserEgress(host, port)
+    expect(verdict.ok).toBe(false)
+    expect(verdict.ok ? '' : verdict.reason).toContain(reason)
   })
 
-  it('lets a public address through', async () => {
-    expect(await agentBrowserEgress('https://1.1.1.1')).toBeNull()
+  it('lets a public address through and names the address to dial', async () => {
+    expect(await agentBrowserEgress('1.1.1.1', 443)).toEqual({ ok: true, address: '1.1.1.1' })
   })
 })

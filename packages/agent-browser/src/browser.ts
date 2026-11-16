@@ -10,7 +10,8 @@ import os from 'node:os'
 import path from 'node:path'
 import CDP from 'chrome-remote-interface'
 import { describeError, hostOf, jsonValueText } from '@canonry/canonry-contracts'
-import { blockedPageHtml, decideFence, egressOrigin } from './fence.js'
+import { blockedPageHtml, decideFence, egressTarget } from './fence.js'
+import type { EgressGate } from './egress-proxy.js'
 import { MODIFIER_BITS, comboSignature, keyDefinition, normalizeKeyName } from './keys.js'
 
 export interface ChromeEndpoint {
@@ -41,10 +42,10 @@ export interface CapturedWrite {
 }
 
 /**
- * The host's outbound address policy: null when the browser may dial this origin
- * (`scheme://host[:port]`), otherwise why not. Asked once per origin per session.
+ * Switches off the browser APIs whose traffic no fence can read: WebSocket and WebTransport
+ * frames, and WebRTC. It runs in every page, frame and worker before their own scripts.
  */
-export type EgressCheck = (origin: string) => Promise<string | null>
+const SOCKETS_OFF = `(() => { for (const name of ['WebSocket', 'WebSocketStream', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection']) { try { Object.defineProperty(globalThis, name, { value: undefined, configurable: false, writable: false }) } catch {} } })()`
 
 export interface ActionLogEntry {
   at: number
@@ -90,8 +91,16 @@ export async function findChromeExecutable(env: NodeJS.ProcessEnv = process.env)
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+export interface LaunchChromeOptions {
+  /**
+   * Every connection the browser makes goes through this HTTP proxy, loopback included, and
+   * nothing goes around it: WebRTC may not use UDP outside the proxy, and QUIC is off.
+   */
+  proxyServer?: string
+}
+
 /** Starts a headless Chrome with remote debugging on a free port and a throwaway profile. */
-export async function launchChrome(executablePath: string, viewport: Viewport = DEFAULT_VIEWPORT): Promise<ChromeHandle> {
+export async function launchChrome(executablePath: string, viewport: Viewport = DEFAULT_VIEWPORT, options: LaunchChromeOptions = {}): Promise<ChromeHandle> {
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'canonry-agent-browser-'))
   const args = [
     '--headless=new',
@@ -103,6 +112,9 @@ export async function launchChrome(executablePath: string, viewport: Viewport = 
     '--disable-sync',
     '--mute-audio',
     `--window-size=${viewport.width},${viewport.height}`,
+    ...(options.proxyServer
+      ? [`--proxy-server=${options.proxyServer}`, '--proxy-bypass-list=<-loopback>', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp', '--disable-quic']
+      : []),
   ]
   if (process.getuid?.() === 0) args.push('--no-sandbox')
   const child: ChildProcess = spawn(executablePath, [...args, 'about:blank'], { stdio: 'ignore' })
@@ -137,11 +149,6 @@ export async function launchChrome(executablePath: string, viewport: Viewport = 
   return { endpoint: { host: '127.0.0.1', port }, launched: true, close: stop }
 }
 
-/** A handle for a Chrome someone else runs; closing it leaves that Chrome alone. */
-export function connectedChrome(endpoint: ChromeEndpoint): ChromeHandle {
-  return { endpoint, launched: false, close: async () => undefined }
-}
-
 interface FindState {
   query: string
 }
@@ -159,7 +166,8 @@ export class BrowserSession {
   screenshots = 0
   private find: FindState | null = null
   private mainFrameId = ''
-  private readonly egressVerdicts = new Map<string, Promise<string | null>>()
+  /** Page targets other than this one: new tabs and windows, each folded into this page. */
+  private readonly popups = new Set<string>()
 
   private constructor(
     private readonly browser: CDP.Client,
@@ -169,16 +177,21 @@ export class BrowserSession {
     readonly viewport: Viewport,
     private readonly siteHosts: string[],
     private readonly outDir: string | null,
-    private readonly egress: EgressCheck,
+    private readonly gate: EgressGate,
   ) {
     this.mouse = { x: viewport.width / 2, y: viewport.height / 2 }
   }
 
+  /**
+   * Opens the session in a Chrome of its own, launched behind the egress proxy (see
+   * `runAgentBrowserCheck`). One browser per agent run lets the fence below cover the whole
+   * browser: every page, iframe, popup and worker in it belongs to this run.
+   */
   static async open(opts: {
     endpoint: ChromeEndpoint
     siteHosts: string[]
-    /** Every request the fence lets through must pass this before it leaves the browser. */
-    egress: EgressCheck
+    /** The egress policy the proxy enforces, asked here too so a refused page shows the block page. */
+    gate: EgressGate
     viewport?: Viewport
     outDir?: string | null
   }): Promise<BrowserSession> {
@@ -188,8 +201,11 @@ export class BrowserSession {
     const browser = await CDP({ host, port, target: version.webSocketDebuggerUrl })
     const { browserContextId } = await browser.Target.createBrowserContext({ disposeOnDetach: true })
     const { targetId } = await browser.Target.createTarget({ url: 'about:blank', browserContextId })
+    // The tab Chrome opened at launch is not part of the run.
+    const { targetInfos } = await browser.Target.getTargets()
+    for (const info of targetInfos) if (info.type === 'page' && info.targetId !== targetId) await browser.Target.closeTarget({ targetId: info.targetId }).catch(() => undefined)
     const page = await CDP({ host, port, target: targetId })
-    const session = new BrowserSession(browser, page, browserContextId, targetId, viewport, [...new Set(opts.siteHosts.map((h) => hostOf(h)).filter((h): h is string => Boolean(h)))], opts.outDir ?? null, opts.egress)
+    const session = new BrowserSession(browser, page, browserContextId, targetId, viewport, [...new Set(opts.siteHosts.map((h) => hostOf(h)).filter((h): h is string => Boolean(h)))], opts.outDir ?? null, opts.gate)
     if (session.outDir) await mkdir(session.outDir, { recursive: true })
     await session.setUp()
     return session
@@ -207,65 +223,107 @@ export class BrowserSession {
       this.visited.push(event.frame.url)
       this.find = null
     })
-    page.on('Fetch.requestPaused', (event) => {
+    // One fence for the whole browser. Requests from this page, from iframes running in other
+    // processes, from popups and from workers all pause here, which a page-level fence misses.
+    browser.on('Fetch.requestPaused', (event) => {
       void this.onRequestPaused(event)
     })
-    await page.Fetch.enable({ patterns: [{ urlPattern: '*', requestStage: 'Request' }] })
-    // A link that opens a new tab opens in this page instead, so every agent keeps one view.
-    await browser.Target.setDiscoverTargets({ discover: true })
-    browser.on('Target.targetCreated', (event) => {
-      const info = event.targetInfo
-      if (info.openerId !== this.targetId || info.targetId === this.targetId) return
-      void this.foldPopup(info.targetId, info.url)
-    })
+    await browser.Fetch.enable({ patterns: [{ urlPattern: '*', requestStage: 'Request' }] })
+    // Sockets are off in this page before any of its scripts run.
+    await page.Page.addScriptToEvaluateOnNewDocument({ source: SOCKETS_OFF })
+    // Every target is attached before it runs: new tabs and service workers at the browser
+    // level, iframes in other processes and workers under the page, recursively.
+    browser.on('Target.attachedToTarget', (event, parent) => this.onAttached(browser, event, parent))
+    page.on('Target.attachedToTarget', (event, parent) => this.onAttached(page, event, parent))
+    await browser.Target.setAutoAttach({ autoAttach: true, waitForDebuggerOnStart: true, flatten: true })
+    await page.Target.setAutoAttach({ autoAttach: true, waitForDebuggerOnStart: true, flatten: true })
   }
 
-  private async foldPopup(targetId: string, firstUrl: string): Promise<void> {
-    let url = firstUrl
-    for (let i = 0; i < 20 && (!url || url === 'about:blank'); i += 1) {
-      await sleep(250)
-      const { targetInfos } = await this.browser.Target.getTargets().catch(() => ({ targetInfos: [] }))
-      url = targetInfos.find((t) => t.targetId === targetId)?.url ?? url
+  /**
+   * Prepares a target that was just attached, then lets it run. A target waiting for the
+   * debugger answers nothing until it resumes, so the commands are queued, never awaited one by
+   * one: one session runs its commands in order, so the resume comes last.
+   */
+  private onAttached(client: CDP.Client, event: { sessionId: string; targetInfo: { targetId: string; type: string; url: string }; waitingForDebugger: boolean }, parent?: string): void {
+    void parent
+    const { sessionId, targetInfo: info } = event
+    const raw = client.send.bind(client) as unknown as (method: string, params: object, sessionId: string) => Promise<unknown>
+    const queue: Array<[string, Record<string, unknown>]> = []
+    if (info.type === 'service_worker' && /^https?:/.test(info.url)) {
+      // A service worker sends requests on its own schedule, outside any page. The page
+      // bypasses it, and it stays paused: it never runs, so it never sends anything.
+      this.log.push({ at: Date.now(), action: { event: 'service-worker-held', url: info.url } })
+      return
     }
-    await this.browser.Target.closeTarget({ targetId }).catch(() => undefined)
+    if (info.type === 'page' && info.targetId !== this.targetId) {
+      // A new tab: the fence folds its first page load into this page and refuses the rest.
+      this.popups.add(info.targetId)
+    } else if (info.type === 'iframe') {
+      // Chrome runs new-document scripts only in a target whose Page domain is enabled.
+      queue.push(['Page.enable', {}], ['Page.addScriptToEvaluateOnNewDocument', { source: SOCKETS_OFF }], ['Runtime.evaluate', { expression: SOCKETS_OFF }])
+    } else if (info.type === 'worker' || info.type === 'shared_worker') {
+      queue.push(['Runtime.evaluate', { expression: SOCKETS_OFF }])
+    }
+    if (info.targetId !== this.targetId) queue.push(['Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }])
+    if (event.waitingForDebugger) queue.push(['Runtime.runIfWaitingForDebugger', {}])
+    for (const [method, params] of queue) void raw(method, params, sessionId).catch(() => undefined)
+  }
+
+  /** True when a request comes from a popup: a page target in this browser other than this one. */
+  private async isPopupFrame(frameId: string): Promise<boolean> {
+    if (!frameId || frameId === this.mainFrameId) return false
+    if (this.popups.has(frameId)) return true
+    const info = await this.browser.Target.getTargetInfo({ targetId: frameId }).then((r) => r.targetInfo, () => null)
+    if (info?.type !== 'page') return false
+    this.popups.add(frameId)
+    return true
+  }
+
+  /** A popup's page opens in this page instead, so every agent keeps one view. The popup loads nothing. */
+  private async foldPopup(popupId: string, requestId: string, url: string): Promise<void> {
+    await this.browser.Fetch.failRequest({ requestId, errorReason: 'Aborted' }).catch(() => undefined)
+    await this.browser.Target.closeTarget({ targetId: popupId }).catch(() => undefined)
     this.log.push({ at: Date.now(), action: { event: 'new-tab-folded', url } })
     if (/^https?:/.test(url)) await this.navigate(url).catch(() => undefined)
   }
 
-  /** Why the egress policy refuses this URL's origin, or null; refused when the check itself fails. */
-  private egressRefusal(url: string): Promise<string | null> {
-    const origin = egressOrigin(url)
-    if (origin === null) return Promise.resolve(null)
-    let verdict = this.egressVerdicts.get(origin)
-    if (!verdict) {
-      verdict = this.egress(origin).catch((err: unknown) => `the address check failed: ${describeError(err)}`)
-      this.egressVerdicts.set(origin, verdict)
-    }
-    return verdict
+  /** Why the egress policy refuses this URL's host, or null. The proxy enforces it either way. */
+  private async egressRefusal(url: string): Promise<string | null> {
+    const target = egressTarget(url)
+    if (target === null) return null
+    const verdict = await this.gate(target.host, target.port)
+    return verdict.ok ? null : verdict.reason
   }
 
   private async onRequestPaused(event: { requestId: string; request: { url: string; method: string; postData?: string; postDataEntries?: Array<{ bytes?: string }>; headers: Record<string, string> }; resourceType: string; frameId: string }): Promise<void> {
     const { requestId, request } = event
-    const isMainFrameDocument = event.resourceType === 'Document' && event.frameId === this.mainFrameId
-    const decision = decideFence({ url: request.url, method: request.method, isMainFrameDocument }, this.siteHosts)
-    const body = request.postData ?? (request.postDataEntries?.map((e) => (e.bytes ? Buffer.from(e.bytes, 'base64').toString('utf8') : '')).join('') || null)
+    const fetch = this.browser.Fetch
     try {
+      if (await this.isPopupFrame(event.frameId)) {
+        // A popup's own page load is folded; anything else it sends (or a form it posts) is refused.
+        if (event.resourceType === 'Document' && request.method.toUpperCase() === 'GET') await this.foldPopup(event.frameId, requestId, request.url)
+        else await fetch.failRequest({ requestId, errorReason: 'BlockedByClient' })
+        return
+      }
+      const isMainFrameDocument = event.resourceType === 'Document' && event.frameId === this.mainFrameId
+      const decision = decideFence({ url: request.url, method: request.method, isMainFrameDocument }, this.siteHosts)
+      const body = request.postData ?? (request.postDataEntries?.map((e) => (e.bytes ? Buffer.from(e.bytes, 'base64').toString('utf8') : '')).join('') || null)
       switch (decision.action) {
         case 'continue': {
           // Only requests that will really be dialed reach this check; answered writes, drops
           // and block pages never leave the browser.
           const refusal = await this.egressRefusal(request.url)
           if (refusal === null) {
-            await this.page.Fetch.continueRequest({ requestId })
+            await fetch.continueRequest({ requestId })
             return
           }
           this.log.push({ at: Date.now(), action: { event: 'egress-refused', url: request.url, reason: refusal } })
           if (!isMainFrameDocument) {
-            await this.page.Fetch.failRequest({ requestId, errorReason: 'BlockedByClient' })
+            await fetch.failRequest({ requestId, errorReason: 'BlockedByClient' })
             return
           }
           this.blockedPages.push(request.url)
-          await this.page.Fetch.fulfillRequest({
+          await fetch.fulfillRequest({
             requestId,
             responseCode: 200,
             responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }],
@@ -278,16 +336,16 @@ export class BrowserSession {
           const origin = request.headers.Origin ?? request.headers.origin
           const headers = [{ name: 'Content-Type', value: 'application/json' }]
           if (origin) headers.push({ name: 'Access-Control-Allow-Origin', value: origin }, { name: 'Access-Control-Allow-Credentials', value: 'true' })
-          await this.page.Fetch.fulfillRequest({ requestId, responseCode: 200, responseHeaders: headers, body: Buffer.from('{"ok":true}').toString('base64') })
+          await fetch.fulfillRequest({ requestId, responseCode: 200, responseHeaders: headers, body: Buffer.from('{"ok":true}').toString('base64') })
           return
         }
         case 'drop':
           if (decision.reason === 'offsite-write') this.writes.push({ url: request.url, method: request.method, body, answeredLocally: false, at: Date.now() })
-          await this.page.Fetch.failRequest({ requestId, errorReason: 'BlockedByClient' })
+          await fetch.failRequest({ requestId, errorReason: 'BlockedByClient' })
           return
         case 'block-page':
           this.blockedPages.push(request.url)
-          await this.page.Fetch.fulfillRequest({
+          await fetch.fulfillRequest({
             requestId,
             responseCode: 200,
             responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }],

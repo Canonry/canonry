@@ -3,15 +3,25 @@
 // claim of success. Pages can contain text that tells an agent it succeeded.
 
 import type { AgentBrowserResultStatus } from '@canonry/canonry-contracts'
-import { AgentBrowserResultStatuses, jsonValueText } from '@canonry/canonry-contracts'
+import { AgentBrowserResultStatuses, isAgentBrowserSiteHost, jsonValueText } from '@canonry/canonry-contracts'
 import type { CapturedWrite } from './browser.js'
 
+/** What the browser saw, which is all a verdict may rest on. */
+export interface ObservedRun {
+  finalUrl: string
+  writes: CapturedWrite[]
+  /** Pages the check replaced with its own "blocked" page. */
+  blockedPages: string[]
+  /** Hosts that count as the site under test. */
+  siteHosts: readonly string[]
+}
+
 export interface CheckExpectation {
-  /** The run must end on this path (trailing slash ignored). */
+  /** The run must end on this path of the site, on a page the site served (trailing slash ignored). */
   urlPath?: string
   /** Each phrase must appear in the final answer, ignoring case. */
   answerIncludes?: string[]
-  /** A submission to this path must have been caught. */
+  /** A submission to this path of the site must have been caught and answered by the check. */
   submitPath?: string
   /** The caught submission must carry these values, compared ignoring case and surrounding space. */
   submitFields?: Record<string, string>
@@ -59,16 +69,36 @@ export function parseSubmittedFields(body: string | null): Record<string, string
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
-export function evaluateExpectation(
-  observed: { finalUrl: string; answer: string; writes: CapturedWrite[] },
-  expect: CheckExpectation,
-): CheckOutcome {
+const withoutHash = (url: string) => url.replace(/#.*$/, '')
+
+function hostOfUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return null
+  }
+}
+
+export function evaluateExpectation(observed: ObservedRun & { answer: string }, expect: CheckExpectation): CheckOutcome {
   const details: CheckOutcome['details'] = []
   const agentClaimedFailure = /ANSWER:\s*FAILED/i.test(observed.answer)
   if (expect.urlPath !== undefined) {
     const want = normalizePath(expect.urlPath)
     const got = pathOf(observed.finalUrl)
-    details.push({ check: 'urlPath', passed: got === want, detail: got === want ? `ended on ${want}` : `ended on ${got || 'no page'}, not ${want}` })
+    const host = hostOfUrl(observed.finalUrl)
+    // The check's own "blocked" page and another site's page can sit at any path, so only a
+    // page of the site that the site really served counts.
+    const blocked = observed.blockedPages.some((page) => withoutHash(page) === withoutHash(observed.finalUrl))
+    const onSite = host !== null && isAgentBrowserSiteHost(host, observed.siteHosts)
+    const passed = got === want && onSite && !blocked
+    const detail = blocked
+      ? `ended on the check's blocked page for ${observed.finalUrl}, not ${want}`
+      : !onSite
+        ? `ended on ${host ?? 'no page'}, outside the site, not ${want}`
+        : got === want
+          ? `ended on ${want}`
+          : `ended on ${got || 'no page'}, not ${want}`
+    details.push({ check: 'urlPath', passed, detail })
   }
   for (const phrase of expect.answerIncludes ?? []) {
     const ok = observed.answer.toLowerCase().includes(phrase.toLowerCase())
@@ -76,7 +106,9 @@ export function evaluateExpectation(
   }
   if (expect.submitPath !== undefined) {
     const want = normalizePath(expect.submitPath)
-    const submits = observed.writes.filter((w) => pathOf(w.url) === want)
+    // Only a submission to the site that the check answered counts; a dropped write to another
+    // site at the same path never reached anyone.
+    const submits = observed.writes.filter((w) => w.answeredLocally && pathOf(w.url) === want)
     if (!submits.length) {
       details.push({ check: 'submitPath', passed: false, detail: `nothing was submitted to ${want}` })
     } else {
@@ -108,21 +140,22 @@ export interface AgentRunVerdict {
  * run that stopped early or reported "ANSWER: FAILED" failed, anything else is an unverified pass.
  */
 export function judgeAgentRun(
-  out: { answer: string; stop: string } | null,
+  out: { answer: string; stop: string; stopDetail?: string } | null,
   error: string | null,
-  observed: { finalUrl: string; writes: CapturedWrite[] },
+  observed: ObservedRun,
   expect: CheckExpectation,
 ): AgentRunVerdict {
   if (!out) return { status: AgentBrowserResultStatuses.errored, verified: false, detail: error ?? 'the run did not finish', checks: [] }
-  const outcome = evaluateExpectation({ finalUrl: observed.finalUrl, answer: out.answer, writes: observed.writes }, expect)
+  const outcome = evaluateExpectation({ ...observed, answer: out.answer }, expect)
   const stoppedEarly = out.stop !== 'final'
+  const stopped = `stopped: ${out.stop}${out.stopDetail ? ` (${out.stopDetail})` : ''}`
   if (outcome.passed === null) {
-    if (stoppedEarly) return { status: AgentBrowserResultStatuses.failed, verified: false, detail: `stopped: ${out.stop}`, checks: [] }
+    if (stoppedEarly) return { status: AgentBrowserResultStatuses.failed, verified: false, detail: stopped, checks: [] }
     if (outcome.agentClaimedFailure) return { status: AgentBrowserResultStatuses.failed, verified: false, detail: 'the agent reported it could not finish', checks: [] }
     return { status: AgentBrowserResultStatuses.passed, verified: false, detail: 'the agent reported success; no expectation was set to check it', checks: [] }
   }
   if (outcome.passed) return { status: AgentBrowserResultStatuses.passed, verified: true, detail: outcome.details.map((d) => d.detail).join('; '), checks: outcome.details }
   const failing = outcome.details.filter((d) => !d.passed).map((d) => d.detail)
-  const reason = stoppedEarly ? `stopped: ${out.stop}; ` : ''
+  const reason = stoppedEarly ? `${stopped}; ` : ''
   return { status: AgentBrowserResultStatuses.failed, verified: true, detail: `${reason}${failing.join('; ')}`, checks: outcome.details }
 }

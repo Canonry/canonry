@@ -129,6 +129,14 @@ describe('POST /projects/:name/agent-browser/checks', () => {
     expect((await post({ task: 'x', startUrl: 'ftp://example.com/' })).statusCode).toBe(400)
   })
 
+  it('refuses a start page carrying a user name or password before storing anything', async () => {
+    const res = await post({ task: 'x', startUrl: 'https://user:secret@example.com/' })
+    expect(res.statusCode).toBe(400)
+    expect((res.json() as { error: { message: string; details: { reason: string } } }).error).toMatchObject({ message: '"startUrl" must not contain a user name or password.', details: { reason: 'credentials-in-url' } })
+    expect(ctx.db.select().from(runs).all()).toHaveLength(0)
+    expect(ctx.db.select().from(agentBrowserChecks).all()).toHaveLength(0)
+  })
+
   it('refuses a request with no task', async () => {
     const res = await post({ agents: ['openai'] })
     expect(res.statusCode).toBe(400)

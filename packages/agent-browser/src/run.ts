@@ -3,7 +3,8 @@
 import path from 'node:path'
 import type { AgentBrowserAgent, AgentBrowserResultStatus } from '@canonry/canonry-contracts'
 import { AgentBrowserAgents, describeError } from '@canonry/canonry-contracts'
-import { BrowserSession, type CapturedWrite, type ChromeEndpoint, type EgressCheck, type Viewport } from './browser.js'
+import { BrowserSession, launchChrome, type ActionLogEntry, type CapturedWrite, type ChromeHandle, type Viewport } from './browser.js'
+import { createEgressGate, startEgressProxy, type EgressCheck, type EgressProxy } from './egress-proxy.js'
 import { emptyUsage, runClaudeA11yAgent, runClaudeAgent, runGeminiAgent, runOpenAIAgent, type AgentRunInput, type AgentRunOutput, type AgentUsage } from './agents.js'
 import { judgeAgentRun, type CheckExpectation } from './checks.js'
 
@@ -14,12 +15,13 @@ export interface AgentRunSpec {
 }
 
 export interface AgentBrowserCheckInput {
-  endpoint: ChromeEndpoint
+  /** The Chrome or Chromium to launch: one browser per agent run, behind that run's egress proxy. */
+  chromePath: string
   startUrl: string
   task: string
   /** Hosts of the site under test; writes to them are answered locally, other sites are blocked. */
   siteHosts: string[]
-  /** The host's outbound address policy; a request it refuses never leaves the browser. */
+  /** The host's outbound address policy. Each run's proxy dials only the addresses it vets. */
   egress: EgressCheck
   agents: AgentRunSpec[]
   /** Runs per agent. Agents vary from run to run, so more than one shows how reliable a result is. */
@@ -68,32 +70,53 @@ const RUNNERS: Record<AgentBrowserAgent, (input: AgentRunInput) => Promise<Agent
   [AgentBrowserAgents['claude-a11y']]: runClaudeA11yAgent,
 }
 
+/** Extra time past a run's deadline before its browser is shut to free a call stuck in it. */
+const STUCK_GRACE_MS = 30_000
+
 async function runOne(input: AgentBrowserCheckInput, spec: AgentRunSpec, attempt: number): Promise<AgentBrowserRunResult> {
   const evidenceDir = input.evidenceDir ? path.join(input.evidenceDir, `${spec.agent}-${attempt}`) : null
   let session: BrowserSession | null = null
+  let chrome: ChromeHandle | null = null
+  let proxy: EgressProxy | null = null
   let out: AgentRunOutput | null = null
   let error: string | null = null
   let finalUrl = ''
+  const refused: ActionLogEntry[] = []
   const started = Date.now()
+  // The wall-clock limit aborts the run's provider calls and browser work, not only new turns.
+  const limit = new AbortController()
+  const signal = input.signal ? AbortSignal.any([input.signal, limit.signal]) : limit.signal
+  const timers: NodeJS.Timeout[] = []
   try {
-    session = await BrowserSession.open({ endpoint: input.endpoint, siteHosts: input.siteHosts, egress: input.egress, viewport: input.viewport, outDir: evidenceDir })
+    const gate = createEgressGate(input.egress)
+    proxy = await startEgressProxy(gate, (target, reason) => refused.push({ at: Date.now(), action: { event: 'egress-refused', target, reason } }))
+    chrome = await launchChrome(input.chromePath, input.viewport, { proxyServer: proxy.url })
+    session = await BrowserSession.open({ endpoint: chrome.endpoint, siteHosts: input.siteHosts, gate, viewport: input.viewport, outDir: evidenceDir })
     await session.navigate(input.startUrl)
-    const runStarted = Date.now()
+    const deadline = Date.now() + input.maxMinutesPerRun * 60_000
+    timers.push(setTimeout(() => limit.abort(new Error('The run reached its time limit.')), deadline - Date.now()))
+    // A call stuck inside the browser ignores the signal; closing the browser frees it.
+    const stuck = chrome
+    timers.push(setTimeout(() => void stuck.close(), deadline - Date.now() + STUCK_GRACE_MS))
     out = await RUNNERS[spec.agent]({
       session,
       startUrl: input.startUrl,
       task: input.task,
       model: spec.model,
       apiKey: spec.apiKey,
-      deadline: runStarted + input.maxMinutesPerRun * 60_000,
+      deadline,
       maxTurns: input.maxTurnsPerRun,
-      signal: input.signal,
+      signal,
     })
   } catch (err) {
-    error = describeError(err)
+    // Past the deadline, a failure is the time limit taking effect, not a broken run.
+    if (limit.signal.aborted && !input.signal?.aborted) out = { answer: '', turns: 0, actions: 0, stop: 'time-limit', usage: emptyUsage(), safetyChecks: 0 }
+    else error = describeError(err)
+  } finally {
+    for (const timer of timers) clearTimeout(timer)
   }
   if (session) finalUrl = await session.url().catch(() => session?.visited.at(-1) ?? '')
-  const observed = { finalUrl, writes: session?.writes ?? [] }
+  const observed = { finalUrl, writes: session?.writes ?? [], blockedPages: session?.blockedPages ?? [], siteHosts: input.siteHosts }
   const verdict = judgeAgentRun(out, error, observed, input.expect)
   const result: AgentBrowserRunResult = {
     agent: spec.agent,
@@ -117,9 +140,12 @@ async function runOne(input: AgentBrowserCheckInput, spec: AgentRunSpec, attempt
   }
   if (evidenceDir && session) {
     const { writeFile } = await import('node:fs/promises')
-    await writeFile(path.join(evidenceDir, 'actions.json'), JSON.stringify(session.log, null, 1)).catch(() => undefined)
+    const log = [...session.log, ...refused].sort((a, b) => a.at - b.at)
+    await writeFile(path.join(evidenceDir, 'actions.json'), JSON.stringify(log, null, 1)).catch(() => undefined)
   }
-  await session?.close()
+  await session?.close().catch(() => undefined)
+  await chrome?.close().catch(() => undefined)
+  await proxy?.close().catch(() => undefined)
   return result
 }
 

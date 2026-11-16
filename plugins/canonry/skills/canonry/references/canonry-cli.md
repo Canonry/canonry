@@ -593,7 +593,7 @@ To assess Agent Readiness, begin with `cnry agent-readiness score <project> --fo
 
 ## Agent-browser checks
 
-AI agents try a task on the project's site in a real browser, each in its own isolated page. `openai`, `claude` and `gemini` work from screenshots; `claude-a11y` is Claude reading the accessibility tree. Every run spends on your provider accounts. The browser never lets data out: a form submission to the site is answered locally and recorded, other sites are blocked, analytics are dropped. Needs a local Chrome or Chromium (or `CANONRY_CHROME_PATH`), else the Chrome from `canonry cdp connect`.
+AI agents try a task on the project's site in a real browser, each in its own isolated page. `openai`, `claude` and `gemini` work from screenshots; `claude-a11y` is Claude reading the accessibility tree. Every run spends on your provider accounts. The browser never lets data out: a form submission to the site is answered locally and recorded, other sites are blocked, analytics are dropped. Needs a local Chrome or Chromium (or `CANONRY_CHROME_PATH`); every agent run launches its own, behind a proxy that dials only public addresses. WebSockets and service workers are off and new tabs open in the same page, so nothing the fence cannot read leaves the browser.
 
 ```bash
 cnry agent-browser check <project> --task <text> [--property <key>] [--start-url <url>] [--agent <openai|claude|gemini|claude-a11y>...] [--model <agent>=<model>...] [--runs <n>] [--expect-url <path>] [--expect-answer <phrase>...] [--expect-submit <path>] [--expect-field <name>=<value>...] [--max-minutes <n>] [--max-turns <n>] [--wait] [--format json]
@@ -605,7 +605,7 @@ cnry agent-browser show <project> --run-id <id> [--format json|jsonl]     # ever
 ```
 
 - Pass/fail comes from the expectations: `--expect-url` (where the run must end), `--expect-answer` (phrases the answer must contain), `--expect-submit` with `--expect-field` (a caught form submission and its values). With none, a pass is reported as unverified.
-- `errored` means the provider or the browser failed (or the agent has no API key); it says nothing about the site. `failed` means the agent did not complete the task.
+- `errored` means the provider or the browser failed (or the agent has no API key); it says nothing about the site. `failed` means the agent did not complete the task. A run the provider stopped (`stop`: `safety-check` when it asked for a person's confirmation, `refusal`, `incomplete`) fails with the provider's reason; it is never an unverified pass.
 - `--wait` exits 2 (`RUN_FAILED`) when the check itself failed because no agent run could be judged, after printing it; a check whose agents failed the task exits 0. The browser dials only public addresses (the same egress policy as webhooks and sitemaps), so a page cannot pull an internal address into a run.
 - Advanced Measurement portfolios: `--property <key>` checks one Property of the published plan. Its URLs count as the site along with the project's domains, and agents start on its most specific page (an exact URL, else the longest path prefix, else its host). A Property with no URL needs `--start-url`. The check records the Property and plan revision, so `checks --property` still finds it after the plan changes.
 - Defaults: `openai`, `claude` and `claude-a11y`, one run each, from the project's home page, 8 minutes and 60 turns per run. An identical active check is joined; a different one is refused while a check runs.
