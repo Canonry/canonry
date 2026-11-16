@@ -1,5 +1,5 @@
-import type { BingSearchComparisonDto, BingTrafficResponseDto, RunDetailDto } from '@canonry/canonry-contracts'
-import { describeError, formatPercent, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import type { BingSearchComparisonDto, BingTrafficResponseDto, BingUrlInspectionDto, LocalBlockReason, RunDetailDto } from '@canonry/canonry-contracts'
+import { describeError, formatPercent, formatRunErrorOneLine, localBlockReasonShortLabel } from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -303,14 +303,7 @@ export async function bingInspections(project: string, opts: { url?: string; for
   const params: Record<string, string> = {}
   if (opts.url) params.url = opts.url
 
-  const rows = await client.bingInspections(project, Object.keys(params).length > 0 ? params : undefined) as Array<{
-    id: string
-    url: string
-    httpCode: number | null
-    inIndex: boolean | null
-    lastCrawledDate: string | null
-    inspectedAt: string
-  }>
+  const rows = await client.bingInspections(project, Object.keys(params).length > 0 ? params : undefined) as BingUrlInspectionDto[]
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(rows, null, 2))
@@ -325,15 +318,24 @@ export async function bingInspections(project: string, opts: { url?: string; for
     return
   }
 
+  // Local discoverability (issue #357): the site's own signal for the URL.
+  // `—` means the check did not run or could not be read, never "not blocked".
+  const blockLabel = (row: { localBlocked?: boolean | null; localBlockReason?: LocalBlockReason | null }): string => {
+    if (row.localBlocked !== true) return row.localBlocked === false ? '—' : '?'
+    return row.localBlockReason !== null && row.localBlockReason !== undefined
+      ? localBlockReasonShortLabel(row.localBlockReason)
+      : 'blocked'
+  }
+
   console.log(`Bing URL inspection history (${rows.length} records):\n`)
   const urlWidth = Math.min(50, Math.max(10, ...rows.map((r) => r.url.length)))
-  console.log(`  ${'URL'.padEnd(urlWidth)}  ${'INDEXED'.padEnd(9)}${'HTTP'.padEnd(6)}${'INSPECTED'.padEnd(22)}`)
-  console.log(`  ${'─'.repeat(urlWidth)}  ${'─'.repeat(9)}${'─'.repeat(6)}${'─'.repeat(22)}`)
+  console.log(`  ${'URL'.padEnd(urlWidth)}  ${'INDEXED'.padEnd(9)}${'HTTP'.padEnd(6)}${'BLOCKED'.padEnd(9)}${'INSPECTED'.padEnd(22)}`)
+  console.log(`  ${'─'.repeat(urlWidth)}  ${'─'.repeat(9)}${'─'.repeat(6)}${'─'.repeat(9)}${'─'.repeat(22)}`)
   for (const row of rows) {
     const url = row.url.length > urlWidth ? row.url.slice(0, urlWidth - 3) + '...' : row.url
     const indexed = row.inIndex === true ? 'Yes' : row.inIndex === false ? 'No' : '?'
     console.log(
-      `  ${url.padEnd(urlWidth)}  ${indexed.padEnd(9)}${String(row.httpCode ?? '?').padEnd(6)}${row.inspectedAt}`,
+      `  ${url.padEnd(urlWidth)}  ${indexed.padEnd(9)}${String(row.httpCode ?? '?').padEnd(6)}${blockLabel(row).padEnd(9)}${row.inspectedAt}`,
     )
   }
 }
