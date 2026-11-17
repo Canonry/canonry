@@ -366,6 +366,9 @@ Two independent signals per (query × provider): **mention** (`answerMentioned` 
 
 ```bash
 cnry citations visibility <project>            # two-glyph [citation][mention] cell per (query × engine) + Cite/Ment counts
+cnry citations urls <project> --category forum,social,video --format json   # every cited thread/post, one row per page: answers, how many mention the brand, engines, queries, first and last sweep
+cnry citations urls <project> --category forum,social,video --new-in-latest   # only pages the latest sweep cited for the first time (window all by default)
+cnry citations urls <project> --domain reddit.com --sort newest --limit 50    # one site, most recent first citation first; follow nextCursor for more
 cnry evidence <project>                        # latest citation per query (✓ cited / ✗ not-cited / · not measured) + Cited: X / Y
 cnry evidence <project> --format json          # JSON output: each query's runs with citation and mention state
 cnry history <project>                         # audit trail
@@ -1220,6 +1223,9 @@ cnry traffic status <project> --format json
 cnry traffic analytics <project> --period 30 --format json    # complete 7|14|30|90-day totals, prior-period changes and breakdowns
 cnry traffic events <project> --source <source-id> --format json
 cnry traffic events <project> --kind ai-referral --since 2025-12-01T00:00:00Z --granularity month --format json   # series by UTC month; series.partialBuckets names part months (recording began inside, or still running), left out of the fits
+cnry traffic events <project> --path /faq --group-by agent --since 2026-10-26 --format json   # which bots read a page: totals over the whole window (--path is the page and pages under it, never /faqs; totals, rows and groups all honor it)
+cnry traffic events <project> --agent openai-searchbot --group-by path --since 2026-10-26 --format json   # which pages one bot read; --agent is the bot ID, or the AI product on ai-referral rows
+cnry traffic events <project> --kind crawler --since 2026-10-26 --limit 5000 --cursor <eventRows.nextCursor> --format json   # next page of rows; repeat the filters, the cursor keeps the first page's window
 cnry traffic referral-assessment <project> --start-date 2026-08-01 --end-date 2026-08-31 --burst-threshold 100 --ratio-threshold 3 --limit 100 --format json
 cnry traffic declare-gap <project> --source <source-id>   # record an unrecovered skip as lost (WordPress, or past provider retention); clears the doctor check
 

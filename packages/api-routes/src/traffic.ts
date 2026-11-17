@@ -46,6 +46,8 @@ import {
   TrafficEventKinds,
   parseTrafficEventKindFilter,
   TRAFFIC_EVENT_KIND_FILTER_HINT,
+  parseTrafficEventGroupBy,
+  TRAFFIC_EVENT_GROUP_BY_HINT,
   TrafficSeriesGranularities,
   trafficSeriesGranularitySchema,
   CloudflareTrafficDeliveryModes,
@@ -86,6 +88,7 @@ import type {
   TrafficCrawlerEventEntry,
   TrafficAiUserFetchEventEntry,
   TrafficEventEntry,
+  TrafficEventGroup,
   TrafficEventKind,
   TrafficEventsResponse,
   TrafficSeriesGranularity,
@@ -169,6 +172,22 @@ import {
   retainedRawEventSampleTimestamp,
 } from './raw-event-sample-retention.js'
 import { releaseTrafficSyncLease, tryClaimTrafficSyncLease } from './traffic-sync-lease.js'
+import {
+  compareTrafficEventGroups,
+  decodeTrafficEventCursor,
+  mergeTrafficEventPages,
+  optionalQueryString,
+  readTrafficEventCursorWindow,
+  toTrafficEventGroup,
+  TRAFFIC_EVENT_TABLES,
+  trafficEventCursorPredicate,
+  trafficEventFilterPredicates,
+  trafficEventGroupColumns,
+  trafficEventOrder,
+  type RankedTrafficEventRow,
+  type TrafficEventFilters,
+  type TrafficEventTable,
+} from './traffic-events-read.js'
 
 export interface CloudRunCredentialRecord {
   projectName: string
@@ -5038,7 +5057,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // GET /projects/:name/traffic/events
   app.get<{
     Params: { name: string }
-    Querystring: { since?: string; until?: string; kind?: string; limit?: string; sourceId?: string; granularity?: string; sinceMinutes?: string }
+    Querystring: {
+      since?: string; until?: string; kind?: string; limit?: string; sourceId?: string; granularity?: string; sinceMinutes?: string
+      path?: string; agent?: string; cursor?: string; groupBy?: string
+    }
   }>('/projects/:name/traffic/events', async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -5057,8 +5079,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const sinceParam = request.query?.since
     const untilParam = request.query?.until
-    const since = sinceParam ? new Date(sinceParam) : defaultSince
-    const until = untilParam ? new Date(untilParam) : now
+    // A later page keeps the first page's window. Without that, a default
+    // window that ends "now" moves between pages and a cursor would skip or
+    // repeat rows. An explicit bound that disagrees with the cursor is refused.
+    const cursorParam = optionalQueryString(request.query?.cursor, 'cursor')
+    const cursorWindow = cursorParam === null ? null : readTrafficEventCursorWindow(cursorParam)
+    const since = cursorWindow ? new Date(cursorWindow.since) : sinceParam ? new Date(sinceParam) : defaultSince
+    const until = cursorWindow ? new Date(cursorWindow.until) : untilParam ? new Date(untilParam) : now
     if (Number.isNaN(since.getTime())) {
       throw validationError('"since" must be an ISO-8601 timestamp')
     }
@@ -5067,6 +5094,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     if (since.getTime() > until.getTime()) {
       throw validationError('"since" must be ≤ "until"')
+    }
+    if (cursorWindow) {
+      const sameBound = (param: string | undefined, bound: string) =>
+        param === undefined || (!Number.isNaN(new Date(param).getTime()) && new Date(param).toISOString() === bound)
+      if (!sameBound(sinceParam, cursorWindow.since) || !sameBound(untilParam, cursorWindow.until)) {
+        throw validationError('"cursor" keeps the first page\'s window. Leave "since" and "until" out, or repeat the first page\'s values.')
+      }
     }
 
     // One kind, "all", or a comma-separated list. A list lets a caller ask for
@@ -5081,6 +5115,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw validationError(`"kind" must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`)
     }
     const kinds = new Set<TrafficEventKind>(kindList)
+
+    // Path (a page and the pages under it, case counting) and agent (bot ID, or the
+    // AI product on AI-referral rows). Every part of the response honors them:
+    // totals, series, rows and groups describe the same slice.
+    const pathFilter = optionalQueryString(request.query?.path, 'path')
+    const agentFilter = optionalQueryString(request.query?.agent, 'agent')
+    const groupByParam = optionalQueryString(request.query?.groupBy, 'groupBy')
+    const groupBy = groupByParam === null ? null : parseTrafficEventGroupBy(groupByParam)
+    if (groupByParam !== null && !groupBy) {
+      throw validationError(`"groupBy" must be ${TRAFFIC_EVENT_GROUP_BY_HINT}`)
+    }
 
     const limitParam = request.query?.limit
     const requestedLimit = limitParam ? parseInt(limitParam, 10) : 500
@@ -5102,11 +5147,46 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    const sourceIdParam = request.query?.sourceId
+    // Guarded like the other filters: a repeated sourceId arrives as an array.
+    const sourceIdParam = optionalQueryString(request.query?.sourceId, 'sourceId') ?? undefined
     const sinceIso = since.toISOString()
     const untilIso = until.toISOString()
+    const readFilters: TrafficEventFilters = {
+      kinds: kindList,
+      sourceId: sourceIdParam || null,
+      path: pathFilter,
+      agent: agentFilter,
+    }
+    const cursor = cursorParam === null ? null : decodeTrafficEventCursor(cursorParam, readFilters, sinceIso, untilIso)
+    const pageRows = <T extends { tsHour: string }>(table: TrafficEventTable, where: SQL | undefined, read: (where: SQL | undefined, order: SQL[], take: number) => T[]): RankedTrafficEventRow<T>[] =>
+      read(cursor ? and(where, trafficEventCursorPredicate(table, cursor)) : where, trafficEventOrder(table), limit + 1)
+        .map((row) => ({
+          rank: table.rank,
+          tsHour: row.tsHour,
+          keys: table.keyFields.map((field) => (row as unknown as Record<string, string | number>)[field]!),
+          row,
+        }))
+    const rankedPages: RankedTrafficEventRow<TrafficEventEntry>[][] = []
+    const groupEntries: TrafficEventGroup[] = []
+    const collectGroups = (table: TrafficEventTable, where: SQL | undefined) => {
+      if (!groupBy) return
+      const columns = trafficEventGroupColumns(table, groupBy)
+      const groupColumns = Object.values(columns)
+      const rows = app.db
+        .select({
+          ...columns,
+          hits: sql<number>`COALESCE(SUM(${table.hits}), 0)`,
+          rows: sql<number>`COUNT(*)`,
+          firstHour: sql<string>`MIN(${table.tsHour})`,
+          lastHour: sql<string>`MAX(${table.tsHour})`,
+        })
+        .from(table.table)
+        .where(where)
+        .groupBy(...groupColumns)
+        .all() as unknown as Parameters<typeof toTrafficEventGroup>[1][]
+      for (const row of rows) groupEntries.push(toTrafficEventGroup(table.kind, row))
+    }
 
-    const events: TrafficEventEntry[] = []
     let crawlerTotal = 0
     let crawlerSegments = { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 }
     let aiUserFetchTotal = 0
@@ -5124,7 +5204,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         lte(crawlerEventsHourly.tsHour, untilIso),
       ]
       if (sourceIdParam) crawlerFilters.push(eq(crawlerEventsHourly.sourceId, sourceIdParam))
+      crawlerFilters.push(...trafficEventFilterPredicates(TRAFFIC_EVENT_TABLES.crawler, readFilters))
       const crawlerWhere = and(...crawlerFilters)
+      collectGroups(TRAFFIC_EVENT_TABLES.crawler, crawlerWhere)
 
       // Segment the FULL window by path class (not just the limit-truncated row
       // slice below) so the totals reflect every hit. Buckets sum to the
@@ -5222,15 +5304,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         }
       }
 
-      const rows = app.db
-        .select()
-        .from(crawlerEventsHourly)
-        .where(crawlerWhere)
-        .orderBy(desc(crawlerEventsHourly.tsHour))
-        .limit(limit)
-        .all()
-      for (const r of rows) {
-        events.push({
+      const crawlerPage = pageRows(
+        TRAFFIC_EVENT_TABLES.crawler,
+        crawlerWhere,
+        (where, order, take) => app.db.select().from(crawlerEventsHourly).where(where).orderBy(...order).limit(take).all(),
+      )
+      rankedPages.push(crawlerPage.map(({ row: r, ...ranked }) => ({
+        ...ranked,
+        row: {
           kind: TrafficEventKinds.crawler,
           sourceId: r.sourceId,
           tsHour: r.tsHour,
@@ -5243,8 +5324,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pathClass: classifyTrafficPath(r.pathNormalized),
           status: r.status,
           hits: r.hits,
-        })
-      }
+        },
+      })))
     }
 
     if (kinds.has(TrafficEventKinds['ai-user-fetch'])) {
@@ -5254,7 +5335,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         lte(aiUserFetchEventsHourly.tsHour, untilIso),
       ]
       if (sourceIdParam) userFetchFilters.push(eq(aiUserFetchEventsHourly.sourceId, sourceIdParam))
+      userFetchFilters.push(...trafficEventFilterPredicates(TRAFFIC_EVENT_TABLES['ai-user-fetch'], readFilters))
       const userFetchWhere = and(...userFetchFilters)
+      collectGroups(TRAFFIC_EVENT_TABLES['ai-user-fetch'], userFetchWhere)
 
       const total = app.db
         .select({
@@ -5281,15 +5364,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         trafficSeriesPoint(seriesByBucket, row.bucket).aiUserFetchHits = Number(row.hits)
       }
 
-      const rows = app.db
-        .select()
-        .from(aiUserFetchEventsHourly)
-        .where(userFetchWhere)
-        .orderBy(desc(aiUserFetchEventsHourly.tsHour))
-        .limit(limit)
-        .all()
-      for (const r of rows) {
-        events.push({
+      const userFetchPage = pageRows(
+        TRAFFIC_EVENT_TABLES['ai-user-fetch'],
+        userFetchWhere,
+        (where, order, take) => app.db.select().from(aiUserFetchEventsHourly).where(where).orderBy(...order).limit(take).all(),
+      )
+      rankedPages.push(userFetchPage.map(({ row: r, ...ranked }) => ({
+        ...ranked,
+        row: {
           kind: TrafficEventKinds['ai-user-fetch'],
           sourceId: r.sourceId,
           tsHour: r.tsHour,
@@ -5301,8 +5383,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pathNormalized: r.pathNormalized,
           status: r.status,
           hits: r.hits,
-        })
-      }
+        },
+      })))
     }
 
     if (kinds.has(TrafficEventKinds['ai-referral'])) {
@@ -5312,7 +5394,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         lte(aiReferralEventsHourly.tsHour, untilIso),
       ]
       if (sourceIdParam) aiFilters.push(eq(aiReferralEventsHourly.sourceId, sourceIdParam))
+      aiFilters.push(...trafficEventFilterPredicates(TRAFFIC_EVENT_TABLES['ai-referral'], readFilters))
       const aiWhere = and(...aiFilters)
+      collectGroups(TRAFFIC_EVENT_TABLES['ai-referral'], aiWhere)
 
       // The paid/organic/unknown classes are computed over LANDED hits only: a
       // redirect hop's paid tags are not a paid session, and every other
@@ -5357,35 +5441,39 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         point.aiReferralLandedHits = Number(row.landed)
       }
 
-      const rows = app.db
-        .select()
-        .from(aiReferralEventsHourly)
-        .where(aiWhere)
-        .orderBy(desc(aiReferralEventsHourly.tsHour))
-        .limit(limit)
-        .all()
-      for (const r of rows) {
+      const referralPage = pageRows(
+        TRAFFIC_EVENT_TABLES['ai-referral'],
+        aiWhere,
+        (where, order, take) => app.db.select().from(aiReferralEventsHourly).where(where).orderBy(...order).limit(take).all(),
+      )
+      rankedPages.push(referralPage.map(({ row: r, ...ranked }) => {
         const counts = aiReferralClassCounts(r.sessionsOrHits, r.paidSessionsOrHits, r.organicSessionsOrHits)
-        events.push({
-          kind: TrafficEventKinds['ai-referral'],
-          sourceId: r.sourceId,
-          tsHour: r.tsHour,
-          product: r.product,
-          operator: r.operator,
-          sourceDomain: r.sourceDomain,
-          evidenceType: r.evidenceType,
-          landingPathNormalized: r.landingPathNormalized,
-          status: r.status,
-          hits: counts.total,
-          paidHits: counts.paid,
-          organicHits: counts.organic,
-          unknownHits: counts.unknown,
-        })
-      }
+        return {
+          ...ranked,
+          row: {
+            kind: TrafficEventKinds['ai-referral'],
+            sourceId: r.sourceId,
+            tsHour: r.tsHour,
+            product: r.product,
+            operator: r.operator,
+            sourceDomain: r.sourceDomain,
+            evidenceType: r.evidenceType,
+            landingPathNormalized: r.landingPathNormalized,
+            status: r.status,
+            hits: counts.total,
+            paidHits: counts.paid,
+            organicHits: counts.organic,
+            unknownHits: counts.unknown,
+          },
+        }
+      }))
     }
 
-    events.sort((a, b) => (a.tsHour < b.tsHour ? 1 : a.tsHour > b.tsHour ? -1 : 0))
-    const trimmed = events.slice(0, limit)
+    // Newest hour first, then crawler, AI user-fetch, AI-referral, then each
+    // table's keys: a fixed order, so a cursor never repeats or skips a row.
+    const { page: rankedPage, nextCursor } = mergeTrafficEventPages(rankedPages, limit, readFilters, sinceIso, untilIso)
+    const trimmed: TrafficEventEntry[] = rankedPage.map((ranked) => ranked.row)
+    groupEntries.sort(compareTrafficEventGroups)
     const trimmedCrawlerEvents = trimmed.filter(
       (event): event is TrafficCrawlerEventEntry => event.kind === TrafficEventKinds.crawler,
     )
@@ -5545,12 +5633,25 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         aiReferralOrganicHits: aiReferralCounts.organic,
         aiReferralUnknownHits: aiReferralCounts.unknown,
       },
+      filters: readFilters,
       eventRows: {
         total: totalEventRows,
         returned: trimmed.length,
-        truncated: trimmed.length < totalEventRows,
+        truncated: nextCursor !== null,
+        nextCursor,
       },
       events: eventsWithProvenance,
+      ...(groupBy
+        ? {
+            groups: {
+              by: groupBy,
+              total: groupEntries.length,
+              returned: Math.min(groupEntries.length, limit),
+              truncated: groupEntries.length > limit,
+              entries: groupEntries.slice(0, limit),
+            },
+          }
+        : {}),
     }
     return response
   })

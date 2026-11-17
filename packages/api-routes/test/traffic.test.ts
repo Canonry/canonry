@@ -5582,7 +5582,7 @@ describe('GET /traffic/events', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.totals).toMatchObject({ crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1 })
-      expect(body.eventRows).toEqual({ total: 3, returned: 3, truncated: false })
+      expect(body.eventRows).toEqual({ total: 3, returned: 3, truncated: false, nextCursor: null })
       expect(body.series.granularity).toBe('hour')
       expect(
         body.series.points.reduce(
@@ -5848,7 +5848,7 @@ describe('GET /traffic/events', () => {
       expect(body.events.length).toBe(1)
       expect(body.totals.crawlerHits).toBe(2)
       expect(body.totals.aiReferralHits).toBe(1)
-      expect(body.eventRows).toEqual({ total: 2, returned: 1, truncated: true })
+      expect(body.eventRows).toEqual({ total: 2, returned: 1, truncated: true, nextCursor: expect.any(String) })
     } finally { await h.close() }
   })
 
@@ -5951,7 +5951,7 @@ describe('GET /traffic/events', () => {
       expect(body.windowStart).toBe('2026-02-06T00:00:00.000Z')
       expect(body.windowEnd).toBe('2026-05-07T13:45:00.000Z')
       expect(body.events).toHaveLength(1)
-      expect(body.eventRows).toEqual({ total: 4, returned: 1, truncated: true })
+      expect(body.eventRows).toEqual({ total: 4, returned: 1, truncated: true, nextCursor: expect.any(String) })
       expect(body.series.granularity).toBe('day')
       expect(body.series.coverageStart).toBe('2026-02-06T00:00:00.000Z')
       const expectedPoints = Array.from({ length: 91 }, (_, index) => ({
@@ -6622,7 +6622,7 @@ describe('crawler-hit content/infra segmentation', () => {
           })
           expect(res.statusCode, `${scenario.pathCount} repeated paths`).toBe(200)
           const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
-          expect(body.eventRows).toEqual({ total: scenario.eventRows, returned: 1, truncated: true })
+          expect(body.eventRows).toEqual({ total: scenario.eventRows, returned: 1, truncated: true, nextCursor: expect.any(String) })
           expect(body.series.points).toEqual(Array.from({ length: 11 }, (_, index) => ({
             bucket: new Date(Date.UTC(2026, 3, 27) + index * 86_400_000).toISOString().slice(0, 10),
             crawlerHits: index < 4 ? 0 : index === 10 ? 15 : scenario.pathCount + 2,

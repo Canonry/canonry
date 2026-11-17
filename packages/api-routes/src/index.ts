@@ -65,6 +65,7 @@ import { agentJourneyRoutes } from './agent-journeys.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
+import { citationUrlRoutes } from './citation-urls.js'
 import { visibilityStatsRoutes } from './visibility-stats.js'
 import { resultsExportRoutes } from './results-export.js'
 import { compositeRoutes } from './composites.js'
@@ -815,6 +816,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(journeyRoutes)
     await api.register(agentJourneyRoutes, { journeyKeySecret: opts.journeyKeySecret })
     await api.register(citationRoutes)
+    await api.register(citationUrlRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
     await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames, providerRouteFamilies })

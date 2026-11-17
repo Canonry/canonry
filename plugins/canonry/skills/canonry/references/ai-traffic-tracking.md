@@ -175,9 +175,11 @@ through these in order and say which one applies.
    or the source's service or host.
 
 **"Which of our pages does AI read?"**
-`cnry traffic events <p> --kind ai-user-fetch --since <date>`: keep verified
-fetches with status 200, group by path, and leave out `robots.txt`. These are
-the pages assistants open while answering people, even when nobody clicks.
+`cnry traffic events <p> --kind ai-user-fetch --group-by agent,path,status --since <date>`
+totals each assistant's fetches per page over the whole window. Keep status 200
+and leave out `robots.txt`. These are the pages assistants open while answering
+people, even when nobody clicks. For one page, add `--path /faq`; to count
+verified fetches only, read the rows and follow `eventRows.nextCursor`.
 
 **"What did an agent do on our site?"**
 Read `cnry traffic agent-journeys <p> --since <date> --until <date>`, then

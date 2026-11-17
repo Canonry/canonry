@@ -41,6 +41,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set(withLegacyAgentReadinessPa
   '/api/v1/projects/:name/bing/inspections',
   '/api/v1/projects/:name/bing/performance',
   '/api/v1/projects/:name/bing/status',
+  '/api/v1/projects/:name/citations/urls',
   '/api/v1/projects/:name/citations/visibility',
   '/api/v1/projects/:name/competitors',
   '/api/v1/projects/:name/content/dismissals',

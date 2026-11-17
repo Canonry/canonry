@@ -7302,6 +7302,31 @@ const routeCatalog: OpenApiOperation[] = [
       404: errorResponse('Project not found.'),
     },
   },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/citations/urls',
+    summary: 'Cited pages, one row per page, with first and last sweep',
+    description:
+      'Every page the stored answers cite, grouped across the sweeps in scope (completed or partial, never probes, inside the window). Each row carries the answers citing it, how many mention the brand, the engines and queries behind it, its first and last sweep, and `newInLatest` when only the latest sweep cites it and an earlier sweep captured pages. Answers stored before page capture are left out (`answersPagesNotCaptured`). Filter by `domain` (host or subdomain), `category` (for example forum,social,video for discussion threads), `provider` and `queryClass`; `newInLatest=true` keeps only pages the latest sweep cited for the first time. Links are compared one way: https, no `www.`, no tracking parameters, and a Reddit thread by its id. "First" means within the window, so read `window=all` for all history.',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'window', in: 'query', description: 'Sweeps in scope: 7d, 30d, 90d or all (default).', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } },
+      { name: 'domain', in: 'query', description: 'Only pages on this host or its subdomains, e.g. reddit.com.', schema: stringSchema },
+      { name: 'category', in: 'query', description: 'Comma-separated source categories, e.g. forum,social,video.', schema: stringSchema },
+      { name: 'provider', in: 'query', description: 'Only answers from this engine, e.g. gemini or openai.', schema: stringSchema },
+      { name: 'queryClass', in: 'query', description: 'all (default), branded or non-brand, classified as the sources read does.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] } },
+      { name: 'newInLatest', in: 'query', description: 'true keeps only pages the latest sweep cited and no earlier sweep in scope did.', schema: { type: 'string', enum: ['true', 'false'] } },
+      { name: 'sort', in: 'query', description: 'answers (default): most citing answers first. newest: most recent first citation first.', schema: { type: 'string', enum: ['answers', 'newest'] } },
+      { name: 'limit', in: 'query', description: 'Pages per response, 1 to 1000 (default 100).', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'The previous response\'s nextCursor; repeat the same filters.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Cited pages returned.', 'CitationUrlsResponse'),
+      400: errorResponse('Invalid query parameters.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
 
   // Content opportunity engine
   {
@@ -8291,7 +8316,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/events',
     summary: 'List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window',
     description:
-      'Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true pre-limit row count.',
+      'Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true row count, and `eventRows.nextCursor` reads the next page. `path` and `agent` narrow totals, series, rows and groups alike. `groupBy` adds totals per agent, path, status or source over the whole filtered window, so one call can answer which bots read a page.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -8301,6 +8326,10 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max newest combined detail rows in the events array (default 500, max 5000).', schema: stringSchema },
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
       { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).', schema: { type: 'string', enum: ['hour', 'day', 'month'] } },
+      { name: 'path', in: 'query', description: 'A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'agent', in: 'query', description: 'Exact bot ID (for example openai-searchbot), or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'The previous page\'s `eventRows.nextCursor`. Repeat the first page\'s kind, sourceId, path and agent; the cursor keeps the first page\'s window.', schema: stringSchema },
+      { name: 'groupBy', in: 'query', description: 'Comma-separated totals over the whole filtered window: agent, path, status, source. Groups are always split by kind, sorted most hits first and capped by `limit`.', schema: stringSchema },
     ],
     responses: {
       200: jsonResponse('Events returned with windowed totals.', 'TrafficEventsResponse'),

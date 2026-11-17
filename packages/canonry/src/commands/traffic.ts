@@ -15,7 +15,7 @@ import type {
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@canonry/canonry-contracts'
-import { AgentTrustLevels, BrowserAgentRequestKinds, RunStatuses, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, trafficSeriesGranularitySchema, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
+import { AgentTrustLevels, BrowserAgentRequestKinds, RunStatuses, TRAFFIC_EVENT_GROUP_BY_HINT, TRAFFIC_EVENT_KIND_FILTER_HINT, TrafficEventKinds, trafficSeriesGranularitySchema, describeError, formatPercent, parseTrafficAnalyticsPeriod, parseTrafficEventGroupBy, parseTrafficEventKindFilter } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -1157,6 +1157,10 @@ export async function trafficEvents(project: string, opts: {
   limit?: number
   source?: string
   granularity?: string
+  path?: string
+  agent?: string
+  cursor?: string
+  groupBy?: string
   format?: string
 }): Promise<void> {
   if (opts.kind && !parseTrafficEventKindFilter(opts.kind)) {
@@ -1180,18 +1184,37 @@ export async function trafficEvents(project: string, opts: {
     })
   }
 
-  const params: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity } = {}
+  if (opts.groupBy !== undefined && !parseTrafficEventGroupBy(opts.groupBy)) {
+    throw new CliError({
+      code: 'TRAFFIC_INVALID_GROUP_BY',
+      message: `--group-by must be ${TRAFFIC_EVENT_GROUP_BY_HINT}`,
+      displayMessage: `Error: --group-by must be ${TRAFFIC_EVENT_GROUP_BY_HINT}`,
+      details: { project, groupBy: opts.groupBy },
+    })
+  }
+
+  const params: {
+    since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity
+    path?: string; agent?: string; cursor?: string; groupBy?: string
+  } = {}
   if (opts.kind && opts.kind !== 'all') params.kind = opts.kind
+  if (opts.path) params.path = opts.path
+  if (opts.agent) params.agent = opts.agent
+  if (opts.cursor) params.cursor = opts.cursor
+  if (opts.groupBy) params.groupBy = opts.groupBy
   if (opts.source) params.sourceId = opts.source
   if (opts.limit !== undefined) params.limit = opts.limit
   if (opts.granularity) params.granularity = opts.granularity as TrafficSeriesGranularity
-  if (opts.sinceMinutes !== undefined) {
-    const since = new Date(Date.now() - opts.sinceMinutes * 60_000).toISOString()
-    params.since = since
-  } else if (opts.since) {
-    params.since = opts.since
+  // A cursor carries the first page's window, so a later page sends no window
+  // of its own: --since-minutes is relative to now and would move it.
+  if (!opts.cursor) {
+    if (opts.sinceMinutes !== undefined) {
+      params.since = new Date(Date.now() - opts.sinceMinutes * 60_000).toISOString()
+    } else if (opts.since) {
+      params.since = opts.since
+    }
+    if (opts.until) params.until = opts.until
   }
-  if (opts.until) params.until = opts.until
 
   const client = createApiClient()
   const result: TrafficEventsResponse = await client.trafficListEvents(project, params)
@@ -1200,19 +1223,31 @@ export async function trafficEvents(project: string, opts: {
     console.log(JSON.stringify(result, null, 2))
     return
   } else if (opts.format === 'jsonl') {
-    // One self-contained event per line. Each row loses the envelope's window
+    // One self-contained record per line. Each row loses the envelope's window
     // bounds, so `project` + `windowStart`/`windowEnd` are prepended; the
-    // event's own fields (including `kind`) win by spreading last.
-    emitJsonl(result.events.map(event => ({
+    // record's own fields (including `kind`) win by spreading last. With
+    // --group-by the records are the groups, since those were asked for.
+    const records = result.groups ? result.groups.entries : result.events
+    emitJsonl(records.map(record => ({
       project,
       windowStart: result.windowStart,
       windowEnd: result.windowEnd,
-      ...event,
+      ...record,
     })))
+    if (result.groups?.truncated) {
+      console.error(`Showing ${result.groups.returned} of ${result.groups.total} groups. Narrow --path or --agent, or raise --limit (max 5000).`)
+    } else if (!result.groups && result.eventRows.nextCursor) {
+      console.error(`Showing ${result.eventRows.returned} of ${result.eventRows.total} rows. Next page: --cursor ${result.eventRows.nextCursor}`)
+    }
     return
   }
 
   console.log(`Traffic events for "${project}"  ${result.windowStart}  →  ${result.windowEnd}`)
+  const filterNotes = [
+    result.filters?.path ? `path ${result.filters.path}*` : null,
+    result.filters?.agent ? `agent ${result.filters.agent}` : null,
+  ].filter((note): note is string => note !== null)
+  if (filterNotes.length > 0) console.log(`  Filtered to ${filterNotes.join(' · ')} (totals, rows and groups)`)
   console.log(`  Content crawls (window):       ${result.totals.crawlerContentHits}`)
   console.log(`  Infra fetches (window):        ${result.totals.crawlerInfraHits}  (sitemap ${result.totals.crawlerSegments.sitemap} · robots ${result.totals.crawlerSegments.robots} · asset ${result.totals.crawlerSegments.asset})`)
   console.log(`  Other fetches (window):        ${result.totals.crawlerSegments.other}`)
@@ -1224,6 +1259,20 @@ export async function trafficEvents(project: string, opts: {
   console.log(`    unclassified:               ${result.totals.aiReferralUnknownHits}  (ingested before paid/organic classification)`)
   console.log('')
 
+  if (result.groups) {
+    console.log(`  Totals by ${['kind', ...result.groups.by].join(', ')} (whole window, most hits first)`)
+    if (result.groups.entries.length === 0) console.log('  No matching hits in this window.')
+    for (const group of result.groups.entries) {
+      const parts = [group.kind, group.agent, group.path, group.status === undefined ? undefined : String(group.status), group.sourceId]
+        .filter((part): part is string => part !== undefined)
+      console.log(`  ${parts.join('  ')}  ${group.hits} hits  (${group.rows} hourly rows, ${group.firstHour} to ${group.lastHour})`)
+    }
+    if (result.groups.truncated) {
+      console.log(`  Showing ${result.groups.returned} of ${result.groups.total} groups. Narrow --path or --agent, or raise --limit (max 5000).`)
+    }
+    return
+  }
+
   if (result.events.length === 0) {
     console.log('No events in this window.')
     return
@@ -1232,6 +1281,10 @@ export async function trafficEvents(project: string, opts: {
   console.log('  TS_HOUR  KIND  IDENTITY  EVIDENCE/STATUS  PROVENANCE  PATH  COUNT')
   for (const event of result.events) {
     console.log(`  ${formatEventLine(event)}`)
+  }
+  if (result.eventRows.nextCursor) {
+    console.log('')
+    console.log(`  Showing ${result.eventRows.returned} of ${result.eventRows.total} rows. Next page: --cursor ${result.eventRows.nextCursor}`)
   }
 }
 

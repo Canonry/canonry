@@ -94,6 +94,10 @@ import {
   trafficConnectVercelRequestSchema,
   parseTrafficEventKindFilter,
   TRAFFIC_EVENT_KIND_FILTER_HINT,
+  parseCitationUrlCategories,
+  CITATION_URL_CATEGORY_HINT,
+  parseTrafficEventGroupBy,
+  TRAFFIC_EVENT_GROUP_BY_HINT,
   trafficSeriesGranularitySchema,
   measurementPlanAuthoringSchema,
   measurementPlanPublishRequestSchema,
@@ -1074,8 +1078,15 @@ const trafficEventsInputSchema = z.object({
     .optional()
     .describe('Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.'),
   sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
-  limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
+  limit: z.number().int().positive().max(5000).optional().describe('Max combined rows per page, and max groups with groupBy. Defaults to 500, max 5000. Totals always reflect the full filtered window.'),
   granularity: trafficSeriesGranularitySchema.optional().describe('Full-window chart series bucket size: hour (default), day, or month (UTC calendar months).'),
+  path: z.string().min(1).optional().describe('A page and the pages under it: "/faq" matches "/faq" and "/faq/x", never "/faqs"; "/products/" matches everything under /products. Case counts. Matches the landing path on AI-referral rows. Totals, series, rows and groups all honor it.'),
+  agent: z.string().min(1).optional().describe('Exact bot ID such as "openai-searchbot" or "openai-chatgpt-user", or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.'),
+  cursor: z.string().min(1).optional().describe('eventRows.nextCursor from the previous page. Repeat the same kind, sourceId, path and agent; the cursor keeps the first page\'s window.'),
+  groupBy: z.string()
+    .refine((value) => parseTrafficEventGroupBy(value) !== null, { message: `groupBy must be ${TRAFFIC_EVENT_GROUP_BY_HINT}` })
+    .optional()
+    .describe('Totals over the whole filtered window, split by kind plus any of: agent, path, status, source (comma-separated). Use it to answer "which bots read this page" or "which pages did this bot read" in one call.'),
 })
 // ai-referral rows and totals split sessions into paid / organic / unclassified.
 // `unclassified` are rows ingested before the classifier shipped; their UTM tags
@@ -2122,6 +2133,34 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/citations/visibility'],
     handler: (client, input) => client.getCitationVisibility(input.project),
+  }),
+  defineTool({
+    name: 'canonry_citation_urls',
+    title: 'List cited pages',
+    description: 'Every page the stored answers cite, one row per page across the sweeps in scope: answers citing it, how many mention the brand (answersMentionUnchecked were never checked, never "not mentioned"), engines, queries, first and last sweep, and newInLatest. Answers stored before page capture are left out and counted in answersPagesNotCaptured. Use category "forum,social,video" for discussion threads and posts, domain for one site, and newInLatest=true for pages the latest sweep cited for the first time. "First" is within the window, so pass window "all" for all history. Links are compared one way (https, no www, no utm parameters, a Reddit thread by its id). Page with nextCursor.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: z.enum(['7d', '30d', '90d', 'all']).optional().describe('Sweeps in scope. Defaults to all.'),
+      domain: z.string().min(1).optional().describe('Only pages on this host or its subdomains, e.g. "reddit.com".'),
+      category: z.string()
+        .refine((value) => parseCitationUrlCategories(value) !== null, { message: `category must be ${CITATION_URL_CATEGORY_HINT}` })
+        .optional()
+        .describe('Comma-separated source categories, e.g. "forum,social,video" for threads and posts people can reply to.'),
+      provider: z.string().min(1).optional().describe('Only answers from this engine id, e.g. "gemini" or "openai".'),
+      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand queries only, classified as the sources read does. Defaults to all, which pools both classes.'),
+      newInLatest: z.boolean().optional().describe('Only pages the latest sweep cited and no earlier sweep in scope did.'),
+      sort: z.enum(['answers', 'newest']).optional().describe('answers (default): most citing answers first. newest: most recent first citation first.'),
+      limit: z.number().int().min(1).max(1000).optional().describe('Pages per response, default 100.'),
+      cursor: z.string().min(1).optional().describe('nextCursor from the previous response; repeat the same filters.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/citations/urls'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.getCitationUrls(project, query)
+    },
   }),
   defineTool({
     name: 'canonry_visibility_stats',
@@ -3304,7 +3343,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_events',
     title: 'List traffic events',
-    description: 'Read crawler, AI user-fetch, and AI-referral rollups from server-side traffic sources. Returns complete full-window chart series and totals plus a capped discriminated detail list with explicit truncation metadata. Window defaults to last 24h.',
+    description: 'Read crawler, AI user-fetch, and AI-referral rollups from server-side traffic sources. Returns complete full-window chart series and totals plus a paged discriminated detail list (eventRows.nextCursor). Narrow everything with path and agent; add groupBy for totals per agent or path. Window defaults to last 24h.',
     access: 'read',
     tier: 'traffic',
     inputSchema: trafficEventsInputSchema,
@@ -3318,6 +3357,10 @@ const rawCanonryMcpTools = [
       if (input.sourceId) params.sourceId = input.sourceId
       if (input.limit !== undefined) params.limit = input.limit
       if (input.granularity) params.granularity = input.granularity
+      if (input.path) params.path = input.path
+      if (input.agent) params.agent = input.agent
+      if (input.cursor) params.cursor = input.cursor
+      if (input.groupBy) params.groupBy = input.groupBy
       return client.trafficListEvents(input.project, params)
     },
   }),
