@@ -8316,7 +8316,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/events',
     summary: 'List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window',
     description:
-      'Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true pre-limit row count.',
+      'Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true row count, and `eventRows.nextCursor` reads the next page. `path` and `agent` narrow totals, series, rows and groups alike. `groupBy` adds totals per agent, path, status or source over the whole filtered window, so one call can answer which bots read a page.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -8326,6 +8326,10 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max newest combined detail rows in the events array (default 500, max 5000).', schema: stringSchema },
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
       { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).', schema: { type: 'string', enum: ['hour', 'day', 'month'] } },
+      { name: 'path', in: 'query', description: 'A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'agent', in: 'query', description: 'Exact bot ID (for example openai-searchbot), or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'The previous page\'s `eventRows.nextCursor`. Repeat the first page\'s kind, sourceId, path and agent; the cursor keeps the first page\'s window.', schema: stringSchema },
+      { name: 'groupBy', in: 'query', description: 'Comma-separated totals over the whole filtered window: agent, path, status, source. Groups are always split by kind, sorted most hits first and capped by `limit`.', schema: stringSchema },
     ],
     responses: {
       200: jsonResponse('Events returned with windowed totals.', 'TrafficEventsResponse'),

@@ -441,7 +441,7 @@ describe('GET /projects/:name/traffic/analytics', () => {
     })
     expect(detail.statusCode).toBe(200)
     const details = detail.json<TrafficEventsResponse>()
-    expect(details.eventRows).toEqual({ total: 6000, returned: 5000, truncated: true })
+    expect(details.eventRows).toEqual({ total: 6000, returned: 5000, truncated: true, nextCursor: expect.any(String) })
 
     const { activity } = await readAnalytics('large-history')
     expect(activity!.verifiedCrawlerHits).toEqual({ current: 3000, prior: 0, deltaPct: null })

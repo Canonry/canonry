@@ -4383,7 +4383,10 @@ export class ApiClient {
 
   async trafficListEvents(
     project: string,
-    params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity },
+    params?: {
+      since?: string; until?: string; kind?: string; limit?: number; sourceId?: string; granularity?: TrafficSeriesGranularity
+      path?: string; agent?: string; cursor?: string; groupBy?: string
+    },
   ): Promise<TrafficEventsResponse> {
     return this.invoke<TrafficEventsResponse>(() =>
       getApiV1ProjectsByNameTrafficEvents({
@@ -4396,6 +4399,10 @@ export class ApiClient {
           limit: params?.limit !== undefined ? String(params.limit) : undefined,
           sourceId: params?.sourceId,
           granularity: params?.granularity,
+          path: params?.path,
+          agent: params?.agent,
+          cursor: params?.cursor,
+          groupBy: params?.groupBy,
         } as never,
       }),
     )

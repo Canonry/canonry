@@ -1122,6 +1122,10 @@ cnry traffic events <project> --kind crawler --limit 200 --format json
 cnry traffic events <project> --kind ai-referral --since 2026-04-01 --until 2026-04-30
 # Several kinds at once (rows, totals and series cover only those kinds):
 cnry traffic events <project> --kind ai-user-fetch,ai-referral --format json
+# Which bots read one page, totaled over the window (no row cap to page through):
+cnry traffic events <project> --path /faq --group-by agent --since 2026-10-26 --format json
+# Every row: follow eventRows.nextCursor until it is null (repeat the same filters):
+cnry traffic events <project> --kind crawler --since 2026-10-26 --limit 5000 --cursor <next-cursor> --format json
 ```
 
 The `traffic status` composite returns the same per-source detail

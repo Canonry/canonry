@@ -5061,7 +5061,7 @@ export const getApiV1ProjectsByNameJourneysByVisitorKey = <ThrowOnError extends 
 /**
  * List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window
  *
- * Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true pre-limit row count.
+ * Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true row count, and `eventRows.nextCursor` reads the next page. `path` and `agent` narrow totals, series, rows and groups alike. `groupBy` adds totals per agent, path, status or source over the whole filtered window, so one call can answer which bots read a page.
  */
 export const getApiV1ProjectsByNameTrafficEvents = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTrafficEventsData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameTrafficEventsResponses, GetApiV1ProjectsByNameTrafficEventsErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameTrafficEventsResponses, GetApiV1ProjectsByNameTrafficEventsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

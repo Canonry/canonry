@@ -19122,10 +19122,17 @@ export type TrafficEventsResponse = {
         aiReferralOrganicHits: number;
         aiReferralUnknownHits: number;
     };
+    filters?: {
+        kinds: Array<'crawler' | 'ai-user-fetch' | 'ai-referral'>;
+        sourceId: string | null;
+        path: string | null;
+        agent: string | null;
+    };
     eventRows: {
         total: number;
         returned: number;
         truncated: boolean;
+        nextCursor?: string | null;
     };
     events: Array<{
         kind: 'crawler';
@@ -19183,6 +19190,23 @@ export type TrafficEventsResponse = {
         organicHits: number;
         unknownHits: number;
     }>;
+    groups?: {
+        by: Array<'agent' | 'path' | 'status' | 'source'>;
+        total: number;
+        returned: number;
+        truncated: boolean;
+        entries: Array<{
+            kind: 'crawler' | 'ai-user-fetch' | 'ai-referral';
+            agent?: string;
+            path?: string;
+            status?: number;
+            sourceId?: string;
+            hits: number;
+            rows: number;
+            firstHour: string;
+            lastHour: string;
+        }>;
+    };
 };
 
 export type TrafficSamplesResponse = {
@@ -39040,6 +39064,22 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          * Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).
          */
         granularity?: 'hour' | 'day' | 'month';
+        /**
+         * A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.
+         */
+        path?: string;
+        /**
+         * Exact bot ID (for example openai-searchbot), or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.
+         */
+        agent?: string;
+        /**
+         * The previous page's `eventRows.nextCursor`. Repeat the first page's kind, sourceId, path and agent; the cursor keeps the first page's window.
+         */
+        cursor?: string;
+        /**
+         * Comma-separated totals over the whole filtered window: agent, path, status, source. Groups are always split by kind, sorted most hits first and capped by `limit`.
+         */
+        groupBy?: string;
     };
     url: '/api/v1/projects/{name}/traffic/events';
 };
