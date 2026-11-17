@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { parse } from 'yaml'
 import { agentJourneyDetailResponseSchema, agentJourneysResponseSchema } from '@canonry/canonry-contracts'
-import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents, aiUserFetchLikelyFakeHourly } from '@canonry/canonry-db'
+import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents, aiUserFetchLikelyFakeHourly, crawlerEventsHourly } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
@@ -703,8 +703,52 @@ describe('traffic CLI commands', () => {
     expect(body.totals.aiReferralHits).toBe(0)
     expect(body.series.granularity).toBe('hour')
     expect(body.series.points.length).toBeGreaterThan(0)
-    expect(body.eventRows).toEqual({ total: 0, returned: 0, truncated: false })
+    expect(body.eventRows).toEqual({ total: 0, returned: 0, truncated: false, nextCursor: null })
     expect(body.events.length).toBe(0)
+  })
+
+  it('filters, groups and pages events through --path, --agent, --group-by and --cursor', async () => {
+    const project = db.select().from(projects).all()[0]!
+    const at = '2026-10-01T00:00:00.000Z'
+    db.insert(trafficSources).values({ id: 'events-source', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at, updatedAt: at }).run()
+    const row = (hour: number, botId: string, pathNormalized: string, hits: number) => ({
+      projectId: project.id, sourceId: 'events-source', tsHour: `2026-10-01T0${hour}:00:00.000Z`, botId, operator: 'Op',
+      verificationStatus: 'verified', pathNormalized, status: 200, hits, createdAt: at, updatedAt: at,
+    })
+    db.insert(crawlerEventsHourly).values([
+      row(1, 'openai-searchbot', '/faq', 2),
+      row(2, 'bingbot', '/faq', 5),
+      row(3, 'bingbot', '/faq', 1),
+      row(3, 'gptbot', '/other', 9),
+    ]).run()
+    const window = ['--since', '2026-10-01T00:00:00Z', '--until', '2026-10-02T00:00:00Z']
+
+    const grouped = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--path', '/faq', '--group-by', 'agent', '--format', 'json'])
+    expect(grouped.exitCode).toBeUndefined()
+    const groupedBody = parseJsonOutput(grouped.stdout) as { filters: { path: string }; groups: { entries: Array<{ agent: string; hits: number }> } }
+    expect(groupedBody.filters.path).toBe('/faq')
+    expect(groupedBody.groups.entries.map((group) => [group.agent, group.hits])).toEqual([['bingbot', 6], ['openai-searchbot', 2]])
+
+    const agent = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--agent', 'gptbot', '--format', 'json'])
+    expect((parseJsonOutput(agent.stdout) as { totals: { crawlerHits: number } }).totals.crawlerHits).toBe(9)
+
+    const first = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--limit', '3', '--format', 'json'])
+    const firstBody = parseJsonOutput(first.stdout) as { events: Array<{ tsHour: string }>; eventRows: { nextCursor: string | null } }
+    expect(firstBody.events).toHaveLength(3)
+    expect(firstBody.eventRows.nextCursor).toEqual(expect.any(String))
+    // --since-minutes is relative to now; with a cursor it is left out so the window holds.
+    const second = await invokeCli(['traffic', 'events', 'test-proj', '--since-minutes', '60', '--limit', '3', '--cursor', firstBody.eventRows.nextCursor!, '--format', 'json'])
+    expect(second.exitCode).toBeUndefined()
+    const secondBody = parseJsonOutput(second.stdout) as { events: Array<{ tsHour: string }>; eventRows: { nextCursor: string | null } }
+    expect(secondBody.events.map((event) => event.tsHour)).toEqual(['2026-10-01T01:00:00.000Z'])
+    expect(secondBody.eventRows.nextCursor).toBeNull()
+
+    const text = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--limit', '1'])
+    expect(text.stdout).toMatch(/Showing 1 of 4 rows\. Next page: --cursor \S+/)
+
+    const invalid = await invokeCli(['traffic', 'events', 'test-proj', '--group-by', 'bot'])
+    expect(invalid.exitCode).not.toBe(0)
+    expect(invalid.stderr).toMatch(/--group-by must be/)
   })
 
   it('rejects an invalid --kind value', async () => {

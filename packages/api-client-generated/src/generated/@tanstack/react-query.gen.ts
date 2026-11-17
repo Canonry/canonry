@@ -9588,7 +9588,7 @@ export const getApiV1ProjectsByNameTrafficEventsQueryKey = (options: Options<Get
 /**
  * List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window
  *
- * Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true pre-limit row count.
+ * Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true row count, and `eventRows.nextCursor` reads the next page. `path` and `agent` narrow totals, series, rows and groups alike. `groupBy` adds totals per agent, path, status or source over the whole filtered window, so one call can answer which bots read a page.
  */
 export const getApiV1ProjectsByNameTrafficEventsOptions = (options: Options<GetApiV1ProjectsByNameTrafficEventsData>) => queryOptions<GetApiV1ProjectsByNameTrafficEventsResponse, GetApiV1ProjectsByNameTrafficEventsError, GetApiV1ProjectsByNameTrafficEventsResponse, ReturnType<typeof getApiV1ProjectsByNameTrafficEventsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -9602,6 +9602,38 @@ export const getApiV1ProjectsByNameTrafficEventsOptions = (options: Options<GetA
     },
     queryKey: getApiV1ProjectsByNameTrafficEventsQueryKey(options)
 });
+
+export const getApiV1ProjectsByNameTrafficEventsInfiniteQueryKey = (options: Options<GetApiV1ProjectsByNameTrafficEventsData>): QueryKey<Options<GetApiV1ProjectsByNameTrafficEventsData>> => createQueryKey('getApiV1ProjectsByNameTrafficEvents', options, true);
+
+/**
+ * List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window
+ *
+ * Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true row count, and `eventRows.nextCursor` reads the next page. `path` and `agent` narrow totals, series, rows and groups alike. `groupBy` adds totals per agent, path, status or source over the whole filtered window, so one call can answer which bots read a page.
+ */
+export const getApiV1ProjectsByNameTrafficEventsInfiniteOptions = (options: Options<GetApiV1ProjectsByNameTrafficEventsData>) => {
+    const opts = infiniteQueryOptions<GetApiV1ProjectsByNameTrafficEventsResponse, GetApiV1ProjectsByNameTrafficEventsError, InfiniteData<GetApiV1ProjectsByNameTrafficEventsResponse>, QueryKey<Options<GetApiV1ProjectsByNameTrafficEventsData>>, string | Pick<QueryKey<Options<GetApiV1ProjectsByNameTrafficEventsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<GetApiV1ProjectsByNameTrafficEventsData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    cursor: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await getApiV1ProjectsByNameTrafficEvents({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: getApiV1ProjectsByNameTrafficEventsInfiniteQueryKey(options)
+    });
+    return opts as Omit<typeof opts, 'initialData'>;
+};
 
 /**
  * Start a tracked-basket discovery session

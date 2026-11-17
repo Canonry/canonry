@@ -423,7 +423,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'events'],
-    usage: 'canonry traffic events <project> [--kind all|crawler|ai-user-fetch|ai-referral[,...]] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day|month] [--format json]',
+    usage: 'canonry traffic events <project> [--kind all|crawler|ai-user-fetch|ai-referral[,...]] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--path <prefix>] [--agent <id>] [--group-by agent,path,status,source] [--limit 500] [--cursor <next-cursor>] [--granularity hour|day|month] [--format json|jsonl]',
     options: {
       kind: stringOption(),
       source: stringOption(),
@@ -432,6 +432,10 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       until: stringOption(),
       limit: stringOption(),
       granularity: stringOption(),
+      path: stringOption(),
+      agent: stringOption(),
+      cursor: stringOption(),
+      'group-by': stringOption(),
     },
     run: async (input) => {
       const { trafficEvents } = await import('../commands/traffic.js')
@@ -459,6 +463,10 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         since: getString(input.values, 'since'),
         until: getString(input.values, 'until'),
         limit,
+        path: getString(input.values, 'path'),
+        agent: getString(input.values, 'agent'),
+        cursor: getString(input.values, 'cursor'),
+        groupBy: getString(input.values, 'group-by'),
         format: input.format,
       })
     },

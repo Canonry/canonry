@@ -698,6 +698,54 @@ export function parseTrafficEventKindFilter(value: string): TrafficEventKind[] |
   return kinds.length > 0 ? kinds : null
 }
 
+/**
+ * Fields the events read can total by (`groupBy`). A group is always split by
+ * `kind` too, because the three kinds count different things. `agent` is the
+ * bot ID on crawler and AI user-fetch rows and the AI product on AI-referral
+ * rows; `path` is the fetched path, or the landing path on AI-referral rows.
+ */
+export const trafficEventGroupFieldSchema = z.enum(['agent', 'path', 'status', 'source'])
+export type TrafficEventGroupField = z.infer<typeof trafficEventGroupFieldSchema>
+export const TrafficEventGroupFields = trafficEventGroupFieldSchema.enum
+
+/** What the events read's `groupBy` accepts, for error messages. */
+export const TRAFFIC_EVENT_GROUP_BY_HINT = `one or more (comma-separated) of: ${trafficEventGroupFieldSchema.options.join(', ')}`
+
+/**
+ * Reads the events read's `groupBy`: a comma-separated list of group fields.
+ * Returns each field once, in the order given, or null when the list is empty
+ * or a member is not a field. The route, the CLI and the MCP tool share it.
+ */
+export function parseTrafficEventGroupBy(value: string): TrafficEventGroupField[] | null {
+  const fields: TrafficEventGroupField[] = []
+  for (const member of value.split(',').map((part) => part.trim()).filter(Boolean)) {
+    const parsed = trafficEventGroupFieldSchema.safeParse(member)
+    if (!parsed.success) return null
+    if (!fields.includes(parsed.data)) fields.push(parsed.data)
+  }
+  return fields.length > 0 ? fields : null
+}
+
+/** One total from the events read's `groupBy`, over the whole filtered window. */
+export const trafficEventGroupSchema = z.object({
+  kind: trafficEventKindSchema,
+  /** Present when grouped by agent: bot ID, or the AI product on AI-referral rows. */
+  agent: z.string().optional(),
+  /** Present when grouped by path: fetched path, or the landing path on AI-referral rows. */
+  path: z.string().optional(),
+  /** Present when grouped by status. */
+  status: z.number().int().optional(),
+  /** Present when grouped by source. */
+  sourceId: z.string().optional(),
+  /** Sum of `hits` over the group's rows, the same count the detail rows carry. */
+  hits: z.number().int().nonnegative(),
+  /** Hourly detail rows in the group. */
+  rows: z.number().int().nonnegative(),
+  firstHour: z.string(),
+  lastHour: z.string(),
+})
+export type TrafficEventGroup = z.infer<typeof trafficEventGroupSchema>
+
 export const trafficSeriesGranularitySchema = z.enum(['hour', 'day', 'month'])
 export type TrafficSeriesGranularity = z.infer<typeof trafficSeriesGranularitySchema>
 export const TrafficSeriesGranularities = trafficSeriesGranularitySchema.enum
@@ -896,14 +944,47 @@ export const trafficEventsResponseSchema = z.object({
     /** LANDED sessions ingested before the classifier shipped; unresolvable, never organic. */
     aiReferralUnknownHits: z.number().int().nonnegative(),
   }),
+  /**
+   * The filters every part of this response honors: totals, series, detail
+   * rows and groups. Optional so a newer client reads an older API.
+   */
+  filters: z.object({
+    kinds: z.array(trafficEventKindSchema),
+    sourceId: z.string().nullable(),
+    /** Path prefix: fetched path, or landing path on AI-referral rows. */
+    path: z.string().nullable(),
+    /** Bot ID, or AI product on AI-referral rows. */
+    agent: z.string().nullable(),
+  }).optional(),
   eventRows: z.object({
-    /** Total detail rows matching the window/source/kind filters before `limit`. */
+    /** Total detail rows matching every filter, across all pages. */
     total: z.number().int().nonnegative(),
-    /** Number of newest detail rows included in `events`. */
+    /** Detail rows included in `events` on this page. */
     returned: z.number().int().nonnegative(),
+    /** True when `events` holds fewer rows than match; page on with `nextCursor`. */
     truncated: z.boolean(),
+    /**
+     * Pass as `cursor` to read the next page, with the same filters; null on
+     * the last page. Rows are newest hour first, in a fixed order, so pages
+     * never repeat or skip a row while new hours arrive. The cursor keeps the
+     * first page's window. Optional so a newer client reads an older API.
+     */
+    nextCursor: z.string().nullable().optional(),
   }),
   events: z.array(trafficEventEntrySchema),
+  /**
+   * Present only when `groupBy` was asked for: totals over the whole filtered
+   * window, most hits first, capped by `limit`.
+   */
+  groups: z.object({
+    by: z.array(trafficEventGroupFieldSchema),
+    /** Groups that match, before `limit`. */
+    total: z.number().int().nonnegative(),
+    returned: z.number().int().nonnegative(),
+    /** True when more groups match than `limit` let through. Narrow the filters or raise `limit` (max 5000). */
+    truncated: z.boolean(),
+    entries: z.array(trafficEventGroupSchema),
+  }).optional(),
 })
 export type TrafficEventsResponse = z.infer<typeof trafficEventsResponseSchema>
 
