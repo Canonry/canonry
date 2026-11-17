@@ -736,8 +736,8 @@ describe('traffic CLI commands', () => {
     const firstBody = parseJsonOutput(first.stdout) as { events: Array<{ tsHour: string }>; eventRows: { nextCursor: string | null } }
     expect(firstBody.events).toHaveLength(3)
     expect(firstBody.eventRows.nextCursor).toEqual(expect.any(String))
-    // --since-minutes is relative to now; with a cursor it is left out so the window holds.
-    const second = await invokeCli(['traffic', 'events', 'test-proj', '--since-minutes', '60', '--limit', '3', '--cursor', firstBody.eventRows.nextCursor!, '--format', 'json'])
+    // A cursor page sends no window of its own: the cursor carries the first page's.
+    const second = await invokeCli(['traffic', 'events', 'test-proj', '--since-minutes', '60', '--since', '2026-09-01T00:00:00Z', '--limit', '3', '--cursor', firstBody.eventRows.nextCursor!, '--format', 'json'])
     expect(second.exitCode).toBeUndefined()
     const secondBody = parseJsonOutput(second.stdout) as { events: Array<{ tsHour: string }>; eventRows: { nextCursor: string | null } }
     expect(secondBody.events.map((event) => event.tsHour)).toEqual(['2026-10-01T01:00:00.000Z'])

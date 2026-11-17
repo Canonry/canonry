@@ -951,7 +951,7 @@ export const trafficEventsResponseSchema = z.object({
   filters: z.object({
     kinds: z.array(trafficEventKindSchema),
     sourceId: z.string().nullable(),
-    /** Path prefix: fetched path, or landing path on AI-referral rows. */
+    /** A page and the pages under it (`/faq` matches `/faq/x`, never `/faqs`): fetched path, or landing path on AI-referral rows. */
     path: z.string().nullable(),
     /** Bot ID, or AI product on AI-referral rows. */
     agent: z.string().nullable(),
@@ -961,13 +961,16 @@ export const trafficEventsResponseSchema = z.object({
     total: z.number().int().nonnegative(),
     /** Detail rows included in `events` on this page. */
     returned: z.number().int().nonnegative(),
-    /** True when `events` holds fewer rows than match; page on with `nextCursor`. */
+    /** True when another page follows; read it with `nextCursor`. */
     truncated: z.boolean(),
     /**
      * Pass as `cursor` to read the next page, with the same filters; null on
-     * the last page. Rows are newest hour first, in a fixed order, so pages
-     * never repeat or skip a row while new hours arrive. The cursor keeps the
-     * first page's window. Optional so a newer client reads an older API.
+     * the last page. Rows are newest hour first, in a fixed order, and the
+     * cursor keeps the first page's window, so pages never repeat a row and
+     * newer hours never shift a page. A row written between pages into an hour
+     * the read has already passed (the current hour, or a late delivery) is not
+     * returned: end the window at a finished hour for an exact read. Optional
+     * so a newer client reads an older API.
      */
     nextCursor: z.string().nullable().optional(),
   }),

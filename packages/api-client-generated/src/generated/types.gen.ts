@@ -38945,7 +38945,7 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         granularity?: 'hour' | 'day' | 'month';
         /**
-         * Path prefix, the same rule as traffic samples: the fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.
+         * A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.
          */
         path?: string;
         /**

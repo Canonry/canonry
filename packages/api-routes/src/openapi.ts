@@ -8301,7 +8301,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Max newest combined detail rows in the events array (default 500, max 5000).', schema: stringSchema },
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
       { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).', schema: { type: 'string', enum: ['hour', 'day', 'month'] } },
-      { name: 'path', in: 'query', description: 'Path prefix, the same rule as traffic samples: the fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'path', in: 'query', description: 'A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
       { name: 'agent', in: 'query', description: 'Exact bot ID (for example openai-searchbot), or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
       { name: 'cursor', in: 'query', description: 'The previous page\'s `eventRows.nextCursor`. Repeat the first page\'s kind, sourceId, path and agent; the cursor keeps the first page\'s window.', schema: stringSchema },
       { name: 'groupBy', in: 'query', description: 'Comma-separated totals over the whole filtered window: agent, path, status, source. Groups are always split by kind, sorted most hits first and capped by `limit`.', schema: stringSchema },

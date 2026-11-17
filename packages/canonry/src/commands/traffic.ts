@@ -1205,15 +1205,16 @@ export async function trafficEvents(project: string, opts: {
   if (opts.source) params.sourceId = opts.source
   if (opts.limit !== undefined) params.limit = opts.limit
   if (opts.granularity) params.granularity = opts.granularity as TrafficSeriesGranularity
-  // A cursor carries the first page's window. --since-minutes is relative to
-  // now, so resending it on a later page would move the window; leave it out.
-  if (opts.sinceMinutes !== undefined && !opts.cursor) {
-    const since = new Date(Date.now() - opts.sinceMinutes * 60_000).toISOString()
-    params.since = since
-  } else if (opts.since) {
-    params.since = opts.since
+  // A cursor carries the first page's window, so a later page sends no window
+  // of its own: --since-minutes is relative to now and would move it.
+  if (!opts.cursor) {
+    if (opts.sinceMinutes !== undefined) {
+      params.since = new Date(Date.now() - opts.sinceMinutes * 60_000).toISOString()
+    } else if (opts.since) {
+      params.since = opts.since
+    }
+    if (opts.until) params.until = opts.until
   }
-  if (opts.until) params.until = opts.until
 
   const client = createApiClient()
   const result: TrafficEventsResponse = await client.trafficListEvents(project, params)

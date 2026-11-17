@@ -1,9 +1,8 @@
 import crypto from 'node:crypto'
-import { desc, eq, sql, type SQL } from 'drizzle-orm'
+import { desc, eq, or, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly } from '@canonry/canonry-db'
 import {
-  escapeLikePattern,
   TrafficEventKinds,
   validationError,
   type TrafficEventGroup,
@@ -22,6 +21,8 @@ export interface TrafficEventTable {
   rank: number
   table: SQLiteTable
   tsHour: SQLiteColumn
+  /** Row property names of `keys`, in the same order: the cursor reads a row through these. */
+  keyFields: readonly string[]
   keys: SQLiteColumn[]
   /** Bot ID, or AI product on AI-referral rows. */
   agent: SQLiteColumn
@@ -32,19 +33,25 @@ export interface TrafficEventTable {
   hits: SQLiteColumn
 }
 
+/**
+ * The primary-key columns after the project and hour, named once: `keys`
+ * drives the SQL order and the cursor predicate, `keyFields` reads the same
+ * values off a returned row, so the two can never disagree.
+ */
+function keyColumns<T extends object, K extends keyof T & string>(
+  table: T,
+  fields: readonly K[],
+): { keyFields: readonly K[]; keys: SQLiteColumn[] } {
+  return { keyFields: fields, keys: fields.map((field) => table[field] as unknown as SQLiteColumn) }
+}
+
 export const TRAFFIC_EVENT_TABLES: Record<TrafficEventKind, TrafficEventTable> = {
   [TrafficEventKinds.crawler]: {
     kind: TrafficEventKinds.crawler,
     rank: 0,
     table: crawlerEventsHourly,
     tsHour: crawlerEventsHourly.tsHour,
-    keys: [
-      crawlerEventsHourly.sourceId,
-      crawlerEventsHourly.botId,
-      crawlerEventsHourly.verificationStatus,
-      crawlerEventsHourly.pathNormalized,
-      crawlerEventsHourly.status,
-    ],
+    ...keyColumns(crawlerEventsHourly, ['sourceId', 'botId', 'verificationStatus', 'pathNormalized', 'status']),
     agent: crawlerEventsHourly.botId,
     path: crawlerEventsHourly.pathNormalized,
     status: crawlerEventsHourly.status,
@@ -56,13 +63,7 @@ export const TRAFFIC_EVENT_TABLES: Record<TrafficEventKind, TrafficEventTable> =
     rank: 1,
     table: aiUserFetchEventsHourly,
     tsHour: aiUserFetchEventsHourly.tsHour,
-    keys: [
-      aiUserFetchEventsHourly.sourceId,
-      aiUserFetchEventsHourly.botId,
-      aiUserFetchEventsHourly.verificationStatus,
-      aiUserFetchEventsHourly.pathNormalized,
-      aiUserFetchEventsHourly.status,
-    ],
+    ...keyColumns(aiUserFetchEventsHourly, ['sourceId', 'botId', 'verificationStatus', 'pathNormalized', 'status']),
     agent: aiUserFetchEventsHourly.botId,
     path: aiUserFetchEventsHourly.pathNormalized,
     status: aiUserFetchEventsHourly.status,
@@ -74,14 +75,7 @@ export const TRAFFIC_EVENT_TABLES: Record<TrafficEventKind, TrafficEventTable> =
     rank: 2,
     table: aiReferralEventsHourly,
     tsHour: aiReferralEventsHourly.tsHour,
-    keys: [
-      aiReferralEventsHourly.sourceId,
-      aiReferralEventsHourly.product,
-      aiReferralEventsHourly.sourceDomain,
-      aiReferralEventsHourly.evidenceType,
-      aiReferralEventsHourly.landingPathNormalized,
-      aiReferralEventsHourly.status,
-    ],
+    ...keyColumns(aiReferralEventsHourly, ['sourceId', 'product', 'sourceDomain', 'evidenceType', 'landingPathNormalized', 'status']),
     agent: aiReferralEventsHourly.product,
     path: aiReferralEventsHourly.landingPathNormalized,
     status: aiReferralEventsHourly.status,
@@ -97,11 +91,23 @@ export interface TrafficEventFilters {
   agent: string | null
 }
 
+/**
+ * A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never
+ * `/faqs`, and `/products/` matches everything under `/products`. Compared
+ * byte for byte, so case counts and `%` or `_` are plain characters (SQLite's
+ * LIKE ignores ASCII case, which would merge `/About` with `/about`).
+ */
+export function trafficEventPathPredicate(column: SQLiteColumn, path: string): SQL {
+  const page = path.length > 1 ? path.replace(/\/+$/u, '') || '/' : path
+  if (page === '/') return sql`substr(${column}, 1, 1) = '/'`
+  const under = `${page}/`
+  return or(sql`${column} = ${page}`, sql`substr(${column}, 1, ${under.length}) = ${under}`)!
+}
+
 /** The path and agent predicates for one table; the route adds project, window and source. */
 export function trafficEventFilterPredicates(table: TrafficEventTable, filters: Pick<TrafficEventFilters, 'path' | 'agent'>): SQL[] {
   const predicates: SQL[] = []
-  // Prefix match, the same rule as `traffic samples --path`.
-  if (filters.path !== null) predicates.push(sql`${table.path} LIKE ${escapeLikePattern(filters.path) + '%'} ESCAPE '\\'`)
+  if (filters.path !== null) predicates.push(trafficEventPathPredicate(table.path, filters.path))
   if (filters.agent !== null) predicates.push(eq(table.agent, filters.agent))
   return predicates
 }
@@ -268,16 +274,10 @@ export function toTrafficEventGroup(kind: TrafficEventKind, row: GroupRow): Traf
   return group
 }
 
-const KIND_RANK: Record<TrafficEventKind, number> = {
-  [TrafficEventKinds.crawler]: 0,
-  [TrafficEventKinds['ai-user-fetch']]: 1,
-  [TrafficEventKinds['ai-referral']]: 2,
-}
-
 /** Most hits first; ties in a fixed order so the cap cuts the same groups every time. */
 export function compareTrafficEventGroups(a: TrafficEventGroup, b: TrafficEventGroup): number {
   if (a.hits !== b.hits) return b.hits - a.hits
-  if (a.kind !== b.kind) return KIND_RANK[a.kind] - KIND_RANK[b.kind]
+  if (a.kind !== b.kind) return TRAFFIC_EVENT_TABLES[a.kind].rank - TRAFFIC_EVENT_TABLES[b.kind].rank
   for (const field of ['agent', 'path', 'sourceId'] as const) {
     const left = a[field] ?? ''
     const right = b[field] ?? ''

@@ -5116,7 +5116,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     const kinds = new Set<TrafficEventKind>(kindList)
 
-    // Path prefix (the same rule as traffic samples) and agent (bot ID, or the
+    // Path (a page and the pages under it, case counting) and agent (bot ID, or the
     // AI product on AI-referral rows). Every part of the response honors them:
     // totals, series, rows and groups describe the same slice.
     const pathFilter = optionalQueryString(request.query?.path, 'path')
@@ -5147,7 +5147,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    const sourceIdParam = request.query?.sourceId
+    // Guarded like the other filters: a repeated sourceId arrives as an array.
+    const sourceIdParam = optionalQueryString(request.query?.sourceId, 'sourceId') ?? undefined
     const sinceIso = since.toISOString()
     const untilIso = until.toISOString()
     const readFilters: TrafficEventFilters = {
@@ -5157,9 +5158,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       agent: agentFilter,
     }
     const cursor = cursorParam === null ? null : decodeTrafficEventCursor(cursorParam, readFilters, sinceIso, untilIso)
-    const pageRows = <T>(table: TrafficEventTable, where: SQL | undefined, read: (where: SQL | undefined, order: SQL[], take: number) => T[], keysOf: (row: T) => (string | number)[], tsHourOf: (row: T) => string): RankedTrafficEventRow<T>[] =>
+    const pageRows = <T extends { tsHour: string }>(table: TrafficEventTable, where: SQL | undefined, read: (where: SQL | undefined, order: SQL[], take: number) => T[]): RankedTrafficEventRow<T>[] =>
       read(cursor ? and(where, trafficEventCursorPredicate(table, cursor)) : where, trafficEventOrder(table), limit + 1)
-        .map((row) => ({ rank: table.rank, tsHour: tsHourOf(row), keys: keysOf(row), row }))
+        .map((row) => ({
+          rank: table.rank,
+          tsHour: row.tsHour,
+          keys: table.keyFields.map((field) => (row as unknown as Record<string, string | number>)[field]!),
+          row,
+        }))
     const rankedPages: RankedTrafficEventRow<TrafficEventEntry>[][] = []
     const groupEntries: TrafficEventGroup[] = []
     const collectGroups = (table: TrafficEventTable, where: SQL | undefined) => {
@@ -5302,8 +5308,6 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         TRAFFIC_EVENT_TABLES.crawler,
         crawlerWhere,
         (where, order, take) => app.db.select().from(crawlerEventsHourly).where(where).orderBy(...order).limit(take).all(),
-        (r) => [r.sourceId, r.botId, r.verificationStatus, r.pathNormalized, r.status],
-        (r) => r.tsHour,
       )
       rankedPages.push(crawlerPage.map(({ row: r, ...ranked }) => ({
         ...ranked,
@@ -5364,8 +5368,6 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         TRAFFIC_EVENT_TABLES['ai-user-fetch'],
         userFetchWhere,
         (where, order, take) => app.db.select().from(aiUserFetchEventsHourly).where(where).orderBy(...order).limit(take).all(),
-        (r) => [r.sourceId, r.botId, r.verificationStatus, r.pathNormalized, r.status],
-        (r) => r.tsHour,
       )
       rankedPages.push(userFetchPage.map(({ row: r, ...ranked }) => ({
         ...ranked,
@@ -5443,8 +5445,6 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         TRAFFIC_EVENT_TABLES['ai-referral'],
         aiWhere,
         (where, order, take) => app.db.select().from(aiReferralEventsHourly).where(where).orderBy(...order).limit(take).all(),
-        (r) => [r.sourceId, r.product, r.sourceDomain, r.evidenceType, r.landingPathNormalized, r.status],
-        (r) => r.tsHour,
       )
       rankedPages.push(referralPage.map(({ row: r, ...ranked }) => {
         const counts = aiReferralClassCounts(r.sessionsOrHits, r.paidSessionsOrHits, r.organicSessionsOrHits)
@@ -5637,7 +5637,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       eventRows: {
         total: totalEventRows,
         returned: trimmed.length,
-        truncated: trimmed.length < totalEventRows,
+        truncated: nextCursor !== null,
         nextCursor,
       },
       events: eventsWithProvenance,

@@ -94,6 +94,14 @@ describe('traffic events paging, filters and groups', () => {
     expect(body.eventRows).toEqual({ total: 1, returned: 1, truncated: false, nextCursor: null })
   })
 
+  it('says nothing more follows on the last page', async () => {
+    for (let h = 0; h < 3; h += 1) crawler(h, 'gptbot', '/a')
+    const first = (await read(`${window}&limit=2`)).json()
+    expect(first.eventRows).toMatchObject({ total: 3, returned: 2, truncated: true })
+    const last = (await read(`limit=2&cursor=${encodeURIComponent(first.eventRows.nextCursor)}`)).json()
+    expect(last.eventRows).toEqual({ total: 3, returned: 1, truncated: false, nextCursor: null })
+  })
+
   it('keeps the first page window on later pages, so new hours cannot shift a page', async () => {
     for (let h = 0; h < 4; h += 1) crawler(h, 'gptbot', '/a')
     const first = (await read(`${window}&limit=2`)).json()
@@ -122,7 +130,7 @@ describe('traffic events paging, filters and groups', () => {
     expect((await read(`${window}&limit=2&cursor=${cursor}`)).statusCode).toBe(200)
   })
 
-  it('narrows totals, series, rows and the echoed filters by path prefix and agent', async () => {
+  it('narrows totals, series, rows and the echoed filters by page and agent', async () => {
     crawler(1, 'openai-searchbot', '/faq', 3)
     crawler(1, 'openai-searchbot', '/faq-old', 2)
     crawler(1, 'openai-searchbot', '/products/a', 5)
@@ -130,13 +138,14 @@ describe('traffic events paging, filters and groups', () => {
     userFetch(2, 'openai-chatgpt-user', '/faq', 4)
     referral(2, 'ChatGPT', '/faq', 6)
 
+    // /faq is the page and the pages under it; /faq-old is another page.
     const faq = (await read(`${window}&path=/faq`)).json()
     expect(faq.filters).toEqual({ kinds: ['crawler', 'ai-user-fetch', 'ai-referral'], sourceId: null, path: '/faq', agent: null })
-    expect(faq.totals.crawlerHits).toBe(12)
+    expect(faq.totals.crawlerHits).toBe(10)
     expect(faq.totals.aiUserFetchHits).toBe(4)
     expect(faq.totals.aiReferralHits).toBe(6)
-    expect(faq.eventRows.total).toBe(5)
-    expect(faq.series.points.reduce((sum: number, point: { crawlerHits: number }) => sum + point.crawlerHits, 0)).toBe(12)
+    expect(faq.eventRows.total).toBe(4)
+    expect(faq.series.points.reduce((sum: number, point: { crawlerHits: number }) => sum + point.crawlerHits, 0)).toBe(10)
 
     const searchBot = (await read(`${window}&agent=openai-searchbot`)).json()
     expect(searchBot.totals.crawlerHits).toBe(10)
@@ -149,11 +158,20 @@ describe('traffic events paging, filters and groups', () => {
     expect(chatgpt.totals.aiReferralHits).toBe(6)
   })
 
-  it('treats path as a literal prefix, not a pattern', async () => {
-    crawler(1, 'gptbot', '/blog%_one', 1)
-    crawler(1, 'gptbot', '/blogXYone', 1)
-    const body = (await read(`${window}&path=${encodeURIComponent('/blog%_')}`)).json()
-    expect(body.events.map((row: EventRow) => row.pathNormalized)).toEqual(['/blog%_one'])
+  it('matches a page and the pages under it, literally and with case', async () => {
+    crawler(1, 'gptbot', '/blog%_/one', 1)
+    crawler(1, 'gptbot', '/blogXY/one', 1)
+    crawler(1, 'gptbot', '/About', 1)
+    crawler(1, 'gptbot', '/about/team', 1)
+    crawler(1, 'gptbot', '/products', 1)
+    crawler(1, 'gptbot', '/products/a', 1)
+    crawler(1, 'gptbot', '/productsale', 1)
+    const paths = async (path: string) =>
+      ((await read(`${window}&path=${encodeURIComponent(path)}`)).json().events as EventRow[]).map((row) => row.pathNormalized).sort()
+    expect(await paths('/blog%_')).toEqual(['/blog%_/one'])
+    expect(await paths('/about')).toEqual(['/about/team'])
+    expect(await paths('/products/')).toEqual(['/products', '/products/a'])
+    expect((await paths('/')).length).toBe(7)
   })
 
   it('totals by agent and path over the whole window, most hits first, capped by limit', async () => {
@@ -199,7 +217,7 @@ describe('traffic events paging, filters and groups', () => {
   it('leaves groups out unless asked, and refuses an unknown group field', async () => {
     crawler(1, 'gptbot', '/a')
     expect((await read(window)).json()).not.toHaveProperty('groups')
-    for (const query of ['groupBy=bot', 'groupBy=', 'path=', 'agent=%20']) {
+    for (const query of ['groupBy=bot', 'groupBy=', 'path=', 'agent=%20', 'sourceId=a&sourceId=b']) {
       const response = await read(`${window}&${query}`)
       expect(response.statusCode, query).toBe(400)
       expect(response.json().error.code).toBe('VALIDATION_ERROR')
