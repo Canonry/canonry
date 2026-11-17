@@ -18,6 +18,9 @@ describe('canonicalCitedUrl', () => {
     ['http://www.youtube.com/watch?v=mxqBK5TdsmA&utm_medium=x#t=3', 'https://youtube.com/watch?v=mxqBK5TdsmA'],
     ['https://www.lemon8-app.com/@kylie/7449128686017643054?region=us', 'https://lemon8-app.com/@kylie/7449128686017643054?region=us'],
     ['https://example.com/a/', 'https://example.com/a'],
+    ['https://www.reddit.com/r/AskNYC/comments/ABC/x/?share_id=xyz&rdt=123', 'https://reddit.com/r/asknyc/comments/abc'],
+    ['https://example.com/a?srsltid=AfmBOo&gclid=1&page=2', 'https://example.com/a?page=2'],
+    ['https://www.youtube.com/watch?v=abc&si=share', 'https://youtube.com/watch?v=abc'],
   ])('writes %s as %s', (input, expected) => {
     expect(canonicalCitedUrl(input)).toBe(expected)
   })
@@ -39,12 +42,13 @@ describe('GET /projects/:name/citations/urls', () => {
     db.insert(runs).values({ id, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: at(daysAgo), finishedAt: at(daysAgo), ...overrides }).run()
     return id
   }
-  function answer(runId: string, query: string, provider: string, citedUrls: string[], opts: { named?: boolean | null; citationState?: CitationState } = {}) {
+  function answer(runId: string, query: string, provider: string, citedUrls: string[] | null, opts: { named?: boolean | null; citationState?: CitationState; captureStatus?: 'complete' | 'partial' | 'failed' | null } = {}) {
     const named = opts.named === undefined ? true : opts.named
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(), runId, queryId: queryIds[query]!, provider,
       citationState: opts.citationState ?? 'not-cited', retrievalStatus: 'retrieved',
       citedDomains: [], citedUrls,
+      captureStatus: opts.captureStatus === undefined ? 'complete' : opts.captureStatus,
       answerMentioned: named,
       answerText: named === null ? null : named ? NAMED : NOT_NAMED,
       createdAt: at(0),
@@ -95,11 +99,11 @@ describe('GET /projects/:name/citations/urls', () => {
       category: 'forum',
       label: 'Reddit',
       answers: 3,
-      answersNamingBrand: 1,
-      answersBrandUnchecked: 1,
+      answersMentioned: 1,
+      answersMentionUnchecked: 1,
       providers: { gemini: 2, openai: 1 },
       queries: [{ query: 'are acme tanks see through', answers: 2 }, { query: 'best white tank', answers: 1 }],
-      runs: 2,
+      sweeps: 2,
       firstSeenAt: at(10),
       firstRunId: older,
       lastSeenAt: at(1),
@@ -127,9 +131,35 @@ describe('GET /projects/:name/citations/urls', () => {
     expect(fresh.urls.map((url) => url.url)).toEqual(['https://reddit.com/r/deinfluencing/comments/new1'])
     expect(fresh.filters).toMatchObject({ newInLatest: true, categories: ['forum'] })
 
-    // Inside a 7-day window the older sweep is out of scope, so both threads read as new.
+    // Inside a 7-day window the older sweep is out of scope: with no earlier
+    // sweep to compare against, nothing reads as new.
     const recent = citationUrlsResponseSchema.parse((await read('window=7d&domain=reddit.com&newInLatest=true')).json())
-    expect(recent.urls).toHaveLength(2)
+    expect(recent.urls).toHaveLength(0)
+  })
+
+  it('leaves out answers stored before page capture, so the first captured sweep is not all new', async () => {
+    const legacy = run(30)
+    const firstCaptured = run(10)
+    answer(legacy, 'best white tank', 'gemini', null, { captureStatus: null })
+    answer(firstCaptured, 'best white tank', 'gemini', ['https://a.example/x'])
+    const onlyFirst = citationUrlsResponseSchema.parse((await read()).json())
+    expect(onlyFirst).toMatchObject({ answerTotal: 1, answersPagesNotCaptured: 1, sweepsWithPages: 1, runCount: 2 })
+    expect(onlyFirst.urls[0]).toMatchObject({ url: 'https://a.example/x', newInLatest: false, citedInLatest: true })
+
+    const next = run(1)
+    answer(next, 'best white tank', 'gemini', ['https://a.example/x', 'https://a.example/y'], { captureStatus: 'partial' })
+    const body = citationUrlsResponseSchema.parse((await read('newInLatest=true')).json())
+    expect(body.urls.map((url) => url.url)).toEqual(['https://a.example/y'])
+    expect(body).toMatchObject({ answersPagesIncomplete: 1, sweepsWithPages: 2 })
+  })
+
+  it('finds a page by a host written with www, m or old', async () => {
+    const latest = run(1)
+    answer(latest, 'best white tank', 'gemini', ['https://old.reddit.com/r/AskNYC/comments/abc/x/?share_id=1&rdt=2'])
+    for (const domain of ['old.reddit.com', 'www.reddit.com', 'reddit.com']) {
+      const body = citationUrlsResponseSchema.parse((await read(`domain=${domain}`)).json())
+      expect(body.urls.map((url) => url.url), domain).toEqual(['https://reddit.com/r/asknyc/comments/abc'])
+    }
   })
 
   it('treats a multi-location sweep as one sweep', async () => {
@@ -142,7 +172,8 @@ describe('GET /projects/:name/citations/urls', () => {
     answer(latestB, 'best white tank', 'gemini', ['https://forum.example/t/2'])
     const body = citationUrlsResponseSchema.parse((await read()).json())
     expect(body.runCount).toBe(2)
-    expect(body.urls.find((url) => url.url.endsWith('/t/2'))).toMatchObject({ answers: 2, runs: 2, newInLatest: true })
+    // Two runs of one sweep: two answers, one sweep.
+    expect(body.urls.find((url) => url.url.endsWith('/t/2'))).toMatchObject({ answers: 2, sweeps: 1, newInLatest: true })
   })
 
   it('leaves out probes, failed runs and engines that return no sources', async () => {
@@ -178,7 +209,8 @@ describe('GET /projects/:name/citations/urls', () => {
     expect(first).toMatchObject({ total: 3, returned: 2, truncated: true })
     const second = citationUrlsResponseSchema.parse((await read(`limit=2&cursor=${first.nextCursor}`)).json())
     expect(second.urls.map((url) => url.url)).toEqual(['https://a.example/3'])
-    expect(second.nextCursor).toBeNull()
+    // The last page says nothing more follows.
+    expect(second).toMatchObject({ nextCursor: null, truncated: false, returned: 1, total: 3 })
     expect((await read(`limit=2&provider=openai&cursor=${first.nextCursor}`)).statusCode).toBe(400)
   })
 

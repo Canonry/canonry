@@ -5,12 +5,12 @@ import { groupRunsByCreatedAt, pickGroupRepresentative, queries, querySnapshots,
 import {
   canonicalCitedUrl,
   categorizeSource,
+  citedUrlHost,
   CITATION_URL_CATEGORY_HINT,
   CITATION_URLS_DEFAULT_LIMIT,
   CITATION_URLS_MAX_LIMIT,
   citationUrlSortSchema,
   hostMatchesDomain,
-  hostOf,
   isCitationStateMeasured,
   metricsWindowSchema,
   parseCitationUrlCategories,
@@ -66,8 +66,8 @@ interface UrlAggregate {
   category: SourceCategory
   label: string
   answers: number
-  answersNamingBrand: number
-  answersBrandUnchecked: number
+  answersMentioned: number
+  answersMentionUnchecked: number
   providers: Map<string, number>
   queries: Map<string, number>
   runIds: Set<string>
@@ -94,7 +94,7 @@ export async function citationUrlRoutes(app: FastifyInstance) {
     const window = windowParsed.data
 
     const domainParam = optionalString(query, 'domain')
-    const domain = domainParam === null ? null : hostOf(domainParam)
+    const domain = domainParam === null ? null : citedUrlHost(domainParam)
     if (domainParam !== null && !domain) throw validationError('"domain" must be a host such as reddit.com')
 
     const categoryParam = optionalString(query, 'category')
@@ -139,14 +139,21 @@ export async function citationUrlRoutes(app: FastifyInstance) {
       .filter((run) => !cutoff || run.createdAt >= cutoff)
 
     const empty: CitationUrlsResponse = {
-      filters, latestRun: null, runCount: 0, answerTotal: 0, unclassifiedAnswers: 0,
+      filters, latestRun: null, runCount: 0, answerTotal: 0, sweepsWithPages: 0,
+      answersPagesNotCaptured: 0, answersPagesIncomplete: 0, unclassifiedAnswers: 0,
       total: 0, returned: 0, truncated: false, nextCursor: null, urls: [],
     }
     if (scopeRuns.length === 0) return empty
 
-    const latestGroup = groupRunsByCreatedAt(scopeRuns)[0] ?? []
+    // A sweep is a group of runs started together (a multi-location sweep is
+    // several runs); newest first. Pages are counted per sweep, never per run.
+    const sweepGroups = groupRunsByCreatedAt(scopeRuns)
+    const latestGroup = sweepGroups[0] ?? []
     const latestRepresentative = pickGroupRepresentative(latestGroup) ?? scopeRuns[0]!
-    const latestRunIds = new Set(latestGroup.map((run) => run.id))
+    const sweepOf = new Map<string, number>()
+    sweepGroups.forEach((group, index) => {
+      for (const run of group) sweepOf.set(run.id, index)
+    })
     const runCreatedAt = new Map(scopeRuns.map((run) => [run.id, run.createdAt]))
 
     // Same class rule as the sources read: a published v2 plan classifies by
@@ -172,6 +179,7 @@ export async function citationUrlRoutes(app: FastifyInstance) {
         citedUrls: querySnapshots.citedUrls,
         measurementExecutionId: querySnapshots.measurementExecutionId,
         answerText: querySnapshots.answerText,
+        captureStatus: querySnapshots.captureStatus,
         answerMentioned: querySnapshots.answerMentioned,
         mentionIdentity: querySnapshots.mentionIdentity,
       })
@@ -184,6 +192,9 @@ export async function citationUrlRoutes(app: FastifyInstance) {
     const byUrl = new Map<string, UrlAggregate>()
     let answerTotal = 0
     let unclassifiedAnswers = 0
+    let answersPagesNotCaptured = 0
+    let answersPagesIncomplete = 0
+    const sweepsWithPages = new Set<number>()
 
     for (const snap of snapshots) {
       if (provider !== null && snap.provider !== provider) continue
@@ -199,7 +210,16 @@ export async function citationUrlRoutes(app: FastifyInstance) {
         if (!classes.has(queryClass)) continue
       }
       if (!isCitationStateMeasured(readCitationState(snap))) continue
+      // Stored before page capture existed: which pages it cited is unknown,
+      // which is not the same as citing none. Counting it would make the
+      // first sweep with captured pages read as all new.
+      if (snap.captureStatus === null) {
+        answersPagesNotCaptured += 1
+        continue
+      }
+      if (snap.captureStatus !== 'complete') answersPagesIncomplete += 1
       answerTotal += 1
+      sweepsWithPages.add(sweepOf.get(snap.runId)!)
 
       const pages = new Set<string>()
       for (const raw of snap.citedUrls ?? []) {
@@ -213,20 +233,20 @@ export async function citationUrlRoutes(app: FastifyInstance) {
 
       for (const url of pages) {
         const { category, label, domain: host } = categorizeSource(url)
-        if (domain !== null && !hostMatchesDomain(host, domain)) continue
+        if (domain !== null && !hostMatchesDomain(citedUrlHost(url) ?? host, domain)) continue
         if (categories.length > 0 && !categories.includes(category)) continue
         let agg = byUrl.get(url)
         if (!agg) {
           agg = {
             url, domain: host, category, label,
-            answers: 0, answersNamingBrand: 0, answersBrandUnchecked: 0,
+            answers: 0, answersMentioned: 0, answersMentionUnchecked: 0,
             providers: new Map(), queries: new Map(), runIds: new Set(),
           }
           byUrl.set(url, agg)
         }
         agg.answers += 1
-        if (named === true) agg.answersNamingBrand += 1
-        if (named === null) agg.answersBrandUnchecked += 1
+        if (named === true) agg.answersMentioned += 1
+        if (named === null) agg.answersMentionUnchecked += 1
         agg.providers.set(snap.provider, (agg.providers.get(snap.provider) ?? 0) + 1)
         if (questionText) agg.queries.set(questionText, (agg.queries.get(questionText) ?? 0) + 1)
         agg.runIds.add(snap.runId)
@@ -239,29 +259,32 @@ export async function citationUrlRoutes(app: FastifyInstance) {
       const bt = runCreatedAt.get(b)!
       return at < bt ? -1 : at > bt ? 1 : a < b ? -1 : a > b ? 1 : 0
     }
+    // Something to be new against: a sweep older than the latest that captured pages.
+    const earlierSweepWithPages = [...sweepsWithPages].some((sweep) => sweep > 0)
     let entries: CitationUrlEntry[] = [...byUrl.values()].map((agg) => {
       const runIds = [...agg.runIds].sort(runOrder)
       const firstRunId = runIds[0]!
       const lastRunId = runIds[runIds.length - 1]!
-      const citedInLatest = runIds.some((id) => latestRunIds.has(id))
+      const sweeps = new Set(runIds.map((id) => sweepOf.get(id)!))
+      const citedInLatest = sweeps.has(0)
       return {
         url: agg.url,
         domain: agg.domain,
         category: agg.category,
         label: agg.label,
         answers: agg.answers,
-        answersNamingBrand: agg.answersNamingBrand,
-        answersBrandUnchecked: agg.answersBrandUnchecked,
+        answersMentioned: agg.answersMentioned,
+        answersMentionUnchecked: agg.answersMentionUnchecked,
         providers: Object.fromEntries([...agg.providers].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
         queries: [...agg.queries]
           .map(([text, answers]) => ({ query: text, answers }))
           .sort((a, b) => b.answers - a.answers || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0)),
-        runs: runIds.length,
+        sweeps: sweeps.size,
         firstSeenAt: runCreatedAt.get(firstRunId)!,
         firstRunId,
         lastSeenAt: runCreatedAt.get(lastRunId)!,
         lastRunId,
-        newInLatest: citedInLatest && runIds.every((id) => latestRunIds.has(id)),
+        newInLatest: citedInLatest && sweeps.size === 1 && earlierSweepWithPages,
         citedInLatest,
       }
     })
@@ -277,12 +300,15 @@ export async function citationUrlRoutes(app: FastifyInstance) {
     return {
       filters,
       latestRun: { id: latestRepresentative.id, createdAt: latestRepresentative.createdAt },
-      runCount: groupRunsByCreatedAt(scopeRuns).length,
+      runCount: sweepGroups.length,
       answerTotal,
+      sweepsWithPages: sweepsWithPages.size,
+      answersPagesNotCaptured,
+      answersPagesIncomplete,
       unclassifiedAnswers,
       total: entries.length,
       returned: page.length,
-      truncated: page.length < entries.length,
+      truncated: nextOffset < entries.length,
       nextCursor: nextOffset < entries.length ? encodeCursor(filters, nextOffset) : null,
       urls: page,
     } satisfies CitationUrlsResponse

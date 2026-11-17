@@ -2128,7 +2128,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_citation_urls',
     title: 'List cited pages',
-    description: 'Every page the stored answers cite, one row per page across the sweeps in scope: answers citing it, how many name the brand (answersBrandUnchecked were never checked, never "not named"), engines, questions, first and last sweep, and newInLatest. Use category "forum,social,video" for discussion threads and posts, domain for one site, and newInLatest=true for pages the latest sweep cited for the first time. "First" is within the window, so pass window "all" for all history. Links are compared one way (https, no www, no utm parameters, a Reddit thread by its id). Page with nextCursor.',
+    description: 'Every page the stored answers cite, one row per page across the sweeps in scope: answers citing it, how many mention the brand (answersMentionUnchecked were never checked, never "not mentioned"), engines, queries, first and last sweep, and newInLatest. Answers stored before page capture are left out and counted in answersPagesNotCaptured. Use category "forum,social,video" for discussion threads and posts, domain for one site, and newInLatest=true for pages the latest sweep cited for the first time. "First" is within the window, so pass window "all" for all history. Links are compared one way (https, no www, no utm parameters, a Reddit thread by its id). Page with nextCursor.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
@@ -2140,7 +2140,7 @@ const rawCanonryMcpTools = [
         .optional()
         .describe('Comma-separated source categories, e.g. "forum,social,video" for threads and posts people can reply to.'),
       provider: z.string().min(1).optional().describe('Only answers from this engine id, e.g. "gemini" or "openai".'),
-      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand questions only, classified as the sources read does. Defaults to all.'),
+      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand queries only, classified as the sources read does. Defaults to all, which pools both classes.'),
       newInLatest: z.boolean().optional().describe('Only pages the latest sweep cited and no earlier sweep in scope did.'),
       sort: z.enum(['answers', 'newest']).optional().describe('answers (default): most citing answers first. newest: most recent first citation first.'),
       limit: z.number().int().min(1).max(1000).optional().describe('Pages per response, default 100.'),

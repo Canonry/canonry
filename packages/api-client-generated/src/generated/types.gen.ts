@@ -5235,6 +5235,9 @@ export type CitationUrlsResponse = {
     } | null;
     runCount: number;
     answerTotal: number;
+    sweepsWithPages: number;
+    answersPagesNotCaptured: number;
+    answersPagesIncomplete: number;
     unclassifiedAnswers: number;
     total: number;
     returned: number;
@@ -5246,8 +5249,8 @@ export type CitationUrlsResponse = {
         category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
         label: string;
         answers: number;
-        answersNamingBrand: number;
-        answersBrandUnchecked: number;
+        answersMentioned: number;
+        answersMentionUnchecked: number;
         providers: {
             [key: string]: number;
         };
@@ -5255,7 +5258,7 @@ export type CitationUrlsResponse = {
             query: string;
             answers: number;
         }>;
-        runs: number;
+        sweeps: number;
         firstSeenAt: string;
         firstRunId: string;
         lastSeenAt: string;

@@ -56,10 +56,10 @@ how to fix a leaky faucet  cm      ·m     cm      0/2   0/3   ← neither: info
 
 ### Which threads and pages engines cite
 
-`cnry citations urls <project>` lists every cited page once, across the sweeps in the window: how many answers cite it, how many of those name the brand (`answersBrandUnchecked` were never checked, never "not named"), the engines and questions behind it, and its first and last sweep. Links are compared one way (https, no `www.`, no `utm_*` parameters, a Reddit thread by its id), so a thread cited with and without its title slug is one row.
+`cnry citations urls <project>` lists every cited page once, across the sweeps in the window: how many answers cite it, how many of those mention the brand (`answersMentionUnchecked` were never checked, never "not mentioned"), the engines and queries behind it, and its first and last sweep. Links are compared one way (https, no `www.`, no `utm_*` parameters, a Reddit thread by its id), so a thread cited with and without its title slug is one row.
 
 - `--category forum,social,video` keeps discussion threads and posts, the places a person can reply.
-- `--new-in-latest` keeps pages the latest sweep cited for the first time. "First" means within the window; the default window is `all`.
+- `--new-in-latest` keeps pages the latest sweep cited for the first time. "First" means within the window; the default window is `all`. It needs an earlier sweep that captured pages: answers stored before page capture (August 2026) are left out and counted in `answersPagesNotCaptured`.
 - Reading a cited thread itself is a separate step: Canonry stores the link, not the thread's text.
 
 ### Query Categories

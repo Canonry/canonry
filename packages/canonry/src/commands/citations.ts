@@ -152,11 +152,12 @@ export async function showCitationUrls(
     data.filters.domain ? `on ${data.filters.domain}` : null,
     data.filters.categories.length > 0 ? `in ${data.filters.categories.join(', ')}` : null,
     data.filters.provider ? `from ${data.filters.provider}` : null,
-    data.filters.queryClass !== 'all' ? `${data.filters.queryClass} questions` : null,
+    data.filters.queryClass !== 'all' ? `${data.filters.queryClass} queries` : null,
     data.filters.newInLatest ? 'new in the latest sweep' : null,
   ].filter((part): part is string => part !== null)
   console.log(`Cited pages for "${project}"${scope.length > 0 ? ` (${scope.join(', ')})` : ''}`)
-  console.log(`  ${data.runCount} sweeps in window ${data.filters.window}; latest ${data.latestRun.createdAt}; ${data.answerTotal} answers with sources`)
+  console.log(`  ${data.runCount} sweeps in window ${data.filters.window}; latest ${data.latestRun.createdAt}; ${data.answerTotal} answers with captured pages`)
+  if (data.answersPagesNotCaptured > 0) console.log(`  ${data.answersPagesNotCaptured} older answers were stored before page capture and are left out`)
   if (data.urls.length === 0) {
     console.log('  No cited pages match.')
     return
@@ -166,9 +167,9 @@ export async function showCitationUrls(
     const flag = entry.newInLatest ? '  NEW' : ''
     console.log('')
     console.log(`  ${entry.url}${flag}`)
-    console.log(`    ${entry.answers} answers (${entry.answersNamingBrand} name the brand) · ${engines} · first ${entry.firstSeenAt.slice(0, 10)}, last ${entry.lastSeenAt.slice(0, 10)}`)
-    for (const question of entry.queries.slice(0, 3)) console.log(`    "${question.query}" (${question.answers})`)
-    if (entry.queries.length > 3) console.log(`    and ${entry.queries.length - 3} more questions`)
+    console.log(`    ${entry.answers} answers (${entry.answersMentioned} mention the brand) · ${engines} · first ${entry.firstSeenAt.slice(0, 10)}, last ${entry.lastSeenAt.slice(0, 10)}`)
+    for (const query of entry.queries.slice(0, 3)) console.log(`    "${query.query}" (${query.answers})`)
+    if (entry.queries.length > 3) console.log(`    and ${entry.queries.length - 3} more queries`)
   }
   if (data.nextCursor) {
     console.log('')

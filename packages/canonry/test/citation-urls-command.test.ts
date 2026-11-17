@@ -51,7 +51,7 @@ describe('canonry citations urls', () => {
       db.insert(runs).values({ id: runId, projectId: project.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt, finishedAt: createdAt }).run()
       db.insert(querySnapshots).values({
         id: crypto.randomUUID(), runId, queryId, provider: 'gemini', citationState: 'not-cited', retrievalStatus: 'retrieved',
-        citedDomains: [], citedUrls, answerMentioned: true, answerText: 'Acme Tank is opaque.', createdAt,
+        citedDomains: [], citedUrls, captureStatus: 'complete', answerMentioned: true, answerText: 'Acme Tank is opaque.', createdAt,
       }).run()
     }
     seedRun('2026-10-01T00:00:00.000Z', ['https://www.reddit.com/r/womensfashion/comments/old1/a/'])
