@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type ComponentProps
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import * as Dialog from '@radix-ui/react-dialog'
+import { ChevronRight } from 'lucide-react'
 import { describeError, isOpenRouterRoute, ProviderConnectionsUnavailableReasons, ProviderKinds, ProviderNames, ProviderQuotaFields, type ProviderCatalogEntryDto, type ProviderConnectionSettingsDto, type ProviderConnectionsUnavailableReason, type ProviderQuotaField, type ProviderSettingsUpdateRequest, type SettingsDto } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -467,6 +468,18 @@ function ConnectionStatusBadge({ result }: { result: ProviderConnectionTestRecor
   return <ToneBadge tone={status.tone}>{status.label}</ToneBadge>
 }
 
+function OtherProviders({ reveal, children }: { reveal: boolean; children: ReactNode }) {
+  return (
+    <details className="group mt-4 border-t border-default pt-2" open={reveal || undefined}>
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-sm py-2 text-label-14 text-secondary hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-400 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-3.5 shrink-0 group-open:rotate-90" aria-hidden="true" />
+        Other providers
+      </summary>
+      <div className="divide-y divide-default">{children}</div>
+    </details>
+  )
+}
+
 export function ProviderConnectionsSection({ projects }: { projects: { name: string; displayName?: string | null; providers: string[] }[] }) {
   const queryClient = useQueryClient()
   // Typed by the wire contract so the connection-list state the server reports is readable here.
@@ -504,7 +517,9 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     if (editing || busy || returnFocusToConnection.current === null) return
     const action = connectionActions.current.get(returnFocusToConnection.current) ?? addProviderAction.current
     returnFocusToConnection.current = null
-    action?.focus()
+    const closedSection = action?.closest('details:not([open])')
+    if (closedSection) closedSection.querySelector('summary')?.focus()
+    else action?.focus()
   }, [editing, busy])
 
   function closeEditor() {
@@ -618,20 +633,34 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
     </div>
   }
 
-  const available = connections?.filter(connection => !connection.configured && connection.name !== editing?.name && `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(search.trim().toLowerCase())) ?? []
-  const existingMatches = search.trim() ? connections?.filter(connection => connection.configured && `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(search.trim().toLowerCase())) ?? [] : []
+  const providerSearch = search.trim().toLowerCase()
+  const matchesSearch = (connection: ProviderConnectionSettingsDto) => `${connection.displayName} ${connection.name} ${connection.kind}`.toLowerCase().includes(providerSearch)
+  const available = connections?.filter(connection => !connection.configured && connection.name !== editing?.name && matchesSearch(connection)) ?? []
+  const existingMatches = providerSearch ? connections?.filter(connection => connection.configured && matchesSearch(connection)) ?? [] : []
+  const answerServices = available.filter(connection => connection.kind === ProviderKinds['answer-service'])
   const catalogGroups = [
     { label: 'Direct providers', entries: available.filter(connection => connection.mode !== 'browser' && connection.kind === ProviderKinds['answer-engine']) },
     { label: 'Model gateways', entries: available.filter(connection => connection.kind === ProviderKinds['model-gateway']) },
-    { label: 'Search answer services', entries: available.filter(connection => connection.kind === ProviderKinds['answer-service']) },
     { label: 'Browser providers', entries: available.filter(connection => connection.mode === 'browser') },
   ]
+  const legacyProviders = settings.data?.providers ?? []
+  const legacyAnswerServices = legacyProviders.filter(provider => provider.kind === ProviderKinds['answer-service'] && !provider.configured)
+  const legacyVisible = legacyProviders.filter(provider => !legacyAnswerServices.includes(provider))
+  const isLinkedProvider = (provider: { name: string }) => window.location.hash === `#provider-${provider.name}`
 
   const unavailableState = unavailable ? { ...unavailableView(unavailable.reason), message: unavailable.message } : null
   // With nothing connected, choosing a provider is the only next step, so the catalog is open.
   const noneConfigured = connections !== undefined && !connections.some(connection => connection.configured)
   const catalogOpen = adding || (noneConfigured && !editing)
   const configuredOnServer = settings.data?.providers.filter(provider => provider.configured) ?? []
+
+  function legacyConnectionRow(provider: SettingsDto['providers'][number]) {
+    return <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2">{provider.configured ? <ConnectionStatusBadge result={testResult(provider.name)} /> : <ToneBadge tone="caution">Not configured</ToneBadge>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
+      {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} defaultModel={provider.defaultModel} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
+      {provider.configured && (provider.name === ProviderNames.openrouter || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && projectSelection(provider.name, provider.kind)}
+    </div>
+  }
 
   return <section aria-labelledby="provider-connections-title" aria-busy={busy || settings.isLoading}>
     <div className="section-head flex-wrap">
@@ -666,15 +695,13 @@ export function ProviderConnectionsSection({ projects }: { projects: { name: str
         <input id="provider-catalog-search" type="search" className="setup-input mt-2 w-full" placeholder="Search providers" value={search} onChange={event => setSearch(event.target.value)} />
         {existingMatches.length > 0 && <div className="mt-4"><h3 className="text-label-12 text-secondary">Already connected</h3><div className="mt-1 space-y-2">{existingMatches.map(connection => <div key={connection.name} className="flex items-center justify-between gap-3"><span className="text-copy-14 text-heading">{connection.displayName}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => guard.request(() => { setAdding(false); void openEditor(connection.name) })}>Manage {connection.displayName}</Button></div>)}</div></div>}
         {catalogGroups.filter(group => group.entries.length > 0).map(group => <div key={group.label} className="mt-4"><h3 className="text-label-12 text-secondary">{group.label}</h3><div className="mt-1 divide-y divide-default">{group.entries.map(connectionRow)}</div></div>)}
+        {answerServices.length > 0 && <OtherProviders reveal={Boolean(providerSearch) || answerServices.some(isLinkedProvider)}>{answerServices.map(connectionRow)}</OtherProviders>}
         {available.length === 0 && existingMatches.length === 0 && <p className="py-4 text-copy-14 text-secondary">{search ? 'No matching providers.' : 'All available providers are configured.'}</p>}
       </div>}
     </> : settings.data && <div className="divide-y divide-default">
       <p className="py-4 text-copy-14 text-secondary">This host supports connection setup. Saved credential details, resets and disconnect are unavailable here.</p>
-      {settings.data.providers.map(provider => <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p><p className="text-copy-14 text-secondary">{provider.model ?? provider.defaultModel}</p></div><div className="flex items-center gap-2">{provider.configured ? <ConnectionStatusBadge result={testResult(provider.name)} /> : <ToneBadge tone="caution">Not configured</ToneBadge>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => guard.request(() => { setFallbackEditing(current => current === provider.name ? null : provider.name); setDirty(false) })}>{fallbackEditing === provider.name ? 'Cancel' : provider.configured ? 'Update' : 'Configure'}</Button></div></div>
-        {fallbackEditing === provider.name && <ProviderConfigForm key={provider.name} providerName={provider.name} keyUrl={provider.keyUrl} modelHint={provider.modelHint} defaultModel={provider.defaultModel} {...(provider.kind ? { kind: provider.kind } : {})} onDirtyChange={setDirty} onBusyChange={setBusy} onSaved={() => { setFallbackEditing(null); setDirty(false); void refresh() }} />}
-        {provider.configured && (provider.name === 'openrouter' || provider.kind === ProviderKinds['model-gateway'] || provider.kind === ProviderKinds['answer-service']) && projectSelection(provider.name, provider.kind)}
-      </div>)}
+      {legacyVisible.map(legacyConnectionRow)}
+      {legacyAnswerServices.length > 0 && <OtherProviders reveal={legacyAnswerServices.some(isLinkedProvider)}>{legacyAnswerServices.map(legacyConnectionRow)}</OtherProviders>}
     </div>}
     {guard.dialog}
     <Dialog.Root open={disconnecting !== null} onOpenChange={open => { if (!open && !busy) setDisconnecting(null) }}><Dialog.Portal>

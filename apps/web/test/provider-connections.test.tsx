@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, RouterProvider } from '@tanstack/react-router'
-import { ProviderConnectionsUnavailableReasons, ProviderConnectionUsageSources, type ProviderConnectionSettingsDto, type ProviderConnectionTestResultDto } from '@canonry/canonry-contracts'
+import { ProviderConnectionsUnavailableReasons, ProviderConnectionUsageSources, ProviderKinds, type ProviderConnectionSettingsDto, type ProviderConnectionTestResultDto } from '@canonry/canonry-contracts'
 
 import { PROVIDER_CONNECTIONS_COPY, ProviderConfigForm, ProviderConnectionsSection } from '../src/components/settings/ProviderConfigForm.js'
 import { PROVIDER_CONNECTION_TEST_COPY } from '../src/components/settings/ProviderConnectionTest.js'
@@ -104,6 +104,35 @@ test('searching Add provider finds an existing connection and opens its saved se
   expect(screen.queryByRole('searchbox', { name: 'Add provider' })).toBeNull()
   expect(within(form).getByLabelText('Model ID')).toHaveProperty('value', 'saved-model')
   expect(within(form).getByLabelText('Replace API key')).toHaveProperty('value', '')
+  expect(writes).toEqual([])
+})
+
+test('keeps unconfigured answer services under Other providers and reveals a deliberate search match', async () => {
+  const kind = ProviderKinds['answer-service']
+  const writes = renderConnections([
+    connectionFixture({ configured: false, apiKeyConfigured: false }),
+    connectionFixture({ name: 'exa', displayName: 'Exa', kind, configured: false, apiKeyConfigured: false }),
+    connectionFixture({ name: 'parallel', displayName: 'Parallel', kind }),
+  ], { router: true })
+  fireEvent.click(await screen.findByRole('button', { name: 'Add provider' }))
+  const search = screen.getByRole('searchbox', { name: 'Add provider' })
+  const toggle = screen.getByText('Other providers', { selector: 'summary' })
+  const otherProviders = toggle.parentElement!
+  expect(otherProviders).toHaveProperty('open', false)
+  expect(within(otherProviders).getByText('Exa')).toBeTruthy()
+  expect(within(otherProviders).queryByText('OpenAI')).toBeNull()
+  expect(screen.getByText('Parallel')).toBeTruthy()
+  expect(within(otherProviders).queryByText('Parallel')).toBeNull()
+  fireEvent.click(toggle)
+  expect(otherProviders).toHaveProperty('open', true)
+  fireEvent.click(toggle)
+  expect(otherProviders).toHaveProperty('open', false)
+
+  fireEvent.change(search, { target: { value: 'exa' } })
+  expect(otherProviders).toHaveProperty('open', true)
+  fireEvent.click(within(otherProviders).getByRole('button', { name: 'Configure' }))
+  const editor = await screen.findByRole('form', { name: 'Exa connection settings' })
+  expect(within(editor).getByLabelText('API key')).toBeTruthy()
   expect(writes).toEqual([])
 })
 
@@ -267,7 +296,10 @@ test('an unreadable host configuration shows the server reason, keeps configured
 
 test('hosts without lifecycle metadata keep the existing provider setup path', async () => {
   const writes: unknown[] = []
-  const data = settingsFixture([connectionFixture({ configured: false, apiKeyConfigured: false })])
+  const data = settingsFixture([
+    connectionFixture({ configured: false, apiKeyConfigured: false }),
+    connectionFixture({ name: 'exa', displayName: 'Exa', kind: ProviderKinds['answer-service'], configured: false, apiKeyConfigured: false }),
+  ])
   delete data.providerConnections
   const restore = mockFetch((url, init) => {
     if (pathOf(url) === '/api/v1/settings') return jsonResponse(data)
@@ -278,7 +310,10 @@ test('hosts without lifecycle metadata keep the existing provider setup path', a
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => client.clear())
   render(<QueryClientProvider client={client}><ProviderConnectionsSection projects={[]} /></QueryClientProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: 'Configure' }))
+  const otherProviders = (await screen.findByText('Other providers', { selector: 'summary' })).parentElement!
+  expect(otherProviders).toHaveProperty('open', false)
+  expect(within(otherProviders).getByText('Exa')).toBeTruthy()
+  fireEvent.click(within(screen.getByText('OpenAI').closest('#provider-openai') as HTMLElement).getByRole('button', { name: 'Configure' }))
   // A blank model still runs one, so the form names it from the provider list.
   expect(screen.getByRole('textbox', { name: 'Model (optional)', description: 'Default model: gpt-default' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'legacy-host-test-key' } })

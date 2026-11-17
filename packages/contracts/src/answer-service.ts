@@ -16,6 +16,7 @@ import {
   type SourceRelationship,
 } from './answer-evidence.js'
 import { PROVIDER_NAMES, type ProviderQuotaPolicy } from './provider.js'
+import { formatModelName } from './models.js'
 import { ProviderWorkflows, providerWorkflowSchema, type ProviderWorkflow } from './provider-eligibility.js'
 import { profileRouteFamily, type ProviderRouteFamily } from './provider-routes.js'
 
@@ -214,6 +215,29 @@ export function answerServiceRouteFamily(descriptor: Pick<AnswerServiceDescripto
 
 export function answerServiceRouteName(serviceId: string, profileId: string): string {
   return `${serviceId}:${profileId}`
+}
+
+const ANSWER_SURFACE_NAMES: ReadonlyMap<string, string> = new Map([
+  ['chatgpt', 'ChatGPT'],
+  ['aimode', 'Google AI Mode'],
+  ['bing-aimode', 'Bing AI Mode'],
+])
+
+/** Display stored profile routes even when the viewer cannot read the provider catalog. */
+export function formatAnswerServiceRouteLabel(name: string, catalog?: ReadonlyArray<{
+  name: string
+  displayName?: string
+  profiles?: readonly { id: string; displayName?: string }[]
+}>): string | undefined {
+  const [service = '', profile = '', ...rest] = name.split(':')
+  if (rest.length || !SERVICE_ID_PATTERN.test(service) || !PROFILE_ID_PATTERN.test(profile) || RESERVED_SERVICE_IDS.has(service)) return undefined
+  const connection = catalog?.find(entry => entry.name === service)
+  const profileLabel = connection?.profiles?.find(entry => entry.id === profile)?.displayName?.trim()
+    || catalog?.find(entry => entry.name === name)?.profiles?.find(entry => entry.id === profile)?.displayName?.trim()
+    || ANSWER_SURFACE_NAMES.get(profile)
+    || formatModelName(profile)
+  const serviceLabel = connection?.displayName?.trim()
+  return `${profileLabel} via ${serviceLabel && serviceLabel !== service ? serviceLabel : formatModelName(service)}`
 }
 
 /** Credential-free description of one profile, the same for API, CLI, MCP and the dashboard. */
