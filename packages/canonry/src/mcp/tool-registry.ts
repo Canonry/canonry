@@ -94,6 +94,8 @@ import {
   trafficConnectVercelRequestSchema,
   parseTrafficEventKindFilter,
   TRAFFIC_EVENT_KIND_FILTER_HINT,
+  parseTrafficEventGroupBy,
+  TRAFFIC_EVENT_GROUP_BY_HINT,
   trafficSeriesGranularitySchema,
   measurementPlanAuthoringSchema,
   measurementPlanPublishRequestSchema,
@@ -1074,8 +1076,15 @@ const trafficEventsInputSchema = z.object({
     .optional()
     .describe('Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.'),
   sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
-  limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
+  limit: z.number().int().positive().max(5000).optional().describe('Max combined rows per page, and max groups with groupBy. Defaults to 500, max 5000. Totals always reflect the full filtered window.'),
   granularity: trafficSeriesGranularitySchema.optional().describe('Full-window chart series bucket size: hour (default), day, or month (UTC calendar months).'),
+  path: z.string().min(1).optional().describe('A page and the pages under it: "/faq" matches "/faq" and "/faq/x", never "/faqs"; "/products/" matches everything under /products. Case counts. Matches the landing path on AI-referral rows. Totals, series, rows and groups all honor it.'),
+  agent: z.string().min(1).optional().describe('Exact bot ID such as "openai-searchbot" or "openai-chatgpt-user", or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.'),
+  cursor: z.string().min(1).optional().describe('eventRows.nextCursor from the previous page. Repeat the same kind, sourceId, path and agent; the cursor keeps the first page\'s window.'),
+  groupBy: z.string()
+    .refine((value) => parseTrafficEventGroupBy(value) !== null, { message: `groupBy must be ${TRAFFIC_EVENT_GROUP_BY_HINT}` })
+    .optional()
+    .describe('Totals over the whole filtered window, split by kind plus any of: agent, path, status, source (comma-separated). Use it to answer "which bots read this page" or "which pages did this bot read" in one call.'),
 })
 // ai-referral rows and totals split sessions into paid / organic / unclassified.
 // `unclassified` are rows ingested before the classifier shipped; their UTM tags
@@ -3304,7 +3313,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_events',
     title: 'List traffic events',
-    description: 'Read crawler, AI user-fetch, and AI-referral rollups from server-side traffic sources. Returns complete full-window chart series and totals plus a capped discriminated detail list with explicit truncation metadata. Window defaults to last 24h.',
+    description: 'Read crawler, AI user-fetch, and AI-referral rollups from server-side traffic sources. Returns complete full-window chart series and totals plus a paged discriminated detail list (eventRows.nextCursor). Narrow everything with path and agent; add groupBy for totals per agent or path. Window defaults to last 24h.',
     access: 'read',
     tier: 'traffic',
     inputSchema: trafficEventsInputSchema,
@@ -3318,6 +3327,10 @@ const rawCanonryMcpTools = [
       if (input.sourceId) params.sourceId = input.sourceId
       if (input.limit !== undefined) params.limit = input.limit
       if (input.granularity) params.granularity = input.granularity
+      if (input.path) params.path = input.path
+      if (input.agent) params.agent = input.agent
+      if (input.cursor) params.cursor = input.cursor
+      if (input.groupBy) params.groupBy = input.groupBy
       return client.trafficListEvents(input.project, params)
     },
   }),
