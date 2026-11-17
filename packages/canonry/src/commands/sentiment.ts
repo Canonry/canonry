@@ -15,7 +15,7 @@ function machine(value: unknown, format: CliFormat): boolean {
 }
 
 function printSettings(value: SentimentSettingsRead): void {
-  console.log(`Sentiment: ${value.enabled ? 'enabled' : 'disabled'} · ${value.ready ? 'ready' : 'unavailable'} · experimental`)
+  console.log(`Sentiment: ${value.enabled ? 'enabled' : 'disabled'} · ${value.ready ? 'ready' : 'unavailable'}`)
   console.log(`Evaluator: ${value.model} · definition: ${value.evaluationDefinitionId ?? 'not configured'} · epoch: ${value.enablementEpoch}`)
   for (const reason of value.readinessReasons) console.log(reason)
   console.log(`Actions: configure ${value.actions.configure ? 'allowed' : 'unavailable'}; backfill ${value.actions.backfill ? 'allowed' : 'unavailable'}`)

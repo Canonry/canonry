@@ -61,7 +61,7 @@ The card shows "Ready" when the key is saved.
 canonry bing connect <project> --api-key <YOUR_API_KEY>
 ```
 
-If you omit `--api-key`, canonry will prompt you for it interactively.
+If you omit `--api-key`, the command exits with `BING_API_KEY_REQUIRED`.
 
 ---
 

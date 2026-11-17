@@ -5,7 +5,7 @@ import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness } from '@canonry/canonry-api-routes'
 import { CitationStates, RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
-import type { CitationState, LocationContext, RunStatus, RunTrigger, WebhookPayload } from '@canonry/canonry-contracts'
+import type { CitationState, LocationContext, MentionIdentity, RunStatus, RunTrigger, WebhookPayload } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -58,7 +58,17 @@ const CURRENT_AT = '2026-10-03T00:00:00.000Z'
 const CURRENT_FINISHED_AT = '2026-10-03T00:00:02.000Z'
 const LOCATION = { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' }
 const MICHIGAN: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
-const MODES = ['Simple', 'Advanced'] as const
+/**
+ * `Planned` runs carry a measurement manifest but no measurement plan version:
+ * they take the project-level comparison with the incomplete-manifest gate.
+ * Sweeps of a schema v2 plan are covered in notifier-advanced.test.ts.
+ */
+const MODES = ['Simple', 'Planned'] as const
+
+/** The stored mention fields of one answer; omitted fields are stored null. */
+interface StoredMention { answerText?: string | null; answerMentioned?: boolean | null; mentionIdentity?: MentionIdentity | null }
+/** Answers that never wrote the project's name, so every older harness case compares two equal mentions. */
+const NO_MENTION: StoredMention = { answerMentioned: false }
 
 function notificationHarness(
   planned: boolean, locations: LocationContext[] = [LOCATION],
@@ -85,11 +95,14 @@ function notificationHarness(
     runId: string, createdAt: string, citationState: CitationState,
     context: LocationContext = LOCATION, provider = 'gemini',
     executionId: string | null = planned ? 'roof-execution' : null,
+    mention: StoredMention = NO_MENTION,
   ) {
     db.insert(querySnapshots).values({
       id: `${runId}${provider === 'gemini' ? '' : `-${provider}`}-snapshot`,
       runId, queryId: 'roof-query', queryText: 'roof coating', provider,
-      location: context.label, citationState, answerMentioned: false,
+      location: context.label, citationState,
+      answerText: mention.answerText ?? null, answerMentioned: mention.answerMentioned ?? null,
+      mentionIdentity: mention.mentionIdentity ?? null,
       citedDomains: citationState === CitationStates.cited ? ['coatings.example'] : [],
       measurementExecutionId: executionId, requestedContext: context, createdAt,
     }).run()
@@ -99,7 +112,7 @@ function notificationHarness(
     id: string, createdAt: string, citationState: CitationState,
     trigger: RunTrigger = RunTriggers.manual, status: RunStatus = RunStatuses.completed,
     finishedAt: string | null = createdAt,
-    slot: { context?: LocationContext; provider?: string } = {},
+    slot: { context?: LocationContext; provider?: string; mention?: StoredMention } = {},
   ) {
     const context = slot.context ?? LOCATION
     const provider = slot.provider ?? 'gemini'
@@ -111,7 +124,7 @@ function notificationHarness(
         expectedSlots: [{ executionId: 'roof-execution', queryText: 'roof coating', provider, context }],
       } : null,
     }).run()
-    if (status === RunStatuses.completed) snapshot(id, createdAt, citationState, context, provider)
+    if (status === RunStatuses.completed) snapshot(id, createdAt, citationState, context, provider, undefined, slot.mention)
   }
 
   async function complete(runId = 'current', origin?: 'fill') {
@@ -141,13 +154,15 @@ function notificationHarness(
   return { db, projectId, seed, snapshot, complete, assertDelivered, dispatch }
 }
 
+/** Every transition here is the harness's one query, "roof coating", which does not name "Probe Notifications". */
 function expectedPayload(
   event: WebhookPayload['event'], run: WebhookPayload['run'], transitions: WebhookPayload['transitions'],
 ): WebhookPayload {
   return {
     source: 'canonry', event,
     project: { name: 'probe-notifications', canonicalDomain: 'coatings.example' },
-    run, transitions, dashboardUrl: 'https://canonry.test/projects/probe-notifications',
+    run, transitions: transitions.map(transition => ({ ...transition, queryClass: 'non-brand' })),
+    dashboardUrl: 'https://canonry.test/projects/probe-notifications',
   }
 }
 
@@ -157,7 +172,7 @@ const WINNER_CASES = [
 ] as const
 it.each(MODES.flatMap(mode => WINNER_CASES.flatMap(row => ['winner first', 'loser first'].map(order => ({ mode, order, ...row }))))) (
   '$mode delivers one combined fanout loss: $policy, $order', async ({ mode, order, flFinish, miFinish, winner, loser, winnerFinish }) => {
-    const { db, projectId, seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+    const { db, projectId, seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION, MICHIGAN])
     seed('previous-fl', PREVIOUS_AT, CitationStates['not-cited'])
     seed('previous-mi', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
     seed('current-fl', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, flFinish)
@@ -178,7 +193,7 @@ it.each(MODES.flatMap(mode => WINNER_CASES.flatMap(row => ['winner first', 'lose
 
 it.each(MODES.flatMap(mode => [RunStatuses.queued, RunStatuses.running].map(status => ({ mode, status }))))(
   '$mode waits for a $status fanout sibling before delivering its eligible loss', async ({ mode, status }) => {
-    const { db, seed, snapshot, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+    const { db, seed, snapshot, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION, MICHIGAN])
     seed('previous-fl', PREVIOUS_AT, CitationStates.cited)
     seed('previous-mi', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { context: MICHIGAN })
     seed('current-fl', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
@@ -195,7 +210,7 @@ it.each(MODES.flatMap(mode => [RunStatuses.queued, RunStatuses.running].map(stat
 )
 
 it.each(MODES)('%s emits no citation event without a prior group, then uses the stored prior group', async mode => {
-  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION, MICHIGAN])
+  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION, MICHIGAN])
   seed('current-fl', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
   seed('current-mi', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { context: MICHIGAN })
   await complete('current-mi')
@@ -243,7 +258,7 @@ const HISTORY_CASES = [
 
 it.each(MODES.flatMap(mode => HISTORY_CASES.map(row => ({ mode, ...row }))))(
   '$mode ignores stored probes in citation history: $name', async ({ mode, previous, probe, current, event, probes }) => {
-    const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+    const { seed, dispatch } = notificationHarness(mode === 'Planned')
     seed('z-previous', PREVIOUS_AT, previous)
     for (let index = 0; index < probes; index++) {
       seed(`probe-${index}`, `2026-10-02T00:${String(index).padStart(2, '0')}:00.000Z`, probe, RunTriggers.probe)
@@ -256,7 +271,7 @@ it.each(MODES.flatMap(mode => HISTORY_CASES.map(row => ({ mode, ...row }))))(
 const GROUP_CASES = ['pending sibling', 'completed winner', 'previous population', 'current population'] as const
 it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
   '$mode ignores stored probes in citation groups: $poison', async ({ mode, poison }) => {
-    const { seed, dispatch } = notificationHarness(mode === 'Advanced')
+    const { seed, dispatch } = notificationHarness(mode === 'Planned')
     seed('z-previous', PREVIOUS_AT, CitationStates.cited)
     seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
     seed(
@@ -275,7 +290,7 @@ it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
 // Its first sweep after the upgrade must not report its older stored misses
 // moving to `not-measured`, while a measured engine's real loss still fires.
 it.each(MODES)('%s reports no transition into or out of a citation that was not measured', async mode => {
-  const { db, seed, complete, assertDelivered } = notificationHarness(mode === 'Advanced', [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
+  const { db, seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
   seed('previous', PREVIOUS_AT, CitationStates.cited)
   seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
   const local = (runId: string, createdAt: string, citationState: CitationState) => ({
@@ -283,14 +298,14 @@ it.each(MODES)('%s reports no transition into or out of a citation that was not 
     location: LOCATION.label, citationState, answerMentioned: true, citedDomains: [],
     // Recorded by the Local adapter: it has no retrieval step.
     retrievalStatus: 'not-applicable' as const,
-    measurementExecutionId: mode === 'Advanced' ? 'roof-local-execution' : null, requestedContext: LOCATION, createdAt,
+    measurementExecutionId: mode === 'Planned' ? 'roof-local-execution' : null, requestedContext: LOCATION, createdAt,
   })
   // The older row stored a miss for Local; the new one stores `not-measured`.
   db.insert(querySnapshots).values([
     local('previous', PREVIOUS_AT, CitationStates['not-cited']),
     local('current', CURRENT_AT, CitationStates['not-measured']),
   ]).run()
-  if (mode === 'Advanced') {
+  if (mode === 'Planned') {
     for (const runId of ['previous', 'current']) {
       db.update(runs).set({ measurementManifest: { schemaVersion: 1, expectedSlots: [
         { executionId: 'roof-execution', queryText: 'roof coating', provider: 'gemini', context: LOCATION },
@@ -305,5 +320,76 @@ it.each(MODES)('%s reports no transition into or out of a citation that was not 
   assertDelivered([
     expectedPayload('run.completed', finished, geminiLoss),
     expectedPayload('citation.lost', finished, geminiLoss),
+  ])
+})
+
+// Mention changes are their own events: a brand named in the answer text,
+// compared apart from the answer's source links. The project is "Probe
+// Notifications"; the answer text decides the mention, read as the timeline
+// reads it.
+const NAMES_BRAND = 'For roof coating, Probe Notifications is a strong choice.'
+const NAMES_OTHER = 'For roof coating, Acme Roofing is a strong choice.'
+const UNCHECKED: StoredMention = {}
+const ALL_RUN_EVENTS: WebhookPayload['event'][] = ['run.completed', 'citation.lost', 'citation.gained', 'mention.lost', 'mention.gained']
+const FINISHED = { id: 'current', status: 'completed', finishedAt: CURRENT_FINISHED_AT }
+const LOST_MENTION = [{ query: 'roof coating', provider: 'gemini', location: 'florida', from: 'mentioned', to: 'not-mentioned' }]
+const GAINED_MENTION = [{ query: 'roof coating', provider: 'gemini', location: 'florida', from: 'not-mentioned', to: 'mentioned' }]
+
+const MENTION_CASES: ReadonlyArray<{
+  name: string
+  previous: StoredMention
+  current: StoredMention
+  event: 'mention.lost' | 'mention.gained' | null
+}> = [
+  { name: 'the brand dropped out of the answer', previous: { answerText: NAMES_BRAND }, current: { answerText: NAMES_OTHER }, event: 'mention.lost' },
+  { name: 'the brand entered the answer', previous: { answerText: NAMES_OTHER }, current: { answerText: NAMES_BRAND }, event: 'mention.gained' },
+  { name: 'sentiment found the name is about another subject', previous: { answerText: NAMES_BRAND }, current: { answerText: NAMES_BRAND, mentionIdentity: 'wrong-subject' }, event: 'mention.lost' },
+  { name: 'the answer text supersedes a stale stored verdict', previous: { answerText: NAMES_OTHER, answerMentioned: true }, current: { answerText: NAMES_BRAND, answerMentioned: false }, event: 'mention.gained' },
+  { name: 'a stored verdict without answer text', previous: { answerMentioned: true }, current: { answerMentioned: false }, event: 'mention.lost' },
+  { name: 'the previous answer was never checked', previous: UNCHECKED, current: { answerText: NAMES_BRAND }, event: null },
+  { name: 'the current answer was never checked', previous: { answerText: NAMES_BRAND }, current: UNCHECKED, event: null },
+  { name: 'the mention held', previous: { answerText: NAMES_BRAND }, current: { answerText: NAMES_BRAND }, event: null },
+]
+
+it.each(MODES.flatMap(mode => MENTION_CASES.map(row => ({ mode, ...row }))))(
+  '$mode mention webhooks: $name', async ({ mode, previous, current, event }) => {
+    const { seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ALL_RUN_EVENTS)
+    // The citation holds, so only the mention can move.
+    seed('previous', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { mention: previous })
+    seed('current', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { mention: current })
+    await complete()
+    assertDelivered([
+      expectedPayload('run.completed', FINISHED, []),
+      ...(event === null ? [] : [expectedPayload(event, FINISHED, event === 'mention.lost' ? LOST_MENTION : GAINED_MENTION)]),
+    ])
+  },
+)
+
+it.each(MODES)('%s reports a lost citation and a gained mention on one answer as separate events', async mode => {
+  const { seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ALL_RUN_EVENTS)
+  seed('previous', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { mention: { answerText: NAMES_OTHER } })
+  seed('current', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { mention: { answerText: NAMES_BRAND } })
+  await complete()
+  const lostCitation = [{ query: 'roof coating', provider: 'gemini', location: 'florida', from: 'cited', to: 'not-cited' }]
+  assertDelivered([
+    // run.completed keeps carrying citation transitions only.
+    expectedPayload('run.completed', FINISHED, lostCitation),
+    expectedPayload('citation.lost', FINISHED, lostCitation),
+    expectedPayload('mention.gained', FINISHED, GAINED_MENTION),
+  ])
+})
+
+it('sends a mention event only to the webhooks that list it', async () => {
+  const { db, projectId, seed, complete } = notificationHarness(false, [LOCATION], ['citation.lost', 'citation.gained'])
+  db.insert(notifications).values({
+    id: 'mention-hook', projectId, channel: 'webhook', enabled: true,
+    config: { url: 'https://hooks.example/mentions', events: ['mention.lost'] },
+    createdAt: PREVIOUS_AT, updatedAt: PREVIOUS_AT,
+  }).run()
+  seed('previous', PREVIOUS_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, PREVIOUS_AT, { mention: { answerText: NAMES_BRAND } })
+  seed('current', CURRENT_AT, CitationStates.cited, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT, { mention: { answerText: NAMES_OTHER } })
+  await complete()
+  expect(vi.mocked(deliverWebhook).mock.calls.map(([target, body]) => [target.url.href, body])).toEqual([
+    ['https://hooks.example/mentions', expectedPayload('mention.lost', FINISHED, LOST_MENTION)],
   ])
 })

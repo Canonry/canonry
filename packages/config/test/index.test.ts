@@ -6,7 +6,6 @@ test('getPlatformEnv returns defaults when no env vars set', () => {
   const env = getPlatformEnv({})
 
   expect(env.apiPort).toBe(3000)
-  expect(env.workerPort).toBe(3001)
   expect(env.webPort).toBe(4173)
   expect(env.bootstrapSecret).toBe('change-me')
   // No providers configured by default
@@ -28,7 +27,6 @@ test('getPlatformEnv configures Gemini provider from env vars', () => {
   const env = getPlatformEnv({
     DATABASE_URL: 'postgresql://custom',
     API_PORT: '4100',
-    WORKER_PORT: '4101',
     WEB_PORT: '4200',
     BOOTSTRAP_SECRET: 'secret',
     GEMINI_API_KEY: 'gemini-key',
@@ -40,7 +38,6 @@ test('getPlatformEnv configures Gemini provider from env vars', () => {
 
   expect(env.databaseUrl).toBe('postgresql://custom')
   expect(env.apiPort).toBe(4100)
-  expect(env.workerPort).toBe(4101)
   expect(env.webPort).toBe(4200)
   expect(env.bootstrapSecret).toBe('secret')
   expect(env.providers.gemini).toBeTruthy()

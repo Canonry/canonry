@@ -17,16 +17,15 @@ action.
 
 ## The funnel and what measures each step
 
-Each step is usually 10 to 100 times smaller than the one above it. Most AI
-answers are read inside the assistant, so a site can be read often and clicked
-rarely. Report every step separately; never pool them.
+An assistant can read a site without sending it a visit. Each instrument
+measures a different population. Report every step separately; never pool them.
 
 | Step | What it is | Instrument | Read with |
 |---|---|---|---|
 | Crawled | AI and search bots fetch pages to index them | Server-side traffic, `crawler` | `cnry traffic events <p> --kind crawler` (`canonry_traffic_events`) |
 | Read for a user | An assistant fetches a page live while answering someone (ChatGPT-User, Claude-User, Perplexity-User) | Server-side traffic, `ai-user-fetch` | `cnry traffic events <p> --kind ai-user-fetch` |
-| Clicked | A person follows a link from an AI answer | Server-side `ai-referral` hits; GA4 AI sessions | `cnry traffic events <p> --kind ai-referral`; `cnry ga ai-referral-history <p>` (`canonry_ga_ai_referral_history`) |
-| Came back | That person's later visits, from any channel | AI visitor journeys (server logs) | `cnry journeys summary\|list\|show <p>` (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`) |
+| Clicked | An arrival carries an AI referrer or campaign identifier | Server-side `ai-referral` hits and GA4 AI sessions | `cnry traffic events <p> --kind ai-referral`; `cnry ga ai-referral-daily <p>` (`canonry_ga_ai_referral_daily`) |
+| Came back | Later visits linked by the configured journey identifier | AI visitor journeys (server logs) | `cnry journeys summary\|list\|show <p>` (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`) |
 | Converted | Lead, booking or purchase | GA4 key events plus `measurement.leadEventNames` | `cnry ga measurement-analysis <p> --window 90d --host-scope all` (`canonry_ga_measurement_analysis`) |
 
 Server-side hits are requests and GA4 counts sessions, and each instrument
@@ -98,8 +97,8 @@ through these in order and say which one applies.
    read-only.
 3. **Do two instruments agree?** Compare Canonry's GA4 AI sessions with GA4's
    own `AI Assistant` channel (`cnry ga acquisition <p> --window 30d
-   --group-by channel`), and with server-side `ai-referral` hits. Agreement
-   between independent instruments rules out an ingestion fault. GA4 may file
+   --group-by channel`), and with server-side `ai-referral` hits. Use agreement
+   as corroboration and review each source's coverage. GA4 may file
    AI shopping links under another channel when they carry a different
    `utm_medium` (for example `feed`); the source still reads `chatgpt.com`.
 4. **Paid or organic?** An AI-referral spike can be an ads test. GA4 rows carry
@@ -110,10 +109,9 @@ through these in order and say which one applies.
    service or host actually serves the domain (for example, check which backend
    a load balancer routes the domain to) before you claim a wiring gap.
 6. **Is the source partial?**
-   - The default Cloudflare Worker forwards only AI-referred and bot requests,
-     so journeys miss later visits until the source is reconnected with
-     `--forward-page-views` and the Worker redeployed. Journey reads list such
-     sources in `partialSources`.
+   - The default Cloudflare Worker filters traffic for AI, bot, and unrecognized agent signals.
+     To record ordinary browser page views for journeys, reconnect with `--forward-page-views` and redeploy the Worker.
+     Journey reads list sources with partial coverage in `partialSources`.
    - The WordPress logger runs inside WordPress, so it cannot see page views a
      cache serves before WordPress runs.
    - Vercel logs carry no IP, so journey keys use the user agent only
@@ -173,16 +171,12 @@ through these in order and say which one applies.
    known.
 2. `cnry journeys list <p> --engine ChatGPT --since <a few days before>` and
    `cnry journeys show <p> <visitor-key>` for visitors active near that time.
-3. A user-agent match is "likely", never proof, unless the key also includes
-   the IP. Reading a provider's raw logs beyond what Canonry stored is a live
-   read and needs approval.
+3. Treat the request sequence as a possible match. Canonry groups requests by IP and user agent where available. Reading a provider's raw logs requires approval for the live read.
 
 **"AI referrals dropped. Is our tracking broken?"**
 1. Pull the monthly series from both instruments (server-side `ai-referral` and
    GA4 AI sessions) and split paid from organic.
-2. If both fell together, the traffic changed, not the tracking. Check for an
-   ended ads test, a lost citation or mention (`references/aeo-analysis.md`), or
-   a site change.
+2. If both fell together, check coverage on both sources. Review ad activity, citation and mention evidence, and site changes.
 3. If only one fell, check that instrument: sync errors and stop reasons
    (`cnry traffic status`, `cnry runs <p> --kind traffic-sync`), the GA4 tag,
    or the source's service or host.
@@ -212,9 +206,7 @@ mean only user-agent matches were seen: say "not measurable", never zero.
 
 ## Reporting language
 
-- Lead with the step, the count and the window: "Assistants read the site 300
-  times in 30 days (verified); 10 people clicked through; conversions are not
-  measured."
+- Lead with the step, count, and window. For example, "In 30 days we recorded 300 verified assistant fetches and 10 AI referral arrivals. Conversion data is unavailable."
 - Keep crawled, read, clicked, came back and converted as separate numbers.
 - Name the blind spot whenever a number is zero or low because an instrument
   cannot see it.

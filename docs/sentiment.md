@@ -1,6 +1,6 @@
-# Experimental sentiment
+# Sentiment
 
-Sentiment classifies stored English answers for a specific frozen subject. Branded and non-brand queries have separate scores and denominators. The dashboard and the human CLI overview report sentiment as a branded figure: non-brand appears there only as its unfavorable and mixed answers, while its full summary stays readable through the API, CLI and MCP. It is disabled by default at both install and project levels. It does not change citation or mention measurements, pool branded with non-brand queries, or run a new answer-engine sweep. Independent held-out human evaluation has not been completed; these results remain experimental.
+Sentiment classifies stored English answers for a specific frozen subject. Branded and non-brand queries have separate scores and denominators. The dashboard and the human CLI overview report sentiment as a branded figure: non-brand appears there only as its unfavorable and mixed answers, while its full summary stays readable through the API, CLI and MCP. It is disabled by default at both install and project levels. It does not change citation or mention measurements, pool branded with non-brand queries, or run a new answer-engine sweep. Independent held-out human evaluation has not been completed, so the ratings are model judgments: read the quoted evidence before acting on one.
 
 ## Enablement and authority
 

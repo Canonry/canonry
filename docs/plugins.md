@@ -125,12 +125,11 @@ cnry start
 cnry doctor --check 'agent.skills.*' --format json
 ```
 
-`cnry start` waits for the health endpoint before returning and refuses to
-start over a live tracked daemon. A successful doctor JSON response confirms
-transport; inspect each check's status separately because provider or
-integration checks may legitimately return `warn` or `fail` on a fresh setup.
-The agent-skills check also warns when a client cache manifest version does not
-match the running Canonry version; update the runtime and plugin in lockstep.
+`cnry start` waits for the health endpoint. Inspect each `agent.skills.*` check's
+status. Doctor checks user-level Codex and Claude Code caches on the host
+running the daemon and compares verified plugin versions with the running
+Canonry version. For Hermes, use `hermes plugins list`. For project-specific
+installs, inspect the configuration in the client that owns the project.
 
 Restart or reload the client after installation if it does not discover the
 plugin immediately.

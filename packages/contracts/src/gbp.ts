@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { percent } from './ratio-unit.js'
+import { hostMatchesAnyDomain, hostOf } from './url-normalize.js'
 
 // One GBP account the OAuth user can access. `name` is the resource name
 // ("accounts/{n}") used to list that account's locations; the rest are
@@ -53,11 +54,39 @@ export const gbpLocationDtoSchema = z.object({
   openStatus: z.string().nullable(),
   openingDate: z.string().nullable(),
   selected: z.boolean(),
+  // Whether the location's website is on one of the project's domains.
+  // Null when Google returned no website or it has no recognizable domain.
+  // `false` usually means the location belongs to another business on the same
+  // Google account; tracking it mixes that business's reviews and stats into
+  // this project. Optional so an older server's response still parses.
+  websiteMatchesProject: z.boolean().nullable().optional(),
+  // The website's host for display, without `www.` (`bayviewhotel.com`), or null.
+  websiteDomain: z.string().nullable().optional(),
   syncedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
 export type GbpLocationDto = z.infer<typeof gbpLocationDtoSchema>
+
+/**
+ * Whether a Business Profile website is on one of the project's domains: the
+ * same host as a canonical or owned domain, or a subdomain of one (`www.`
+ * is ignored). A sibling host under a shared parent, such as another
+ * franchisee's city subdomain, does not match. Null when there is no website
+ * or no host can be read from it.
+ */
+export function gbpWebsiteMatchesProject(
+  websiteUri: string | null | undefined,
+  projectDomains: readonly string[],
+): boolean | null {
+  if (hostOf(websiteUri) === null) return null
+  return hostMatchesAnyDomain(websiteUri, projectDomains)
+}
+
+/** The website's host for display, without `www.`; null when none can be read. */
+export function gbpWebsiteHost(websiteUri: string | null | undefined): string | null {
+  return hostOf(websiteUri)
+}
 
 export const gbpLocationListResponseSchema = z.object({
   locations: z.array(gbpLocationDtoSchema),

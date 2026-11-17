@@ -15,19 +15,18 @@ Local LLM adapter — implements `ProviderAdapter` for any OpenAI-compatible loc
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
+`localAdapter` implements `ProviderAdapter` from `@canonry/canonry-contracts`.
 
-- **`validateConfig(config)`** — verify base URL and model are configured
-- **`healthcheck(config)`** — test connectivity to the local endpoint
-- **`executeTrackedQuery(input)`** — send a tracked query to the local model
-  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
+- **`validateConfig(config)`** — require a base URL and resolve the requested model or `llama3`
+- **`healthcheck(config, signal?)`** — check connectivity through `GET /models`
+- **`executeTrackedQuery(input, config)`** — build the request with `buildTrackedQueryRequest`, make the SDK call, and read it with `parseTrackedQueryResponse`
 - **`normalizeResult(raw)`** — convert response to standard `NormalizedQueryResult`
-- **`generateText(config, prompt)`** — general-purpose text generation
+- **`generateText(prompt, config)`** — general-purpose text generation
 
 ## Common Mistakes
 
-- **Not normalizing grounding sources to standard `CitedSource` format** — local models may not provide web search grounding at all.
-- **Deriving citations from answer prose** — a domain written in `answerText` is a mention only. Populate `citedDomains` exclusively from structured grounding sources; mention and citation are independent signals.
+- Keep `citationMeasurable: false` and `retrievalStatus: 'not-applicable'`. The adapter sends plain chat completions and captures no grounding sources.
+- Measure mentions from answer prose. Keep `citedDomains` empty for live Local answers.
 - **Forgetting to export from `adapter.ts`** — the provider registry imports the adapter object.
 
 ## See Also

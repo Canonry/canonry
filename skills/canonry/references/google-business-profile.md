@@ -16,12 +16,14 @@ Canonry integrates with the Google Business Profile (GBP) API to surface local A
 
 ## What Stays Manual
 
-- Replying to reviews (Phase 4 — write surface)
-- Posting local posts / offers (Phase 4)
-- Updating lodging attributes (Phase 4)
-- Pub/Sub notifications setup (Phase 4)
+- Replying to reviews
+- Publishing offers and other posts outside the editorial article format
+- Updating lodging attributes
+- Configuring Google Pub/Sub notifications
 
-For now, canonry is read-only on GBP. The Aero agent can draft suggested replies, but applying them is manual.
+Canonry can publish a `STANDARD` editorial article with one photo and a `LEARN_MORE` link. Publishing requires explicit approval for the exact post and a credential with `gbp.posts.write`. Signed-in users must also be administrators.
+
+Use `canonry gbp posts create <project> --request <file>` for the approved request. The request binds the selected account and location to an attempt ID and package ID. If the result is uncertain, read the saved attempt with `canonry gbp posts attempt <project> --attempt <id> --package <id>`. Reconcile the attempt before you retry that publication. MCP can read posts and saved attempts.
 
 ## Hard Prerequisite: API Access Approval
 
@@ -73,7 +75,7 @@ In Cloud Console → APIs & Services → Library, enable:
 
 ### The legacy "Google My Business API" (v4 — reviews)
 
-The **reviews** endpoint lives on the legacy `mybusiness.googleapis.com` (v4), a separate API from the v1 family above. It is the single biggest stumbling block, and **production testing (May 2026) proved the Basic API Access approval does NOT grant it.**
+Reviews and Local Posts use the legacy `mybusiness.googleapis.com` v4 API. In May 2026, the v4 reviews endpoint returned `403 SERVICE_DISABLED` for a project with Basic API Access.
 
 What we confirmed, with a project approved and running the v1 family at 300 QPM, authenticated as the exact approved account with the `business.manage` scope:
 
@@ -86,7 +88,7 @@ What we confirmed, with a project approved and running the v1 family at 300 QPM,
 
 ### Review alerts
 
-`cnry gbp sync` tries v4 reviews for every selected location. The outcome is stored per location and shown by `cnry gbp reviews <project>` and the `gbp.reviews.access` doctor check; a `403 SERVICE_DISABLED` never fails the sync. Until Google enables v4, locations fall back to the public Places listing when Places runs on the `atmosphere` tier with an API key and the location has a Maps place id. That fallback costs at most one Place Details call per location per day (Enterprise + Atmosphere SKU) and stops by itself once v4 works.
+`cnry gbp sync` tries v4 reviews for every selected location. `cnry gbp reviews <project>` and `gbp.reviews.access` show the stored outcome per location. If v4 is unavailable, the fallback needs the `atmosphere` Places tier, an API key, and a Maps place ID. Canonry waits 20 hours after the last Places review observation before refreshing it. The fallback stops once v4 covers the location.
 
 | | Business Profile v4 | Places fallback |
 |---|---|---|
@@ -121,19 +123,12 @@ does not change ADC. See [Google's ADC configuration and search order](https://c
 1. Cloud Console → APIs & Services → **OAuth consent screen** → set up consent (External works). Add your own email under "Test users" while the app is in test mode.
 2. Cloud Console → APIs & Services → **Credentials** → **+ Create Credentials** → **OAuth client ID**.
 3. Application type: **Web application**.
-4. Authorized redirect URIs: `http://localhost:53682/callback` (or whatever port canonry's connect flow uses — match it exactly).
+4. Register the exact redirect URI that `canonry gbp connect <project>` prints. A default local install uses `http://localhost:4100/api/v1/google/callback`. Include the base path if your Canonry URL has one.
 5. Save the **Client ID** and **Client secret**.
 
 ### Store credentials for canonry
 
-Either set env vars before running CLI commands:
-
-```bash
-export GOOGLE_CLIENT_ID="…"
-export GOOGLE_CLIENT_SECRET="…"
-```
-
-Or persist them in `~/.canonry/config.yaml`:
+Enter the OAuth client ID and secret under **Settings → Google OAuth**. You can also store them in `~/.canonry/config.yaml`.
 
 ```yaml
 google:
@@ -156,7 +151,7 @@ canonry gbp sync <project> --wait            # run a first sync
 canonry gbp summary <project>                # check derived metrics
 ```
 
-The OAuth scope requested is `https://www.googleapis.com/auth/business.manage`. **There is no read-only variant** — Google does not publish one. The consent screen will say "manage your business profile" even though canonry's read-only surface cannot write anything until Phase 4.
+The consent screen requests `https://www.googleapis.com/auth/business.manage`. Canonry applies separate permissions and approval to editorial publishing.
 
 ### Account selection is per project
 
@@ -236,7 +231,7 @@ For hotel groups, two extra signal sources are critical:
 
 Hotel amenities are a high-signal local-AEO surface: answer engines often answer queries like "does X hotel have a pool?" or "is Y pet-friendly?" from structured hotel facts instead of website copy alone. Canonry therefore treats the Lodging API as a separate hotel-only source from generic Business Information `getAttributes`.
 
-Canonry snapshots the raw Lodging API resource on every `gbp sync` and reports how many top-level groups are readable. It does **not** infer missing amenities from a zero-group response, and it does **not** treat generic `getAttributes` tags as a substitute for Hotel details. A zero-group Lodging API response remains a verify-the-Hotel-details-panel signal.
+Canonry reads the Lodging API during `gbp sync` and saves a new snapshot when the resource changes. It reports how many top-level groups are readable. If the count is zero, check the Hotel details panel. Generic Business Information attributes cover a separate surface.
 
 A non-lodging location returns HTTP 400 `FAILED_PRECONDITION` ("This operation is not supported for this location. Please check the value of `Location.location_state.can_operate_lodging_data`") — not a 404. Fix the primary category in the Business Profile UI to a lodging category first. A lodging-category location can return HTTP 200 with only `{ "name": "..." }`. That is the common case observed on a complete hotel, even when the owner-facing "Hotel details" panel has amenities filled in. So an empty result is a "can't read via the API" verify, not proof the hotel has no amenities.
 
@@ -285,11 +280,10 @@ Every GBP number belongs to one of three planes. **Tag each figure by plane befo
 ## Important Constraints
 
 - **GBP API returns owner-configured data only** — the API exposes only what the profile owner has set. Google's *rendered* hotel listing synthesizes additional amenities, room pricing, and booking links from Google Hotel Center, OTA feeds (Booking/Expedia/Hotels.com), and Places/user-contributed data — none of which the GBP API returns. So an empty Lodging API result does **not** mean the public listing is empty, and it does **not** prove the owner set no amenities: the owner-facing "Hotel details" amenity panel writes to a separate surface the Lodging API does not return, so it is commonly empty even for complete hotels. Treat it as a "verify the Hotel details panel", not a confirmed gap. **Canonry pulls the rendered-listing side from the Places API and cross-references it against the GBP profile** (issue #648, shipped) — see "Places enrichment" below.
-- **No read-only OAuth scope** — `business.manage` is the only published scope. The consent screen will warn about write access even though canonry's v1 is read-only.
+- **Write permission.** The provider scope covers profile management. Canonry limits GBP writes to approved editorial Local Posts.
 - **300 QPM shared quota** — across all GBP sub-APIs on one Google Cloud project. Canonry's sync worker caps per-location concurrency at 4 (~28 in-flight calls at peak) to stay well under the cap.
-- **10 edits/min per profile** — hard cap on writes (relevant for Phase 4). Cannot be raised.
 - **Privacy-redacted keyword impressions** — for each keyword aggregated over the requested window, Google returns either an exact `value` or only a `threshold` floor (`<N`). Canonry stores both shapes (`valueCount` / `valueThreshold`) against the row's `periodStart`/`periodEnd` and surfaces a "% thresholded" stat so the user understands data fidelity. Note the Performance API aggregates each keyword over the **whole** requested date range — it does not break impressions down per calendar month.
-- **Hybrid v1/v4 surface, separately gated** — reviews live on the legacy v4 host (`mybusiness.googleapis.com/v4`); everything else is v1. **The Basic API Access approval grants the v1 family but NOT v4.** Confirmed in production: a project running v1 at 300 QPM still gets `403 SERVICE_DISABLED` on v4 reviews, and the v4 API is producer-restricted (`gcloud services enable` → `PERMISSION_DENIED 110002`) so it can't be self-enabled even by the approved account. Treat reviews as a separately-gated surface that may be unavailable; never block the rest of the integration on it.
+- **Separate API access.** Canonry uses the legacy v4 host for Reviews and Local Posts. Other GBP clients use v1. The v1 sync can continue when v4 reviews are unavailable.
 - **Multi-location chains** — a 200-location chain hits ~600+ API calls per sync. Default sync may take minutes for large chains; scope with `canonry gbp sync <project> --location locations/XXX` to retry a subset.
 
 ## Real-World Data Shapes & Signal Patterns
@@ -316,16 +310,16 @@ Validated against three live businesses of different types (a computer-support s
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Every API call returns HTTP 403 | Access form not yet approved (0 QPM) | Submit the form; wait for approval email. Check quota in Cloud Console. |
-| `redirect_uri_mismatch` during connect | OAuth client doesn't include the canonry callback URL | Add `http://localhost:53682/callback` (or the canonry-configured URL) to the OAuth client's authorized redirect URIs |
+| `redirect_uri_mismatch` during connect | The OAuth client lacks the Canonry callback URL | Add the exact URI that `canonry gbp connect <project>` prints |
 | "App not verified" warning at consent | Consent screen in test mode | Add the OAuth user to test users, or publish the consent screen |
 | Empty accounts list after connect | OAuth user lacks manager access on any profile | Ask the profile owner to add the user at [business.google.com](https://business.google.com) → Users |
 | Lodging endpoint returns 400 `FAILED_PRECONDITION` | Location primary category is not a lodging category | Update the primary category in the GBP UI to `Hotel`, `Resort`, `Motel`, etc. |
 | Lodging returns 200 with only `{ "name": ... }` | The GBP Lodging API returned no readable structured groups. In live testing this happened even when the "Hotel details" panel had amenities set | Not an error, and not proof of a gap. Surface as a verify: have the operator check the "Hotel details" panel; flag only if genuinely unset there |
 | Place action links empty | No CTAs configured | Set them up in the GBP UI; for many local businesses this is genuinely empty (an AEO gap) |
 | Reviews 403 `SERVICE_DISABLED` while v1 APIs work (`gbp reviews` shows `unavailable (SERVICE_DISABLED)`) | Legacy v4 `mybusiness.googleapis.com` not enabled for this account/project | See "The legacy Google My Business API" above — enable via the approval-email shortcut as the approved account; can't be done via library or gcloud. Meanwhile, the Places fallback covers review alerts partially |
-| No review alerts arrive | No webhook subscribes to `review.negative`, the location is still on its first (baseline) sync, it has no review source, or the send did not land | `cnry notify list <project>`, then `cnry doctor <project> --check gbp.reviews.access` for per-location coverage and `--check gbp.reviews.delivery` for alerts a destination refused or never answered |
+| No review alerts arrive | No subscribed webhook, first-sync baseline, missing review source, or delivery failure | Run `cnry notify list <project>` and `cnry doctor --project <project> --check gbp.reviews.access --check gbp.reviews.delivery` |
 | Q&A API unreachable | Google retired the Q&A API on 2025-11-03 | Permanent. Q&A is not available programmatically |
-| Keyword impressions mostly `threshold` instead of `value` | Low-volume keywords are privacy-redacted by Google | Expected — even a busy hotel can be ~89% thresholded; tiny businesses are 100%. Surfaced as `thresholdedKeywordPct` in the summary |
+| Keyword impressions mostly `threshold` instead of `value` | Google redacts low-volume counts | Read `keywords.thresholdedPct` in the summary |
 
 ## Related Files in This Skill
 

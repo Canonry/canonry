@@ -8,16 +8,16 @@ It ships a built-in analyst agent, Aero (`packages/canonry/src/agent/`), and a s
 
 ## Where rules live
 
-This file holds only the rules every change must follow. Every package and app has its own `AGENTS.md` with the rest; read the one for the folder you're changing before you edit. Claude Code loads a folder's `AGENTS.md` automatically when it opens a file there. Codex and most other agents load only the files from the repo root down to their working directory, so open the right one yourself. Find files, navigation recipes, and search tips (`muse.search`, chunked reads of large files) in `docs/CODEMAP.md`; find docs, plans, ADRs, and the roadmap in `docs/README.md`.
+This file holds the rules for every change. Before you edit, read the `AGENTS.md` files for the affected packages and apps. See `docs/CODEMAP.md` for source paths and `docs/README.md` for documentation.
 
 ```text
-apps/api/, apps/worker/   Cloud Run API and worker entry points (import packages/api-routes)
+apps/api/                Cloud Run REST entry point (imports packages/api-routes)
 apps/web/                 Vite SPA, bundled into packages/canonry/assets/ (also read PRODUCT.md, DESIGN.md)
 packages/canonry/         Publishable npm package: CLI + server + SPA (+ src/mcp/AGENTS.md, src/agent/AGENTS.md)
 packages/api-routes/      Shared Fastify route plugins (+ src/doctor/AGENTS.md, src/discovery/AGENTS.md)
 packages/contracts/       DTOs, enums, config schema, error codes, shared utilities
 packages/config/          Typed environment parsing
-packages/db/              Drizzle ORM schema, migrations, client (SQLite/Postgres)
+packages/db/              Drizzle ORM schema, SQLite client, migrations
 packages/intelligence/    Insight and health analysis over snapshots
 packages/provider-*/      Answer-engine adapters (gemini, openai, claude, perplexity, local, cdp)
 packages/integration-*/   Third-party integrations (Google, GA4, Bing, OpenAI ads, Cloudflare, WordPress, ...)
@@ -240,7 +240,7 @@ A **probe run** (`runs.trigger = 'probe'`, `RunTriggers.probe`; `canonry run --p
 
 1. Aggregate reads (dashboard, analytics, report, timeline, intelligence) AND-in `notProbeRun()` from `packages/api-routes/src/helpers.ts`, including recent-runs windows. Add a case to `packages/api-routes/test/probe-exclusion.test.ts` for every new aggregate endpoint.
 2. Per-run detail endpoints that take a `runId` (`GET /runs/:id`, screenshots, browser diffs, GSC inspect lookups) include probes.
-3. Operator lists (`GET /runs`, `GET /projects/:name/runs`) include probes; the dashboard filters them client-side (`apps/web/src/queries/use-dashboard.ts`).
+3. Operator lists (`GET /runs`, `GET /projects/:name/runs`) include probes. The dashboard overview filters them in `apps/web/src/queries/use-dashboard-overview.ts`.
 4. `RunCoordinator` (`packages/canonry/src/run-coordinator.ts`) returns early for probes — no intelligence, webhooks, or Aero wake. New post-run subscribers keep that check.
 5. External callers may send only `manual` or `probe` (`runTriggerRequestSchema`); `scheduled`, `config-apply`, and `backfill` are server-set.
 

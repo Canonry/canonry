@@ -36,8 +36,6 @@ import { dirname, join } from 'node:path'
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const DEP = '@canonry/agent-readiness'
-// The local Canonry runtime uses the full-crawl engine. apps/worker has no
-// audit-engine dependency.
 const DEP_TARGETS = [
   {
     path: 'packages/canonry/package.json',

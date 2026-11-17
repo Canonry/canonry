@@ -444,9 +444,11 @@ test('falls back to the aggregate scope when the scoped location is untracked', 
   fireEvent.change(selector, { target: { value: 'locations/456' } })
   await waitFor(() => expect(summaryScopes).toContain('scoped'))
 
-  // Untrack that same location via the Manage locations panel.
+  // Untrack that same location via the Manage locations panel, then confirm.
   fireEvent.click(screen.getByRole('button', { name: /Manage locations/ }))
   fireEvent.click(screen.getAllByRole('button', { name: 'Untrack' })[1]!)
+  const confirm = screen.getByRole('group', { name: 'Untrack Blue Kettle?' })
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Untrack' }))
 
   // Selector disappears (one tracked location left) and the scope resets to
   // aggregate — without the reset the section stays stuck on the untracked one.
@@ -468,6 +470,103 @@ function connectedGbpRead(urlPath: string, locations: unknown[]): Response | nul
   if (urlPath.endsWith('/projects/test-project/insights')) return jsonResponse([])
   return null
 }
+
+test('Untrack asks first, because it removes the location\'s stored data; Keep tracking sends nothing', async () => {
+  const puts: Array<{ path: string; body: unknown }> = []
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/selection') && init?.method === 'PUT') {
+      puts.push({ path: urlPath, body: JSON.parse(String(init.body)) })
+      return jsonResponse(makeLocation({ selected: false }))
+    }
+    const read = connectedGbpRead(urlPath, [makeLocation({ websiteMatchesProject: true, websiteDomain: 'harborline.example.com' })])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+  fireEvent.click(await screen.findByRole('button', { name: /Manage locations/ }))
+  const untrack = screen.getByRole('button', { name: 'Untrack' })
+
+  fireEvent.click(untrack)
+  const confirm = screen.getByRole('group', { name: 'Untrack Harborline Bayside?' })
+  expect(confirm.textContent).toContain('Its stored reviews, rating history and stats are removed from this project.')
+  const keep = within(confirm).getByRole('button', { name: 'Keep tracking' })
+  expect(document.activeElement).toBe(keep)
+
+  fireEvent.click(keep)
+  expect(screen.queryByRole('group', { name: 'Untrack Harborline Bayside?' })).toBeNull()
+  await waitFor(() => expect(document.activeElement).toBe(untrack))
+  expect(puts).toEqual([])
+
+  fireEvent.click(untrack)
+  fireEvent.click(within(screen.getByRole('group', { name: 'Untrack Harborline Bayside?' })).getByRole('button', { name: 'Untrack' }))
+  await waitFor(() => expect(puts).toEqual([{ path: expect.stringMatching(/\/gbp\/locations\/locations%2F123\/selection$/), body: { selected: false } }]))
+})
+
+test("flags another business's website, and tracking it asks first; a location on the project's site tracks directly", async () => {
+  const puts: Array<{ path: string; body: unknown }> = []
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/selection') && init?.method === 'PUT') {
+      puts.push({ path: urlPath, body: JSON.parse(String(init.body)) })
+      return jsonResponse(makeLocation({ selected: true }))
+    }
+    const read = connectedGbpRead(urlPath, [
+      makeLocation({ selected: false, websiteMatchesProject: true, websiteDomain: 'harborline.example.com' }),
+      makeLocation({
+        id: 'loc-2', locationName: 'locations/456', displayName: 'Blue Kettle Cafe', selected: false,
+        websiteUri: 'https://bluekettle.example/', websiteMatchesProject: false, websiteDomain: 'bluekettle.example',
+      }),
+    ])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+  fireEvent.click(await screen.findByRole('button', { name: /Manage locations/ }))
+  const rows = screen.getAllByRole('row')
+  const ownRow = rows.find(row => row.textContent?.includes('Harborline Bayside'))!
+  const otherRow = rows.find(row => row.textContent?.includes('Blue Kettle Cafe'))!
+  expect(within(otherRow).getByText('Other website')).toBeTruthy()
+  expect(within(otherRow).getByText('bluekettle.example')).toBeTruthy()
+  expect(within(ownRow).queryByText('Other website')).toBeNull()
+
+  fireEvent.click(within(ownRow).getByRole('button', { name: 'Track' }))
+  await waitFor(() => expect(puts).toEqual([{ path: expect.stringMatching(/locations%2F123\/selection$/), body: { selected: true } }]))
+  expect(screen.queryByRole('group')).toBeNull()
+
+  fireEvent.click(within(otherRow).getByRole('button', { name: 'Track' }))
+  const confirm = screen.getByRole('group', { name: 'Track Blue Kettle Cafe in this project?' })
+  expect(confirm.textContent).toContain("Its website, bluekettle.example, is not one of this project's domains.")
+  expect(puts).toHaveLength(1)
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Track anyway' }))
+  await waitFor(() => expect(puts.at(-1)).toEqual({ path: expect.stringMatching(/locations%2F456\/selection$/), body: { selected: true } }))
+})
+
+test('a failed direct Track shows the error with a Dismiss control', async () => {
+  const restoreFetch = mockFetch((url, init) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/selection') && init?.method === 'PUT') {
+      return jsonResponse({ error: { code: 'FORBIDDEN', message: 'Insufficient scope' } }, 403)
+    }
+    const read = connectedGbpRead(urlPath, [makeLocation({ selected: false, websiteMatchesProject: true, websiteDomain: 'harborline.example.com' })])
+    if (read) return read
+    throw new Error(`Unexpected fetch: ${url} ${init?.method ?? ''}`)
+  })
+  onTestFinished(restoreFetch)
+
+  renderGbpSection()
+  fireEvent.click(await screen.findByRole('button', { name: /Manage locations/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Track' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  expect(screen.queryByRole('alert')).toBeNull()
+})
 
 const settingsResponse = (configured: boolean) =>
   jsonResponse({ providers: [], providerCatalog: [], google: { configured }, bing: { configured: false } })

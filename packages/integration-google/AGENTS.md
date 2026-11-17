@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Google Search Console (GSC) integration — OAuth 2.0 flow for Google credentials and a GSC API client for fetching search performance data, URL inspections, and coverage reports.
+Shared Google OAuth 2.0 helpers and a Google Search Console (GSC) client. The client handles search analytics, URL inspection, sitemaps, and Indexing API notifications.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `src/gsc-client.ts` | GSC API client — search analytics queries, URL inspection, coverage, sitemaps |
+| `src/gsc-client.ts` | Search analytics, URL inspection, sitemaps, and Indexing API notifications |
 | `src/oauth.ts` | Google OAuth 2.0 flow — authorization URL generation, token exchange, refresh |
 | `src/types.ts` | Type definitions and `GoogleApiError` custom error class |
 | `src/constants.ts` | API URLs, OAuth scopes, timeouts |
@@ -18,7 +18,7 @@ Google Search Console (GSC) integration — OAuth 2.0 flow for Google credential
 
 - **OAuth flow**: The `oauth.ts` module handles the full OAuth 2.0 authorization code flow. Credentials (client ID/secret, access/refresh tokens) are stored in `~/.canonry/config.yaml`, not the database.
 - **Error handling**: Uses `GoogleApiError` for API-specific errors. Callers in `packages/api-routes` catch and wrap these as `AppError`.
-- **Token refresh**: Access tokens expire — the client handles transparent refresh using the stored refresh token.
+- **Token refresh.** API routes and sync jobs call `refreshAccessToken` with the stored refresh token. GSC client methods take an access token from their caller.
 
 ## Common Mistakes
 

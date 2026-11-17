@@ -24,13 +24,13 @@ Prefer Aero's read tools (`canonry_project_overview`, `canonry_health_latest`, `
 ```bash
 cnry status <project> --format json
 cnry health <project> --format json
-cnry timeline <project> --since <YYYY-MM-DD> --format json
+cnry visibility-stats <project> --since <YYYY-MM-DD> --by-provider --format json
 cnry insights <project> --format json
 cnry evidence <project> --format json
 cnry agent-readiness score <project> --format json
 ```
 
-If the data you need isn't reachable with a single read tool or CLI call, that's a bug in canonry's API surface — file it rather than working around it in memory.
+Use the available stored reads for each part of the investigation. Keep their scope and dates with the evidence.
 
 ## Regenerate, don't remember
 
@@ -40,7 +40,7 @@ Derived interpretations (trend summaries, correlations between events) are cheap
 
 - `canonry_memory_set({ key, value })` — upsert a project-scoped note. Capped at 2 KB per value. Same key replaces the prior value, so use stable keys (e.g. `operator-pref.reporting-tone`, not `note-2026-04-17`).
 - `canonry_memory_forget({ key })` — remove a single note. Returns `status: missing` when the key never existed (non-fatal).
-- `canonry_memory_list()` — read notes newest-first. Usually unnecessary — the top 20 are already in the system prompt under `<memory>`. Reach for it when you need older context or the full value of a note that's been summarized.
+- `canonry_memory_list()` — read notes newest-first. The built-in operator session includes up to 20 recent notes under `<memory>`, subject to its byte limit. Use the tool for older notes. Viewer sessions do not use operator memory.
 
 **Reserved prefix.** Keys starting with `compaction:` are reserved for LLM-summarized transcript slices. `canonry_memory_set` and `canonry_memory_forget` both reject them. Compaction notes are pruned automatically — you can list them but never write or delete them by hand.
 

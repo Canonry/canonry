@@ -976,10 +976,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   }>('/projects/:name/ga/sync', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    // Every GA4 fetch bounds its window to [1, GA4_MAX_SYNC_DAYS]. Resolve the
-    // bound HERE too, from the same helper, so `days` in the response is the
-    // window that was actually written rather than the one that was asked for
-    // — a `--days 500` sync writes 90 and used to report 500.
+    // Bound the detail window to [1, GA4_MAX_SYNC_DAYS] with the report helper
+    // so the response reports the effective window.
+    // `requestedDays` and `clamped` preserve the caller's request and explain
+    // when the supported bounds changed it.
     const { requestedDays, effectiveDays: days, clamped } = resolveGa4SyncDays(request.body?.days)
     const only = request.body?.only
 
@@ -1168,9 +1168,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             sessions: row.sessions,
             users: row.users,
             // Stored as given, nulls included: an absent reading is not a 0%
-            // engagement day. No returning-users figure is derived here —
-            // it is derived from `users - newUsers` at read time so the stored
-            // row keeps only what GA4 actually reported.
+            // engagement day. Keep GA4's reported user counts independent:
+            // `users - newUsers` does not reconstruct returning users.
             engagementRate: row.engagementRate,
             newUsers: row.newUsers,
             activeUsers: row.activeUsers,

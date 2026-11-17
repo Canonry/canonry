@@ -1,8 +1,8 @@
 # OpenRouter models
 
-Add an OpenRouter key once in Settings → Providers. Select **Choose project models**, then use **Add models** in the project's Answer engines settings. Pick from the recommended models (one from the maker of ChatGPT, Gemini and Claude), or use **Browse all OpenRouter models** to search the full catalog or enter a concrete `publisher/model` ID. Save the selection before the next sweep. OpenRouter bills your OpenRouter account for each answer, including its web search; a sweep asks every query once per selected model.
+Add an OpenRouter key in **Settings → Providers**. Open **Choose project models** to go to the project's **Answer engines** settings. Open the model picker. Select a recommended model, browse the catalog, or enter a concrete `publisher/model` ID. Select **Save engines** before the next sweep. OpenRouter bills your account for the answers and web search.
 
-Each model appears as a separate answer engine. Gemini through its direct API and Gemini through OpenRouter have separate results, filters and history. OpenRouter models share one connection and its concurrency, minute and daily limits. An empty project provider list includes configured direct engines; it does not select every OpenRouter model.
+Each selected model appears as a separate answer engine. Gemini's direct API and its OpenRouter routes have separate results, filters, and history. OpenRouter models share one connection and its concurrency, per-minute, and daily limits. OpenRouter routes require explicit selection.
 
 The CLI uses the same flow:
 
@@ -10,12 +10,12 @@ The CLI uses the same flow:
 cnry settings provider openrouter --api-key <key>
 cnry project update my-site \
   --provider gemini \
-  --provider openrouter:google/gemini-3.1-flash-lite \
-  --provider openrouter:anthropic/claude-sonnet-4.6
+  --provider openrouter:google/gemini-3.8-flash \
+  --provider openrouter:anthropic/claude-sonnet-5.5
 cnry run my-site --wait
 ```
 
-`project update --provider` replaces the saved provider list. These route names also work in run overrides, schedules, config apply, MCP, and Advanced Measurement contexts. A route pins its model; choose another route to change it. Adding a model requires `settings.write`, like direct model overrides. API and CLI result JSON keep the full route name.
+`project update --provider` replaces the saved provider list. These route names also work in run overrides, schedules, config apply, MCP, and Advanced Measurement contexts. A route pins its model. Select a different route to change models. Selecting a route that the project has not authorized requires `settings.write`. API and CLI result JSON keep the full route name.
 
 Credentials remain in `~/.canonry/config.yaml`. `OPENROUTER_API_KEY` is supported by bootstrap and init; `OPENROUTER_MODEL` is an optional connection default for text generation, independent of the models selected for sweeps.
 
@@ -53,8 +53,8 @@ Sentiment remains a separate, opt-in Jev evaluator. OpenRouter uses pi's classif
 
 ## Measurement evidence
 
-The adapter requests OpenRouter's [web search server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search) internally. No search-engine selector is exposed in setup. Each request keeps the tracked query unchanged and disables provider fallback. The concrete requested model and the literal served model are recorded independently.
+The adapter sends the unchanged tracked query and requires OpenRouter's `openrouter:web_search` server tool. The request disables provider fallback. Canonry records the requested model and the reported served model separately. See [OpenRouter's tool documentation](https://openrouter.ai/docs/guides/features/server-tools/web-search).
 
-Only `url_citation` annotations contribute source links. URLs in prose never create citations. Mentions are computed independently from answer prose. Search use is recorded from reported search requests or source annotations; absent evidence stays unknown. Requested locations are retained as ignored because generic routing cannot promise geographic support. These rules apply to Simple and Advanced Measurement.
+Only `url_citation` annotations contribute source links. Canonry measures mentions from answer prose. A positive search count or a source annotation marks retrieval as `used`. With neither, retrieval stays `unknown`. The adapter always leaves `searchQueries` empty. It records requested locations as ignored. These rules apply to Simple and Advanced Measurement.
 
-The catalog and connection checks use metadata endpoints without generating answers. Token and search usage come from the response; costs stay unknown unless an operator supplies pricing. The upstream server-tool API is currently beta. This measures API routes and does not claim parity with consumer Gemini, ChatGPT or Claude interfaces.
+The catalog and connection checks use metadata endpoints. Token and search usage come from the response. Canonry needs configured pricing to calculate sweep costs.

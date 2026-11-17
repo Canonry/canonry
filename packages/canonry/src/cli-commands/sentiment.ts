@@ -45,7 +45,7 @@ function project(input: CliCommandInput, command: string): string {
 export const SENTIMENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['sentiment', 'settings'], usage: 'canonry sentiment settings <project> [--format json]',
-    help: 'Read configuration, experimental status, readiness and effective action permissions. No credentials are returned.',
+    help: 'Read configuration, readiness and effective action permissions. No credentials are returned.',
     run: input => showSentimentSettings(project(input, 'settings'), input.format),
   },
   {

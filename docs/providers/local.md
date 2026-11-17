@@ -4,7 +4,7 @@
 
 `packages/provider-local` is a provider adapter for local LLMs running an OpenAI-compatible chat completions API. It supports Ollama, LM Studio, llama.cpp, vLLM, and any other server that implements `POST /chat/completions` per the OpenAI spec.
 
-Unlike the cloud providers (Gemini, OpenAI, Claude), local LLMs have no built-in web search, so their answers carry no sources. Canonry measures a local answer's **mention** (the brand or domain in the answer text) and records its **citation** as not measured. See [Citations](#citations).
+Canonry sends plain chat completions to the configured server without a web search tool. It measures **mentions** of the brand or domain in the answer text. See [Citations](#citations) for how Canonry records citation state.
 
 ## Provider Contract
 
@@ -14,14 +14,14 @@ Validates that `baseUrl` is present and non-empty. Returns the model name that w
 
 ### `healthcheck(config: LocalConfig, signal?: AbortSignal): Promise<LocalHealthcheckResult>`
 
-Calls `GET /models` on the configured endpoint to verify connectivity. Returns ok/error with the number of models detected. Does not require a specific model to be present.
+Calls `GET /models` on the configured endpoint to check connectivity. The check counts up to five model entries and accepts any successful response.
 
 ### `executeTrackedQuery(input: LocalTrackedQueryInput): Promise<LocalRawResult>`
 
-Sends a chat completion request to the local server with a system prompt instructing the model to include domain names in its answer. Returns:
+Sends a chat completion with a system message that asks for domain names. The user message includes the tracked query and any requested location. The result includes these fields.
 
 - `rawResponse` — the full chat completions API response
-- `groundingSources` — always `[]` (local LLMs have no structured grounding)
+- `groundingSources` — always `[]`
 - `searchQueries` — always `[]`
 - `model` — the model name used
 
@@ -51,7 +51,7 @@ Extracts analyst-relevant fields:
 
 ## Citations
 
-A local model cannot search the web, so its answers have no source links and a citation can never be observed. The sweep stores `citation_state = 'not-measured'` for every local answer (`determineCitationState` in `packages/canonry/src/citation-utils.ts` reads the adapter's `citationMeasurable: false`). Every citation figure leaves these answers out of both the cited count and its denominator, and the API, CLI, MCP and dashboard show them as "Not measured", never "not cited".
+The Local adapter captures no structured sources. The sweep stores `citation_state = 'not-measured'` for each local answer. Citation figures exclude these answers from the cited count and denominator. The API, CLI, MCP, and dashboard identify them as not measured.
 
 Answers recorded before `not-measured` existed are not rewritten, and `readCitationState` (`packages/contracts/src/citation-measurement.ts`) reads every stored Local row as not measured, whatever it holds. The adapter has never returned a source link, and its older rows were stored three ways:
 
@@ -63,7 +63,7 @@ Reading all of them the same way keeps one method across a Local series, so a tr
 
 Research runs on Local follow the same rule. Each answer reads `citationState: null` with `citationMeasured: false`, whatever its row stored. The CLI prints `n/m` and the dashboard shows "Not measured".
 
-The answer text is still checked for the brand and the project's domains, so local answers count toward mention rates like any other engine. The system prompt asks the model to write domain names, which helps that match. A local model answers from its training data, not a live search, so treat its mentions as a rough signal.
+Canonry checks the answer text for the brand and the project's domains. Local answers count toward mention rates.
 
 ## Model
 

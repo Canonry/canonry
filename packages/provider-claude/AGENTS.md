@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Claude/Anthropic adapter — implements `ProviderAdapter` for Anthropic's Messages API using the `web_search_20250305` tool. Extracts cited domains from search result blocks.
+The Claude adapter uses Anthropic's Messages API with `web_search_20250305`. It extracts cited domains from the final answer's `text.citations`.
 
 ## Key Files
 
@@ -16,14 +16,14 @@ Claude/Anthropic adapter — implements `ProviderAdapter` for Anthropic's Messag
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
+`claudeAdapter` implements `ProviderAdapter` from `@canonry/canonry-contracts`.
 
-- **`validateConfig(config)`** — verify API key and model are valid
-- **`healthcheck(config)`** — test connectivity to the provider
-- **`executeTrackedQuery(input)`** — send a tracked query and capture raw response with web search results
-  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
+- **`validateConfig(config)`** — require an API key and resolve the model
+- **`healthcheck(config, signal?)`** — check connectivity with a short Messages request
+- **`executeTrackedQuery(input, config)`** — build the request with `buildTrackedQueryRequest`, make the SDK call, and read it with `parseTrackedQueryResponse`
+  - Batch dispatch shares both functions. Change the request in the builder and the response handling in the parser.
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
-- **`generateText(config, prompt)`** — general-purpose text generation
+- **`generateText(prompt, config)`** — general-purpose text generation
 
 - **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each `web_search_result_location` citation URL with its cited text block plus the last line of the uncited block before it (where `**Name** -` usually sits). `cited_text` and `title` are the source page's words and are never read. Stored data only.
 
@@ -34,7 +34,7 @@ Each tracked query records `retrievalContract`. `claudeRetrievalContractForModel
 ## Common Mistakes
 
 - **Adding a per-model request rule outside the contract table** — model-specific `tool_choice` behavior goes in `CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE` (exact ids from Anthropic's docs, no family-prefix guesses) so the request and the recorded contract cannot disagree.
-- **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes.
+- Return grounding sources in the shared `GroundingSource` format.
 - **Not handling rate limits** — implement retry with exponential backoff for 429 responses.
 - **Forgetting to export from `adapter.ts`** — the provider registry imports the adapter object.
 

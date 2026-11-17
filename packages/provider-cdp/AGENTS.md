@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Chrome DevTools Protocol adapter — implements `ProviderAdapter` by automating a real browser session (e.g., ChatGPT UI). Uses CDP to navigate, input queries, capture responses, and extract citations from the rendered page. This is the "bring your own browser" approach.
+The `cdp:chatgpt` adapter uses Chrome DevTools Protocol (CDP) to submit tracked queries to the ChatGPT web UI. It reads the rendered answer and citations.
 
 ## Key Files
 
 | File | Role |
 |------|------|
-| `src/adapter.ts` | Exports `cdpAdapter` — the `ProviderAdapter` object |
+| `src/adapter.ts` | Exports `cdpChatgptAdapter` — the `ProviderAdapter` object |
 | `src/normalize.ts` | Response normalization to standard `NormalizedQueryResult` |
 | `src/connection.ts` | `CDPConnectionManager` — manages browser connections via CDP. `healthcheck(signal?)` reads Chrome's `/json/version` itself (`CDP.Version` takes no signal) at the host's resolved address, so an aborted connection test cancels its request |
 | `src/screenshot.ts` | `captureElementScreenshot()` — captures page element screenshots |
@@ -25,18 +25,17 @@ This provider follows the same `ProviderAdapter` interface but has a more comple
 - **Target scripts**: Each target (e.g., ChatGPT) has its own automation script that knows how to navigate the UI, submit queries, and extract responses.
 - **Screenshots**: Captures visual evidence of citations for debugging and verification.
 
-### How it differs from API-based providers
+### Browser connection and evidence
 
-- Requires a running Chrome instance with remote debugging enabled.
-- User must be logged into the target service (e.g., ChatGPT).
-- Slower than API calls — involves page navigation and rendering.
-- More accurate results than API-based providers since it captures the actual user-facing response.
+- Connect to a running Chrome instance with remote debugging enabled and a signed-in ChatGPT session. Use `canonry cdp connect --host <host> --port <port>`.
+- The session supplies its own geolocation. Canonry's requested location does not reach the browser.
+- The adapter records `retrievalStatus: unknown`. The `searchQueries` array holds the submitted query, which supplies no evidence of a search.
 
 ## Common Mistakes
 
 - **Not handling CDP connection lifecycle** — always clean up connections to avoid resource leaks.
 - **Not handling page load timing** — wait for elements to render before extracting content.
-- **Not normalizing results to standard `CitedSource` format** — DOM-extracted data needs the same normalization as API responses.
+- Return browser-extracted sources in the shared `GroundingSource` format.
 
 ## See Also
 

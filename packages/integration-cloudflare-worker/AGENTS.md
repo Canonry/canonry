@@ -53,9 +53,9 @@ instance, never to a canonry-hosted SaaS relay.
 - **Versioned bot list.** `CloudflareWorkerBotList.version` is baked into
   the generated script and stored on the source row as
   `configJson.expectedBotListVersion`. The Worker reports its
-  `workerVersion` on every ingest call; the receiver records it on
+  `workerVersion` in each batch. The receiver records it on
   `traffic_sources.lastWorkerVersion`. The `traffic.source.worker-version`
-  doctor check compares it with `configJson.workerVersion`.
+  doctor check compares the recorded version with the current generated version for the source's `forwardPageViews` setting.
 - **HMAC-SHA256 with timestamp binding.** The Worker signs
   `timestamp + "." + canonicalJson(batch)` with the per-source HMAC secret and sends
   `X-Canonry-Timestamp` + `X-Canonry-Signature`. The receiver verifies a
@@ -106,9 +106,8 @@ instance, never to a canonry-hosted SaaS relay.
 - **Adding bot-id or operator classification in this package.** The
   classifier lives in `packages/integration-traffic` for one-place rule
   evolution across every adapter.
-- **Storing or reading the Worker bot list anywhere but `DEFAULT_BOT_LIST`.**
-  The Worker is regenerated from this constant; updates must rev the
-  `version` field so the staleness check picks up the drift.
+- **Changing the Worker filter without version increments.** Update
+  `DEFAULT_BOT_LIST.version` when the bot list changes. Also increment the generated Worker version so the doctor check detects stale deployments.
 
 ## See Also
 

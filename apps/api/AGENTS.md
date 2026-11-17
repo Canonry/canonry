@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Cloud API entry point. A thin Fastify server that imports and mounts `packages/api-routes` with cloud-specific middleware (auth, CORS, rate limiting). Deployed separately from the local `canonry serve` server.
+Cloud API entry point. This Fastify server mounts `packages/api-routes` and configures trusted proxies, operational logging, and telemetry collection. It runs separately from `canonry serve`.
 
 ## Deployment Posture (Critical)
 
-**`apps/api` is a single-tenant deployment.** One Cloud Run service per team — never share an instance across unrelated tenants. The schema has no `owner_id` on any domain table and `resolveProject` is a global lookup, so any valid `cnry_…` bearer reads and writes every project on the instance. The rule is in the root `AGENTS.md` → "Deployment Posture"; the full rationale (and what would be required to lift this restriction) is in `packages/api-routes/AGENTS.md` → "Deployment posture and key authority". Do not deploy as a SaaS without doing that migration first.
+**`apps/api` is a single-tenant deployment.** Use one Cloud Run service per trust boundary. A full-instance wildcard key can read and write every project. See the root `AGENTS.md` and the key authority rules in `packages/api-routes/AGENTS.md`.
 
 ## Key Files
 
@@ -14,14 +14,14 @@ Cloud API entry point. A thin Fastify server that imports and mounts `packages/a
 |------|------|
 | `src/app.ts` | Fastify app factory — registers plugins, mounts api-routes |
 | `src/index.ts` | Entry point — starts the server |
-| `src/plugins/` | Cloud-specific Fastify plugins (auth, CORS, etc.) |
-| `src/routes/` | Cloud-only routes (if any) |
+| `src/plugins/env.ts` | Loads the shared platform configuration |
+| `src/routes/` | Health and telemetry collection routes |
 
 ## Patterns
 
 - This app is intentionally thin. All shared route logic lives in `packages/api-routes`.
-- Cloud-specific concerns (managed Postgres, pg-boss job queue, CDN) are wired here.
-- Local equivalent is `packages/canonry/src/server.ts`.
+- Set `DATABASE_URL` to a writable SQLite file path. The app passes this value to `packages/db/src/client.ts`.
+- The in-process job runner and scheduler live in `canonry serve` (`packages/canonry/src/server.ts`).
 - Alias hooks run inline, inside the request rather than after the response, because Cloud Run may throttle an instance once the response is sent: `onAliasesChanged` runs the full `backfillProjectAnswerMentions(db, projectId)` and `onCompetitorAliasesChanged` the competitor-fields-only pass. A failed refresh is logged and never fails the committed write.
 - Boot applies the shared additive SQLite migrations (`migrate()`) before constructing the durable runtime log store, then api-routes' onReady housekeeping runs (raw-sample and journey retention, the ads-activation watchdog). Two `canonry serve` jobs never run here: the stored-traffic reclassification after a rules change (`packages/canonry/src/traffic-reclassify.ts`), so stored traffic is not reclassified under new rules and crawler hours an older version misfiled after a rollback stay where they are, and the `traffic.agent.discovered` alert loop. Application and Fastify logs use `api-routes/runtime-logger`; close unsubscribes capture and closes this host's database handle. HTTP request IDs are server-issued UUIDs.
 

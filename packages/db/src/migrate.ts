@@ -5656,6 +5656,20 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_agent_provider_cooldowns_retry ON agent_provider_cooldowns(retry_at)`,
     ],
   },
+  {
+    version: 224,
+    name: 'sentiment-alert-runs',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS sentiment_alert_runs (
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id       TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        state        TEXT NOT NULL,
+        recorded_at  TEXT NOT NULL,
+        PRIMARY KEY (project_id, run_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sentiment_alert_runs_run ON sentiment_alert_runs(run_id)`,
+    ],
+  },
 ]
 
 /** v222: the hourly tables holding a hosted browser agent's hours, counted or judged likely fake. */

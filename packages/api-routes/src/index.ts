@@ -508,6 +508,8 @@ export interface ApiRoutesOptions {
    * dev workflows that point webhooks at localhost.
    */
   allowLoopbackWebhooks?: boolean
+  /** The running Canonry package version, sent in the webhook User-Agent. Omitted, it sends `Canonry`. */
+  appVersion?: string
   /**
    * On-disk paths the daemon depends on at runtime. When wired, a pre-request
    * hook fails non-doctor / non-health requests with HTTP 503
@@ -849,6 +851,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
+      appVersion: opts.appVersion,
     } satisfies NotificationRoutesOptions)
     await api.register(sentimentRoutes, opts.sentiment ?? { install: () => ({ enabled: false, ready: false, reason: 'install-disabled', model: 'jev-1.13.0' }), previewSecret: randomUUID() })
     await api.register(operationalLogsRoutes, { listOperationalLogs: opts.listOperationalLogs })
@@ -1111,12 +1114,18 @@ export type {
   ExecuteDiscoveryResult,
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
-export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook } from './webhooks.js'
-export type { WebhookDeliveryResult } from './webhooks.js'
+export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook, webhookUserAgent } from './webhooks.js'
+export type { WebhookDeliveryOptions, WebhookDeliveryResult } from './webhooks.js'
 // One classification of a webhook destination and its answer, shared by the test route and deliveries.
 export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
 export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
+// The read-time mention of stored answers, null when never checked; the notifier compares two.
+export { snapshotMentionObserver } from './helpers.js'
+// Per-Property mention and citation changes of one Advanced sweep, read through the overview's rule.
+export { readAdvancedSignalTransitions, type AdvancedSignalTransition, type AdvancedSignalTransitions } from './advanced-signal-changes.js'
+// The class of each tracked query, as query lists report it.
+export { readQueryClasses } from './query-class-read.js'
 // Shared public-egress preflight: validates every resolved address class and
 // returns the exact address callers must dial to prevent DNS rebinding.
 export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './measurement-sitemap-fetch.js'

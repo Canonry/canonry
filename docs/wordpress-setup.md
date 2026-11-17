@@ -57,15 +57,16 @@ Use them when you want canonry to generate the payload while leaving the final s
 
 ## Connect a Project
 
+Set `WORDPRESS_APP_PASSWORD` in your shell before you run this example. The command requires `--app-password`.
+
 ```bash
 canonry wordpress connect mysite \
   --url https://example.com \
   --user admin \
+  --app-password "$WORDPRESS_APP_PASSWORD" \
   --staging-url https://staging.example.com \
   --default-env staging
 ```
-
-If you omit `--app-password`, canonry prompts for it interactively.
 
 Connection data is stored in `~/.canonry/config.yaml` under the WordPress section, not in the project database tables.
 The Application Password is stored there in plain text with the config file’s existing `0600` permissions model, so do not commit or share that file.

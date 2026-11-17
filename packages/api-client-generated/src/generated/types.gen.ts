@@ -1263,7 +1263,7 @@ export type SentimentSettings = {
         configure: boolean;
         backfill: boolean;
     };
-    experimental: true;
+    experimental: boolean;
     disclosure: string;
 };
 
@@ -7935,6 +7935,8 @@ export type GbpLocationDto = {
     openStatus: string | null;
     openingDate: string | null;
     selected: boolean;
+    websiteMatchesProject?: boolean | null;
+    websiteDomain?: string | null;
     syncedAt: string | null;
     createdAt: string;
     updatedAt: string;
@@ -7964,6 +7966,8 @@ export type GbpLocationListResponse = {
         openStatus: string | null;
         openingDate: string | null;
         selected: boolean;
+        websiteMatchesProject?: boolean | null;
+        websiteDomain?: string | null;
         syncedAt: string | null;
         createdAt: string;
         updatedAt: string;
@@ -13832,7 +13836,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -14527,7 +14531,7 @@ export type ProjectConfig = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
         }>;
         google?: {
             gsc?: {
@@ -14612,7 +14616,7 @@ export type ProjectConfigExport = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
         }>;
         google?: {
             gsc?: {
@@ -39108,6 +39112,10 @@ export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestData = {
 };
 
 export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestErrors = {
+    /**
+     * Administrator access or wildcard API key scope is required.
+     */
+    403: ErrorEnvelope;
     /**
      * Project or session not found.
      */

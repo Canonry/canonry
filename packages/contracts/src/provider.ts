@@ -219,7 +219,7 @@ const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
   local: {
     treatment: 'prompt',
     supportsLocationContext: true,
-    description: 'Location appended to the system message sent to the local model.',
+    description: 'Location appended to the user message sent to the local model.',
   },
   openai: {
     treatment: 'request-param',

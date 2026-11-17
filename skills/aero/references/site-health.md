@@ -24,8 +24,9 @@ a graph; report the available scores and missing crawl evidence separately.
 Use `canonry_agent_readiness_page_scores` for low-scoring or failed pages and
 `canonry_agent_readiness_page_audit` for one page's exact factor scores, finding
 codes/messages, recommendations, and critical defects. Prefer a returned
-`nodeKey`; use the exact URL when no node key is available. The chat does not
-receive the selected graph node, so resolve the requested page or ask for it.
+`nodeKey`. Use the exact URL when no node key is available. If the user refers
+to the selected graph page in built-in Aero, read it with `aero_inspect_view`.
+If no page is selected and the request is ambiguous, ask which page they mean.
 
 ## Choose a bounded investigation
 

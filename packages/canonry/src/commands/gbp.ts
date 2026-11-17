@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { validationError, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@canonry/canonry-contracts'
 import { formatGbpMetricLabel, formatPercent } from '@canonry/canonry-contracts'
+import type { GbpLocationDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 
@@ -18,9 +19,14 @@ function formatLocationsTable(response: GbpLocationListResponse): string {
   for (const loc of response.locations) {
     const flag = loc.selected ? '✓' : ' '
     const category = loc.primaryCategoryDisplayName ?? 'unknown'
-    lines.push(`  [${flag}]  ${loc.locationName.padEnd(18)}  ${loc.displayName}  (${category})`)
+    const mismatch = loc.websiteMatchesProject === false ? `  [website ${websiteLabel(loc)} is not this project's site]` : ''
+    lines.push(`  [${flag}]  ${loc.locationName.padEnd(18)}  ${loc.displayName}  (${category})${mismatch}`)
   }
   return lines.join('\n')
+}
+
+function websiteLabel(loc: GbpLocationDto): string {
+  return loc.websiteDomain ?? loc.websiteUri ?? 'unknown'
 }
 
 export async function gbpConnect(
@@ -138,6 +144,13 @@ export async function gbpLocationSelect(
     return
   }
   console.log(`Selected ${opts.location} ("${updated.displayName}") for sync.`)
+  if (updated.websiteMatchesProject === false) {
+    console.log(
+      `Warning: its website (${websiteLabel(updated)}) is not one of this project's domains. ` +
+      'Its reviews, review alerts and stats will count under this project. ' +
+      `If it belongs to another business, run: canonry gbp locations deselect ${project} --location ${opts.location}`,
+    )
+  }
 }
 
 export async function gbpLocationDeselect(
@@ -150,7 +163,10 @@ export async function gbpLocationDeselect(
     console.log(JSON.stringify(updated, null, 2))
     return
   }
-  console.log(`Deselected ${opts.location} ("${updated.displayName}"). Future syncs will skip this location.`)
+  console.log(
+    `Deselected ${opts.location} ("${updated.displayName}"). Future syncs skip it, and its stored reviews, rating history ` +
+    'and stats were removed from this project. Selecting it again fetches current data only; removed history does not come back.',
+  )
 }
 
 export async function gbpSync(

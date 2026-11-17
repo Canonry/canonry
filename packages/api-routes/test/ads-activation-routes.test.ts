@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import {
   ADS_ACTIVATE_SCOPE,
@@ -695,11 +695,10 @@ describe('ads approval-bound activation routes', () => {
       toOperationDto: (row) => adsOperationDtoSchema.parse(row),
     })
 
-    const ready = await Promise.race([
-      watchdogApp.ready().then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
-    ])
-    expect(ready).toBe(true)
+    // The first recovery sweep stays blocked until the test releases it, so a
+    // ready() that waited for it would never resolve. No wall-clock bound: a
+    // busy machine (the whole suite at once) can take longer than any small one.
+    await watchdogApp.ready()
     await recoveryStarted
     releaseRecovery?.()
     await watchdogApp.close()
@@ -860,6 +859,10 @@ describe('ads approval-bound activation routes', () => {
   it('heartbeats a blocked provider mutation so its short test lease cannot be stolen', async () => {
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    // The heartbeat timer and the lease clock are faked, so the 1,250ms below
+    // always spans three heartbeats instead of racing real timers.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    onTestFinished(() => { vi.useRealTimers() })
     ctx = buildHarness({
       activationLeaseMs: 1_000,
       blockAdActivation: true,
@@ -880,7 +883,7 @@ describe('ads approval-bound activation routes', () => {
 
     const firstPromise = ctx.app.inject(request)
     await ctx.activationStarted
-    await new Promise((resolve) => setTimeout(resolve, 1_250))
+    await vi.advanceTimersByTimeAsync(1_250)
 
     const concurrent = await ctx.app.inject(request)
     expect(concurrent.statusCode).toBe(200)

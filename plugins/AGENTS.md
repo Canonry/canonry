@@ -76,7 +76,7 @@ skills/<name>/
 
 `SKILL.md` is the only file always pulled into agent context when the skill is invoked. References lazy-load — the agent `Read`s them only when the task matches. **Keep `SKILL.md` lean** and push detail into `references/`.
 
-`skills/canonry/SKILL.md` and `skills/aero/references/agent-operations.md` are generated from `docs/agent-operations/v1.md`. Edit that source and run `pnpm guide:sync`; never edit the generated files directly.
+`skills/canonry/SKILL.md` and `skills/aero/references/agent-operations.md` come from `docs/agent-operations/v1.md`. Aero's `ai-traffic-tracking.md` comes from the matching Canonry reference. Edit the sources and run `pnpm guide:sync` to update the generated files.
 
 ### When to update skills
 

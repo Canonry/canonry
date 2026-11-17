@@ -13,7 +13,7 @@ Say searches for what people type into Google and queries for the project's trac
 
 ## Read the selected evidence
 
-1. For a question about the current SEO view, start with `aero_inspect_view`.
+1. In built-in Aero, use `aero_inspect_view` when the user refers to their current SEO view.
 2. Load the `seo` toolkit through `aero_load_toolkit` in built-in Aero.
    External MCP agents use `canonry_help` with intent `seo` and their exposed catalog.
 3. Read `canonry_seo_context` and `canonry_seo_profiles` to resolve the source, capabilities, profile, and supported scope.
@@ -36,8 +36,9 @@ Say searches for what people type into Google and queries for the project's trac
    | `canonry_seo_market_rankings` | The site's Google position for each tracked query in each market, searched from that market's location |
 
 6. Page with `limit` and `offset` until the relevant stored rows are covered, or disclose the inspected sample.
-   These tools accept no keyword filter, target filter, or sort parameter. Do not invent them.
-   Market rankings alone take `marketKey` and `regionKey` to narrow the rows, `outcome` (one outcome, `needs-work` or `rival-ahead`), `q` (text in the query, searched text or market) and `sort` (`market`, `rank`, `-rank`, `query`, `-query`).
+   Keyword metrics, domain intelligence, and ranked searches accept profile and run selectors plus pagination.
+   Organic competitors and search gaps accept `sort`. Search gaps also accept `kind`.
+   Market rankings accept `marketKey`, `regionKey`, `outcome`, `q`, and `sort`.
    `total` counts stored rows, not the complete search market.
    Run detail returns at most 20 rows per dataset. Check `resultsTruncated` and `resultCounts`, then use the dataset tools.
 

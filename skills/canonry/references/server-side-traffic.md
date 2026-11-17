@@ -63,7 +63,7 @@ replace GA or change the raw traffic totals.
 
 ## Architecture
 
-Four tables store the shared output from every adapter:
+Canonry stores the shared traffic evidence in these tables.
 
 | Table | What's in it |
 |---|---|
@@ -73,7 +73,7 @@ Four tables store the shared output from every adapter:
 | `agent_scanner_clients` | One row per `(project, source, client)` — the latest run of scanner probes from one IP (stored as a keyed hash), kept two days so a burst split across batches is still recognized |
 | `journey_visitor_aliases` | One row per `(project, alias key)` — a visitor key found to be another visitor seen from a new IP (same AI-tagged page, same browser, within 5 seconds); requests under the alias key are kept under that visitor. Both are keyed hashes, never an IP |
 | `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour; a visitor's later same-site requests are not arrivals |
-| `ai_referral_visitors` | One row per `(project, source, visitor)`: each visitor's latest AI arrival (the visitor is a keyed hash of IP and user agent, never the address), kept 44 days so a later request of the same visit in a later batch is not counted again |
+| `ai_referral_visitors` | Recent AI arrivals by project, source, and visitor key. The key hashes the IP address, user agent, and engine to group follow-up requests across batches. |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
 Each `traffic_sources` row is one server-log integration for a project.
@@ -267,10 +267,9 @@ if ( isset( $_SERVER['HTTP_USER_AGENT'] ) && preg_match( '/GPTBot|OAI-SearchBot|
 > `204` for scripts stranded in old cached HTML, but never records an event.
 
 ```bash
-# 1. Install the plugin. Download the latest release zip from the
-#    canonry-traffic-logger plugin's GitHub release (the repo CI workflow
-#    publishes a zip on every plugin-file change), then in wp-admin:
-#    Plugins → Add New → Upload Plugin → upload + activate.
+# 1. Download the latest Canonry Traffic Logger release zip from GitHub.
+#    GitHub publishes a zip for each new plugin version.
+#    In wp-admin, upload and activate it under Plugins → Add New → Upload Plugin.
 
 # 2. In wp-admin, create an Application Password for the operator user:
 #    Users → Profile → Application Passwords. Copy the generated password.
@@ -1263,12 +1262,7 @@ domains, or PII are surfaced.
   records the `cache` HIT/MISS label), and `cloud-run` logs every request that
   reaches the service, missing only what a CDN ahead of Cloud Run serves at its
   own edge.
-- **Path-level citation cross-reference is not implemented yet.** The
-  citation store is domain-grain (`query_snapshots.cited_domains`). A
-  future iteration that lands URL-grain citation evidence will extend
-  the `topCrawledPaths` entry with a `citationState` flag. Until then,
-  treat traffic analytics' crawled-paths table as "engine attention" — the
-  signal is the bot fetched it, not whether it was cited.
+- **Crawled paths.** `topCrawledPaths` reports bot requests by path. Read citation evidence separately with `cnry run show <run-id> --format json`.
 - **Verified vs unverified.** Verified crawler counts include only
   published-IP-range-verified hits. Unverified crawler counts remain separate:
   those bots claim a known UA but
@@ -1413,9 +1407,8 @@ every source and needs no site snippet or goal setup. Read it with
   as browser groups. A key stores at most 300
   requests per UTC day besides AI touches; `cappedDays` counts the days it hit
   that cap.
-- By default the Cloudflare Worker forwards only AI-referred and bot requests,
-  so journeys from a Cloudflare source record AI landings but not later visits.
-  Reconnect with `--forward-page-views` and redeploy to forward page views too
+- By default the Cloudflare Worker filters traffic for AI, bot, and unrecognized agent signals.
+  Reconnect with `--forward-page-views` and redeploy to forward ordinary browser page views
   (one Queue message or push per page view; see the Cloudflare setup guide for
   volume and Queue drain limits). Reads list a source in `partialSources` until
   its deployed Worker reports the `+page-views` version.

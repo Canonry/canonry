@@ -421,8 +421,27 @@ Provider batch lifecycle (`docs/batch-mode.md`):
   was in progress", the marker is set, and the poller finalizes it (on its first
   pass when nothing is outstanding, by which time `onRunCompleted` is wired).
 
-The notification system supports `citation.lost`, `citation.gained`, `run.completed`,
-`run.failed`, `insight.critical`, `insight.high`. `insight.critical` and
+The notification system's events are `notificationEventSchema` in
+`packages/contracts/src/notification.ts`; each needs a line in
+`NOTIFICATION_EVENT_DESCRIPTIONS` there and a label in the dashboard's
+`NotificationsSection.tsx`, both keyed by the event type. `Notifier.computeTransitions`
+compares citation and mention apart (`citation.lost` / `citation.gained` from
+`readCitationState`, `mention.lost` / `mention.gained` from
+`resolveSnapshotMentionObservation`), and an answer with no measured state on
+a signal has no transition on it. A sweep of an active schema v2 plan sends
+per-Property transitions instead (`readAdvancedSignalTransitions` in
+api-routes, the overview's What changed rule), with `property` and `markets`;
+the project-level columns describe the project's own brand, not a Property.
+`sentiment.unfavorable` is not run-completion work: verdicts arrive later, so
+`Notifier.dispatchSentimentAlerts` runs on its own timer
+(`startSentimentAlertLoop`, `src/sentiment-alerts.ts`) over sweeps whose
+automatic sentiment jobs have settled (and whose receipt the worker has fully
+admitted), in sweep order, reads `SentimentService.newlyUnfavorable`
+(api-routes, the `sentiment compare` matching; null while sentiment is off,
+which leaves the sweep undecided), and records one `sentiment_alert_runs`
+decision per sweep. It needs the server's sentiment
+install reader (`sentimentInstall` on the `Notifier`); without it the pass sends
+nothing. `insight.critical` and
 `insight.high` fire when the intelligence engine generates critical- or
 high-severity insights after a run — dispatched by `RunCoordinator` after
 `IntelligenceService.analyzeAndPersist()` completes.
@@ -1113,7 +1132,7 @@ same policy. See `api-routes/src/doctor/AGENTS.md`.
 
 ### Sentiment CLI
 
-`src/commands/sentiment.ts` and `src/cli-commands/sentiment.ts` expose the experimental
+`src/commands/sentiment.ts` and `src/cli-commands/sentiment.ts` expose the
 stored sentiment surface through typed ApiClient/SDK calls. `sentiment <project>`
 reads one page of the summary (`--query-limit`, `--query-cursor`; per-engine and
 location detail with `--include assessments,locations`); subcommands are settings,

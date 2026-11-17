@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execSync } from 'node:child_process'
+import Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, schedules } from '../src/index.js'
 
@@ -25,12 +25,16 @@ function buildDbPath(): { tmpDir: string; dbPath: string } {
   return { tmpDir, dbPath: path.join(tmpDir, 'data.db') }
 }
 
+// Reads the file in-process, so the test needs no system `sqlite3` binary.
 function listSchedulesIndexes(dbPath: string): string[] {
-  const out = execSync(
-    `sqlite3 "${dbPath}" "SELECT name FROM sqlite_master WHERE tbl_name='schedules' AND type='index' AND name NOT LIKE 'sqlite_autoindex_%' ORDER BY name"`,
-    { encoding: 'utf8' },
-  )
-  return out.split('\n').map(s => s.trim()).filter(Boolean)
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true })
+  try {
+    return (db.prepare(
+      "SELECT name FROM sqlite_master WHERE tbl_name='schedules' AND type='index' AND name NOT LIKE 'sqlite_autoindex_%' ORDER BY name",
+    ).all() as Array<{ name: string }>).map(row => row.name)
+  } finally {
+    db.close()
+  }
 }
 
 function seedProject(db: ReturnType<typeof createClient>): string {

@@ -685,32 +685,20 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                   </thead>
                   <tbody>
                     {locations.map((loc) => (
-                      <tr key={loc.id}>
-                        <td className="text-strong">{loc.displayName}</td>
-                        <td className="text-muted">{loc.storefrontAddress ?? '—'}</td>
-                        <td>
-                          <ToneBadge tone={loc.selected ? 'positive' : 'neutral'}>
-                            {loc.selected ? 'Tracked' : 'Not tracked'}
-                          </ToneBadge>
-                        </td>
-                        {!isEmbed() && (
-                          <td className="text-right">
-                            <WriteButton
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={selectionMutation.isPending}
-                              onClick={() => selectionMutation.mutate({
-                                client: heyClient,
-                                path: { name: projectName, locationName: loc.locationName },
-                                body: { selected: !loc.selected },
-                              })}
-                            >
-                              {loc.selected ? 'Untrack' : 'Track'}
-                            </WriteButton>
-                          </td>
-                        )}
-                      </tr>
+                      <ManagedLocationRow
+                        key={loc.id}
+                        location={loc}
+                        showAction={!isEmbed()}
+                        columnCount={isEmbed() ? 3 : 4}
+                        disabled={selectionMutation.isPending}
+                        onSetSelected={async (selected) => {
+                          await selectionMutation.mutateAsync({
+                            client: heyClient,
+                            path: { name: projectName, locationName: loc.locationName },
+                            body: { selected },
+                          })
+                        }}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -732,6 +720,152 @@ type ProfileCompletenessSummary = GbpSummaryDto['profileCompleteness']
 interface GbpAccountOption {
   name: string
   accountName: string | null
+}
+
+/**
+ * One row of Manage locations. Untracking also removes the location's stored
+ * reviews, rating history and stats, and a location flagged as another
+ * business's website should not be tracked by accident, so both go through an
+ * inline confirm. Tracking a location on the project's own site is direct.
+ */
+function ManagedLocationRow({
+  location,
+  showAction,
+  columnCount,
+  disabled,
+  onSetSelected,
+}: {
+  location: GbpLocation
+  showAction: boolean
+  columnCount: number
+  disabled: boolean
+  onSetSelected: (selected: boolean) => Promise<void>
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const actionRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const wasConfirmingRef = useRef(false)
+  const otherWebsite = location.websiteMatchesProject === false
+  const untracking = location.selected
+
+  useEffect(() => {
+    const wasConfirming = wasConfirmingRef.current
+    wasConfirmingRef.current = confirming
+    if (confirming) cancelRef.current?.focus()
+    else if (wasConfirming) actionRef.current?.focus()
+  }, [confirming])
+
+  async function apply() {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await onSetSelected(!location.selected)
+      setConfirming(false)
+    } catch (applyError) {
+      setError(describeError(applyError))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function onAction() {
+    if (untracking || otherWebsite) {
+      setError(null)
+      setConfirming(true)
+    } else {
+      void apply()
+    }
+  }
+
+  function cancel() {
+    setError(null)
+    setConfirming(false)
+  }
+
+  const title = untracking ? `Untrack ${location.displayName}?` : `Track ${location.displayName} in this project?`
+  const detail = untracking
+    ? 'Its stored reviews, rating history and stats are removed from this project. Tracking it again fetches current data only; removed history does not come back.'
+    : `Its website${location.websiteDomain ? `, ${location.websiteDomain},` : ''} is not one of this project's domains. Its reviews, review alerts and stats would count in this project.`
+
+  return (
+    <>
+      <tr>
+        <td>
+          <span className="text-strong">{location.displayName}</span>
+          {otherWebsite && (
+            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+              <ToneBadge tone="caution">Other website</ToneBadge>
+              {location.websiteDomain && <span className="text-copy-13 text-secondary">{location.websiteDomain}</span>}
+            </span>
+          )}
+        </td>
+        <td className="text-muted">{location.storefrontAddress ?? '—'}</td>
+        <td>
+          <ToneBadge tone={location.selected ? 'positive' : 'neutral'}>
+            {location.selected ? 'Tracked' : 'Not tracked'}
+          </ToneBadge>
+        </td>
+        {showAction && (
+          <td className="text-right">
+            <WriteButton
+              ref={actionRef}
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={untracking || otherWebsite ? confirming : undefined}
+              disabled={disabled || submitting || confirming}
+              onClick={onAction}
+            >
+              {location.selected ? 'Untrack' : 'Track'}
+            </WriteButton>
+          </td>
+        )}
+      </tr>
+      {showAction && (confirming || error) && (
+        <tr>
+          <td colSpan={columnCount}>
+            {confirming ? (
+              <div
+                role="group"
+                aria-label={title}
+                className="max-w-2xl py-1"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !submitting) cancel()
+                }}
+              >
+                <p className="text-copy-14-strong text-heading">{title}</p>
+                <p className="mt-1 text-copy-14 text-secondary">{detail}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button ref={cancelRef} type="button" variant="outline" size="sm" disabled={submitting} onClick={cancel}>
+                    {untracking ? 'Keep tracking' : 'Cancel'}
+                  </Button>
+                  <WriteButton
+                    type="button"
+                    variant={untracking ? 'destructive' : 'default'}
+                    size="sm"
+                    disabled={disabled || submitting}
+                    onClick={() => void apply()}
+                  >
+                    {submitting ? (untracking ? 'Untracking…' : 'Tracking…') : (untracking ? 'Untrack' : 'Track anyway')}
+                  </WriteButton>
+                </div>
+                {error && <p role="alert" className="mt-2 text-copy-14 text-negative">{error}</p>}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <p role="alert" className="text-copy-14 text-negative">{error}</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setError(null)}>
+                  Dismiss
+                </Button>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  )
 }
 
 /**

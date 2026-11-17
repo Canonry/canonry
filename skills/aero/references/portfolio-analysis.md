@@ -29,9 +29,10 @@ different queries: a group counts every query of its Properties, a market only
 its own. A market and a provider location are distinct scopes too. Use only the
 filters exposed by each tool; never invent a model or market parameter.
 
-The chat does not inherit dashboard selections. Resolve names and URLs from
-the request; ask for the selection when a reference such as "this market"
-cannot be resolved. For an unqualified portfolio ranking, use non-brand
+If the user refers to the dashboard selection in built-in Aero, call
+`aero_inspect_view` to resolve the current Property, market, or filters.
+Otherwise, resolve names and URLs from the request. Ask which selection the
+user means if it remains ambiguous. For an unqualified portfolio ranking, use non-brand
 queries and state the returned scope. Keep branded recall separate. An
 explicit request for all classes permits a combined coverage read, not an
 invented combined share-of-voice ratio.
@@ -44,7 +45,7 @@ invented combined share-of-voice ratio.
 | Which Advanced Properties are strongest or weakest? | `canonry_measurement_portfolio_summary`; use the first-page `mentionRanking` summaries and `tiedAtWeakest`. Default `nextCursor` walks only `pageList: weakest-properties`; use `list: strongest-mentions`, `weakest-mentions` or `excluded-mentions` for a complete other ranking. Pass `groupKey` for one metro |
 | Which metros have the biggest gaps? | The portfolio summary's `weakestMarkets` ranks full top-level metro rates before paging. For every metro, page `list: markets`; `groupKey` selects one metro's direct submarkets. `tiedAtWeakest` describes a zero-mention AND zero-citation Property cohort, not full metro rates |
 | What is measured for one Property, group or market? | `canonry_measurement_overview` with `scope: property` / `targetKey`, `scope: group` / `groupKey`, or `scope: market` / `marketKey` (a kind market id from `canonry_visibility_report` `scopeOptions`). It reads `non-brand` unless `queryClass` names another; read branded as a separate call and never report `queryClass: all`, which pools both. Quote the returned `scope` kind and label: a group figure is never a market's figure |
-| Which questions explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
+| Which queries explain a Property's gaps? | `canonry_measurement_property_questions`, then `canonry_measurement_question_result` with a returned `resultId` |
 | What was mentioned or linked in individual answers? | `canonry_measurement_property_evidence` with `shape: answers` |
 | Who appeared instead of one Property? | `canonry_measurement_property_competitors`; compact summary rows omit per-Property named-instead evidence. Names are written in answer prose, independently of citations |
 | Who do answers name instead across the portfolio? | `canonry_competitor_landscape` with `queryClass`, `runId: latest` and `answers: not-mentioned`; this selection publishes counts, never competitive shares. Or page the compact portfolio summary's `list: observed-names` with `answers: not-mentioned`. Per-Property lists are samples, never a portfolio ranking |
@@ -70,8 +71,9 @@ change the plan to make a read work.
 - State where a domain places only from its `rank` (equal counts share a
   rank), never by counting rows; claim any rank or superlative only from a
   rank field or a list seen in full.
-- Coverage denominators count answers, one per query per engine: 8 queries
-  on 3 engines is 24 answers. Label them answers, never queries.
+- Coverage denominators count measured answers. A query can have several
+  answers on one engine when execution contexts differ. Use the reported
+  denominators for each signal and preserve the execution scope.
 - An empty result with `measurement.state: not_measured` means no
   measurement. An unavailable aggregate does not invalidate available
   Property metrics. Report ranked Properties and list excluded Properties
@@ -90,8 +92,8 @@ change the plan to make a read work.
 - `shape: sources` returns cited URLs. Answers without citations are absent
   from that shape, so source-row counts cannot measure answer coverage or
   prove the absence of mentions. Use `shape: answers` to explain gaps.
-- Overview's omitted query class combines classes; portfolio summary defaults
-  to non-brand. Pass an explicit class for a sequence of comparable reads
+- Both Advanced Measurement overview and portfolio summary default to
+  non-brand. Pass an explicit class for a sequence of comparable reads
   and report what the response actually served.
 
 ## Compare and drill down safely

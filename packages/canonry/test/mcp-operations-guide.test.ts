@@ -182,6 +182,40 @@ describe('universal MCP operations guidance', () => {
     expect(result.structuredContent?.next).not.toContain('canonry_research_run_start')
   })
 
+  it('routes a new user to first-run setup and the getting-started playbook without stealing other intents', async () => {
+    // Progressive stdio: the setup toolkit is not loaded yet, so help offers it.
+    const progressive = await connect({ scope: 'read-only' })
+    const offered = await progressive.client.callTool({ name: 'canonry_help', arguments: { intent: 'start' } })
+    expect(offered.structuredContent).toMatchObject({ workflow: 'start', loadToolkits: expect.arrayContaining(['setup']) })
+
+    const { client } = await connect({ scope: 'read-only', eager: true })
+    for (const intent of ['start', 'getting started', 'where do I start?', 'onboarding', 'what should I ask?', 'I just installed this', 'what should I do next']) {
+      const result = await client.callTool({ name: 'canonry_help', arguments: { intent } })
+      expect(result.structuredContent, intent).toMatchObject({
+        workflow: 'start',
+        next: expect.arrayContaining(['canonry_projects_list', 'canonry_project_setup']),
+        playbooks: ['getting-started'],
+      })
+    }
+    // Earlier routes keep their keywords: start is matched only when nothing else is.
+    const routes: Array<[string, string]> = [
+      ['setup gsc', 'integrations'],
+      ['measurement setup', 'measurement'],
+      ['start a report', 'reports'],
+      ['diagnose where to start', 'diagnose'],
+      ['unknown', 'status'],
+    ]
+    for (const [intent, workflow] of routes) {
+      const result = await client.callTool({ name: 'canonry_help', arguments: { intent } })
+      expect(result.structuredContent?.workflow, intent).toBe(workflow)
+    }
+    const playbook = await client.callTool({ name: 'canonry_help', arguments: { playbook: 'getting-started' } })
+    expect(playbook.isError).not.toBe(true)
+    const text = (playbook.content as Array<{ text: string }>)[0]!.text
+    expect(text.startsWith('Playbook: getting-started\n')).toBe(true)
+    expect(text).toContain('canonry_project_setup')
+  })
+
   it('keeps eager stdio distinct from hosted mode and validates intents', async () => {
     const { client, catalog } = await connect({ eager: true })
     expect(operationsHelp(catalog.helpResult(), 'stdio-fixed-catalog', 'unknown').workflow).toBe('status')

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Perplexity adapter — implements `ProviderAdapter` over Perplexity's Agent API (`POST /v1/agent`). Extracts cited domains from the `search_results` output item. Full behavior: `docs/providers/perplexity.md`.
+The Perplexity adapter uses the Agent API (`POST /v1/agent`). It extracts domains from search results, fetched pages, and message annotations. See `docs/providers/perplexity.md`.
 
 ## Key Files
 
@@ -16,14 +16,13 @@ Perplexity adapter — implements `ProviderAdapter` over Perplexity's Agent API 
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
+`perplexityAdapter` implements `ProviderAdapter` from `@canonry/canonry-contracts`.
 
-- **`validateConfig(config)`** — verify API key and model are valid
-- **`healthcheck(config)`** — test connectivity to the provider
-- **`executeTrackedQuery(input)`** — send a tracked query and capture citations
-  - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (status check, usage, and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
+- **`validateConfig(config)`** — require an API key and resolve the model
+- **`healthcheck(config, signal?)`** — check connectivity with a short Agent API request
+- **`executeTrackedQuery(input, config)`** — build the request with `buildTrackedQueryRequest`, make the SDK call, and read it with `parseTrackedQueryResponse`
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
-- **`generateText(config, prompt)`** — general-purpose text generation
+- **`generateText(prompt, config)`** — general-purpose text generation
 
 - **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (in `src/normalize.ts`, next to the parsers it reuses) pairs each `[N]` marker group with the text before it on the same line: Agent responses resolve N to the `search_results` entry with `id` N (ids run on across items), Sonar history to `citations[N - 1]`. Stored data only.
 
@@ -36,7 +35,7 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 ## Common Mistakes
 
-- **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes.
+- Return grounding sources in the shared `GroundingSource` format.
 - **Not handling rate limits** — implement retry with exponential backoff for 429 responses.
 - **Forgetting to export from `adapter.ts`** — the provider registry imports the adapter object.
 
