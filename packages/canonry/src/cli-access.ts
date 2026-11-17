@@ -125,6 +125,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'cdp.status': 'live',
   'cdp.targets': 'live',
   'citations.visibility': 'stored',
+  'citations.urls': 'stored',
   'competitor': 'write',
   'competitor.add': 'write',
   'competitor.aliases': 'stored',

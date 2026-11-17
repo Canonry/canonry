@@ -35,7 +35,7 @@ import { competitorIdentityColumns } from './competitor-writes.js'
 // classification anyway would state a conclusion about questions nobody
 // answered — the same partial-denominator error run-coordinator and the
 // notifier already refuse to make. Planless runs (no manifest) are unaffected.
-function measuredWhole(db: DatabaseClient, run: { id: string }): boolean {
+export function measuredWhole(db: DatabaseClient, run: { id: string }): boolean {
   const completeness = measurementRunCompleteness(db, run.id)
   return !completeness.planned || completeness.complete
 }
@@ -1109,7 +1109,7 @@ interface DomainAgg {
  */
 const ANCHOR_SWEEP_SCAN_LIMIT = 60
 
-function isProviderInfraDomain(uri: string): boolean {
+export function isProviderInfraDomain(uri: string): boolean {
   return hostMatchesAnyDomain(uri, AI_PROVIDER_INFRA_DOMAINS)
 }
 

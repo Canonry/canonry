@@ -54,6 +54,14 @@ how to fix a leaky faucet  cm      ·m     cm      0/2   0/3   ← neither: info
 
 `cnry evidence <project>` is the per-query citation history instead: one line per query with its latest citation (`✓ cited`, `✗ not-cited` or `· not measured (no sources)`, plus a transition such as `(lost)`), then `Cited: X / Y` over the queries whose latest answers carried sources and `Not measured: N`. It prints no mention line; read mention from its `--format json` (each run's `mentionState` and `mentionTransition`) or from `cnry citations visibility`.
 
+### Which threads and pages engines cite
+
+`cnry citations urls <project>` lists every cited page once, across the sweeps in the window: how many answers cite it, how many of those mention the brand (`answersMentionUnchecked` were never checked, never "not mentioned"), the engines and queries behind it, and its first and last sweep. Links are compared one way (https, no `www.`, no `utm_*` parameters, a Reddit thread by its id), so a thread cited with and without its title slug is one row.
+
+- `--category forum,social,video` keeps discussion threads and posts, the places a person can reply.
+- `--new-in-latest` keeps pages the latest sweep cited for the first time. "First" means within the window; the default window is `all`. It needs an earlier sweep that captured pages: answers stored before page capture (August 2026) are left out and counted in `answersPagesNotCaptured`.
+- Reading a cited thread itself is a separate step: Canonry stores the link, not the thread's text.
+
 ### Query Categories
 
 **Branded/direct queries** (e.g., "[business name] [city]"):
