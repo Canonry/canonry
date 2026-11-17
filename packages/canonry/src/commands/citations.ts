@@ -1,6 +1,7 @@
-import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
+import type { CitationUrlsResponse, CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
 import { SNAPSHOT_CELL_LEGEND, citationGlyph, citedBase, mentionGlyph } from '../snapshot-cell.js'
 
 export async function showCitationVisibility(
@@ -119,5 +120,58 @@ function printGaps(data: CitationVisibilityResponse): void {
     console.log(
       `  ${gap.query.padEnd(queryWidth)}  ${gap.provider.padEnd(providerWidth)}  ${gap.citingCompetitors.join(', ')}`,
     )
+  }
+}
+
+/** Cited pages, one row per page: which threads and articles engines cite, and which are new. */
+export async function showCitationUrls(
+  project: string,
+  opts: {
+    window?: string; domain?: string; category?: string; provider?: string; queryClass?: string
+    newInLatest?: boolean; sort?: string; limit?: number; cursor?: string; format?: string
+  },
+): Promise<void> {
+  const { format, ...query } = opts
+  const data: CitationUrlsResponse = await createApiClient().getCitationUrls(project, query)
+
+  if (format === 'jsonl') {
+    emitJsonl(data.urls.map(url => ({ project, latestRunId: data.latestRun?.id ?? null, ...url })))
+    if (data.nextCursor) console.error(`Showing ${data.returned} of ${data.total} pages. Next page: --cursor ${data.nextCursor}`)
+    return
+  }
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(data, null, 2))
+    return
+  }
+
+  if (!data.latestRun) {
+    console.log('No sweep in this window yet. Run one first (canonry run <project>).')
+    return
+  }
+  const scope = [
+    data.filters.domain ? `on ${data.filters.domain}` : null,
+    data.filters.categories.length > 0 ? `in ${data.filters.categories.join(', ')}` : null,
+    data.filters.provider ? `from ${data.filters.provider}` : null,
+    data.filters.queryClass !== 'all' ? `${data.filters.queryClass} questions` : null,
+    data.filters.newInLatest ? 'new in the latest sweep' : null,
+  ].filter((part): part is string => part !== null)
+  console.log(`Cited pages for "${project}"${scope.length > 0 ? ` (${scope.join(', ')})` : ''}`)
+  console.log(`  ${data.runCount} sweeps in window ${data.filters.window}; latest ${data.latestRun.createdAt}; ${data.answerTotal} answers with sources`)
+  if (data.urls.length === 0) {
+    console.log('  No cited pages match.')
+    return
+  }
+  for (const entry of data.urls) {
+    const engines = Object.entries(entry.providers).map(([provider, count]) => `${provider} ${count}`).join(', ')
+    const flag = entry.newInLatest ? '  NEW' : ''
+    console.log('')
+    console.log(`  ${entry.url}${flag}`)
+    console.log(`    ${entry.answers} answers (${entry.answersNamingBrand} name the brand) · ${engines} · first ${entry.firstSeenAt.slice(0, 10)}, last ${entry.lastSeenAt.slice(0, 10)}`)
+    for (const question of entry.queries.slice(0, 3)) console.log(`    "${question.query}" (${question.answers})`)
+    if (entry.queries.length > 3) console.log(`    and ${entry.queries.length - 3} more questions`)
+  }
+  if (data.nextCursor) {
+    console.log('')
+    console.log(`  Showing ${data.returned} of ${data.total} pages. Next page: --cursor ${data.nextCursor}`)
   }
 }

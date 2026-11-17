@@ -94,6 +94,8 @@ import {
   trafficConnectVercelRequestSchema,
   parseTrafficEventKindFilter,
   TRAFFIC_EVENT_KIND_FILTER_HINT,
+  parseCitationUrlCategories,
+  CITATION_URL_CATEGORY_HINT,
   trafficSeriesGranularitySchema,
   measurementPlanAuthoringSchema,
   measurementPlanPublishRequestSchema,
@@ -2122,6 +2124,34 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/citations/visibility'],
     handler: (client, input) => client.getCitationVisibility(input.project),
+  }),
+  defineTool({
+    name: 'canonry_citation_urls',
+    title: 'List cited pages',
+    description: 'Every page the stored answers cite, one row per page across the sweeps in scope: answers citing it, how many name the brand (answersBrandUnchecked were never checked, never "not named"), engines, questions, first and last sweep, and newInLatest. Use category "forum,social,video" for discussion threads and posts, domain for one site, and newInLatest=true for pages the latest sweep cited for the first time. "First" is within the window, so pass window "all" for all history. Links are compared one way (https, no www, no utm parameters, a Reddit thread by its id). Page with nextCursor.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      project: projectNameSchema,
+      window: z.enum(['7d', '30d', '90d', 'all']).optional().describe('Sweeps in scope. Defaults to all.'),
+      domain: z.string().min(1).optional().describe('Only pages on this host or its subdomains, e.g. "reddit.com".'),
+      category: z.string()
+        .refine((value) => parseCitationUrlCategories(value) !== null, { message: `category must be ${CITATION_URL_CATEGORY_HINT}` })
+        .optional()
+        .describe('Comma-separated source categories, e.g. "forum,social,video" for threads and posts people can reply to.'),
+      provider: z.string().min(1).optional().describe('Only answers from this engine id, e.g. "gemini" or "openai".'),
+      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand questions only, classified as the sources read does. Defaults to all.'),
+      newInLatest: z.boolean().optional().describe('Only pages the latest sweep cited and no earlier sweep in scope did.'),
+      sort: z.enum(['answers', 'newest']).optional().describe('answers (default): most citing answers first. newest: most recent first citation first.'),
+      limit: z.number().int().min(1).max(1000).optional().describe('Pages per response, default 100.'),
+      cursor: z.string().min(1).optional().describe('nextCursor from the previous response; repeat the same filters.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/citations/urls'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.getCitationUrls(project, query)
+    },
   }),
   defineTool({
     name: 'canonry_visibility_stats',

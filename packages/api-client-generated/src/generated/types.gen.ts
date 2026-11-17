@@ -5219,6 +5219,52 @@ export type CitationVisibilityResponse = {
     reason?: 'no-runs-yet' | 'no-queries';
 };
 
+export type CitationUrlsResponse = {
+    filters: {
+        window: '7d' | '30d' | '90d' | 'all';
+        domain: string | null;
+        categories: Array<'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other'>;
+        provider: string | null;
+        queryClass: 'all' | 'branded' | 'non-brand';
+        newInLatest: boolean;
+        sort: 'answers' | 'newest';
+    };
+    latestRun: {
+        id: string;
+        createdAt: string;
+    } | null;
+    runCount: number;
+    answerTotal: number;
+    unclassifiedAnswers: number;
+    total: number;
+    returned: number;
+    truncated: boolean;
+    nextCursor: string | null;
+    urls: Array<{
+        url: string;
+        domain: string;
+        category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+        label: string;
+        answers: number;
+        answersNamingBrand: number;
+        answersBrandUnchecked: number;
+        providers: {
+            [key: string]: number;
+        };
+        queries: Array<{
+            query: string;
+            answers: number;
+        }>;
+        runs: number;
+        firstSeenAt: string;
+        firstRunId: string;
+        lastSeenAt: string;
+        lastRunId: string;
+        newInLatest: boolean;
+        citedInLatest: boolean;
+    }>;
+};
+
 export type CompetitorAliasBlockRequest = {
     /**
      * Names to block from (or release back to) answer-derived auto-detection for this competitor. Compared by brand key, so case, spacing and punctuation variants are one name.
@@ -36841,6 +36887,77 @@ export type GetApiV1ProjectsByNameCitationsVisibilityResponses = {
 };
 
 export type GetApiV1ProjectsByNameCitationsVisibilityResponse = GetApiV1ProjectsByNameCitationsVisibilityResponses[keyof GetApiV1ProjectsByNameCitationsVisibilityResponses];
+
+export type GetApiV1ProjectsByNameCitationsUrlsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Sweeps in scope: 7d, 30d, 90d or all (default).
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Only pages on this host or its subdomains, e.g. reddit.com.
+         */
+        domain?: string;
+        /**
+         * Comma-separated source categories, e.g. forum,social,video.
+         */
+        category?: string;
+        /**
+         * Only answers from this engine, e.g. gemini or openai.
+         */
+        provider?: string;
+        /**
+         * all (default), branded or non-brand, classified as the sources read does.
+         */
+        queryClass?: 'all' | 'branded' | 'non-brand';
+        /**
+         * true keeps only pages the latest sweep cited and no earlier sweep in scope did.
+         */
+        newInLatest?: 'true' | 'false';
+        /**
+         * answers (default): most citing answers first. newest: most recent first citation first.
+         */
+        sort?: 'answers' | 'newest';
+        /**
+         * Pages per response, 1 to 1000 (default 100).
+         */
+        limit?: string;
+        /**
+         * The previous response's nextCursor; repeat the same filters.
+         */
+        cursor?: string;
+    };
+    url: '/api/v1/projects/{name}/citations/urls';
+};
+
+export type GetApiV1ProjectsByNameCitationsUrlsErrors = {
+    /**
+     * Invalid query parameters.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCitationsUrlsError = GetApiV1ProjectsByNameCitationsUrlsErrors[keyof GetApiV1ProjectsByNameCitationsUrlsErrors];
+
+export type GetApiV1ProjectsByNameCitationsUrlsResponses = {
+    /**
+     * Cited pages returned.
+     */
+    200: CitationUrlsResponse;
+};
+
+export type GetApiV1ProjectsByNameCitationsUrlsResponse = GetApiV1ProjectsByNameCitationsUrlsResponses[keyof GetApiV1ProjectsByNameCitationsUrlsResponses];
 
 export type GetApiV1ProjectsByNameContentTargetsData = {
     body?: never;

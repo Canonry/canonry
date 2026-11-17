@@ -273,6 +273,7 @@ import type {
   InsightDto,
   HealthSnapshotDto,
   CitationVisibilityResponse,
+  CitationUrlsResponse,
   BingCoverageSummaryDto,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
@@ -672,6 +673,7 @@ import {
   getApiV1ProjectsByNameHealthLatest,
   getApiV1ProjectsByNameHealthHistory,
   getApiV1ProjectsByNameCitationsVisibility,
+  getApiV1ProjectsByNameCitationsUrls,
   getApiV1ProjectsByNameVisibilityStats,
   getApiV1ProjectsByNameVisibilityCompare,
   getApiV1Doctor,
@@ -5387,6 +5389,32 @@ export class ApiClient {
   async getCitationVisibility(project: string): Promise<CitationVisibilityResponse> {
     return this.invoke<CitationVisibilityResponse>(() =>
       getApiV1ProjectsByNameCitationsVisibility({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getCitationUrls(
+    project: string,
+    query: {
+      window?: string; domain?: string; category?: string; provider?: string; queryClass?: string
+      newInLatest?: boolean; sort?: string; limit?: number; cursor?: string
+    } = {},
+  ): Promise<CitationUrlsResponse> {
+    return this.invoke<CitationUrlsResponse>(() =>
+      getApiV1ProjectsByNameCitationsUrls({
+        client: this.heyClient,
+        path: { name: project },
+        query: {
+          window: query.window,
+          domain: query.domain,
+          category: query.category,
+          provider: query.provider,
+          queryClass: query.queryClass,
+          newInLatest: query.newInLatest === undefined ? undefined : String(query.newInLatest),
+          sort: query.sort,
+          limit: query.limit === undefined ? undefined : String(query.limit),
+          cursor: query.cursor,
+        } as never,
+      }),
     )
   }
 

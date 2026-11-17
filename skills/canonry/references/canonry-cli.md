@@ -366,6 +366,9 @@ Two independent signals per (query × provider): **mention** (`answerMentioned` 
 
 ```bash
 cnry citations visibility <project>            # two-glyph [citation][mention] cell per (query × engine) + Cite/Ment counts
+cnry citations urls <project> --category forum,social,video --format json   # every cited thread/post, one row per page: answers, how many name the brand, engines, questions, first and last sweep
+cnry citations urls <project> --category forum,social,video --new-in-latest   # only pages the latest sweep cited for the first time (window all by default)
+cnry citations urls <project> --domain reddit.com --sort newest --limit 50    # one site, most recent first citation first; follow nextCursor for more
 cnry evidence <project>                        # latest citation per query (✓ cited / ✗ not-cited / · not measured) + Cited: X / Y
 cnry evidence <project> --format json          # JSON output: each query's runs with citation and mention state
 cnry history <project>                         # audit trail
