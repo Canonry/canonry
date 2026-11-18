@@ -6,7 +6,7 @@ import { trendChangeSchema } from './trends.js'
 export const seoCapabilitySchema = z.enum(['keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings', 'competitor-discovery', 'keyword-gaps'])
 export type SeoCapability = z.infer<typeof seoCapabilitySchema>
 export const SeoCapabilities = seoCapabilitySchema.enum
-export const seoProviderSchema = z.enum(['dataforseo'])
+export const seoProviderSchema = z.enum(['dataforseo', 'cloro'])
 export const SeoProviders = seoProviderSchema.enum
 /** A dataset path segment that carries a provider name, such as `dataforseo-labs`. */
 const SEO_PROVIDER_SEGMENT = new RegExp(`^(?:${seoProviderSchema.options.join('|')})(?:[-_].*)?$`, 'i')

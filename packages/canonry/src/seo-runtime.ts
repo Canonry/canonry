@@ -1,6 +1,7 @@
 import { eq, inArray } from 'drizzle-orm'
 import { SeoAdapterOutcomes, SeoProviders, SeoRunStatuses, type SeoAdapter, type SeoAdapterRequest, type SeoAdapterResult } from '@canonry/canonry-contracts'
 import type { SeoInstallConfig } from '@canonry/canonry-config'
+import { createCloroSeoAdapter } from '@canonry/canonry-integration-cloro'
 import { createDataForSeoAdapter } from '@canonry/canonry-integration-dataforseo'
 import { SeoRepository, emptySeoResults, seoJobs, seoTasks, type DatabaseClient } from '@canonry/canonry-db'
 import { createLogger } from './logger.js'
@@ -43,6 +44,7 @@ export class SeoRuntime {
         connections: Object.entries(config.connections).filter(([, value]) => value.enabled).map(([id, value]) => {
           switch (value.provider) {
             case SeoProviders.dataforseo: return { id, label: value.label, adapter: createDataForSeoAdapter(value) }
+            case SeoProviders.cloro: return { id, label: value.label, adapter: createCloroSeoAdapter(value) }
           }
         }),
       } : null
