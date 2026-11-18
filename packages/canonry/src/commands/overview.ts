@@ -340,7 +340,8 @@ function renderHuman(overview: ProjectOverviewDto): void {
   if (competitors.length > 0) {
     console.log('\n  Competitors:')
     for (const c of competitors) {
-      console.log(`    ${c.domain.padEnd(28)} ${c.citationCount}/${c.totalQueries} ${c.pressureLabel}`)
+      const excluded = c.excludedNoRetrieval ? ` · ${c.excludedNoRetrieval} not searched` : ''
+      console.log(`    ${c.domain.padEnd(28)} ${c.citationCount}/${c.totalQueries} ${c.pressureLabel}${excluded}`)
     }
   }
 
