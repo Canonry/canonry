@@ -18,4 +18,11 @@ describe('SEO host policy', () => {
     expect(seoInstallConfigSchema.safeParse({ ...config, connections: { other: { ...config.connections.primary, provider: 'unsupported' } } }).success).toBe(false)
     expect(seoInstallConfigSchema.safeParse({ ...config, connections: { primary: { ...config.connections.primary, password: '' } } }).success).toBe(false)
   })
+  it('accepts a cloro connection only with a key and a whole-microUSD price per credit', () => {
+    const cloro = { provider: 'cloro', label: 'Search rankings', enabled: true, apiKey: 'local-secret', creditMicros: 800 }
+    expect(seoInstallConfigSchema.parse({ ...config, connections: { rankings: cloro } }).connections.rankings).toEqual(cloro)
+    for (const change of [{ apiKey: ' ' }, { creditMicros: 0 }, { creditMicros: 0.5 }, { creditMicros: undefined }, { login: 'operator@example.com' }]) {
+      expect(seoInstallConfigSchema.safeParse({ ...config, connections: { rankings: { ...cloro, ...change } } }).success).toBe(false)
+    }
+  })
 })
