@@ -136,11 +136,42 @@ dashboard:
   showUpdateNotification: false
 ```
 
-`showResourceLinks` removes the GitHub, documentation, and changelog icons
-from the sidebar and page footer, plus repository documentation links on Agent
-Setup. `showUpdateNotification` removes the
-available-version badge from the sidebar but keeps update checks and CLI
-notices active.
+The self-hosted navigation footer links to GitHub, Discord, X, and YouTube.
+Managed instances (`CANONRY_RUNTIME_MODE=cloud`) and the public demo show only
+GitHub. Embedded views omit the footer. Set the runtime mode when provisioning
+the managed engine.
+
+`showResourceLinks: false` hides the footer links and the repository
+documentation links on Agent Setup. On self-hosted dashboards, an installed
+update shows a dismissible notice with release highlights when available. “View
+changes” opens the changes between the two builds on GitHub. A first visit can
+show highlights for the running release. The browser remembers dismissal
+separately for each dashboard base path and signed-in account. The server
+includes its installed version and optional build commit in the dashboard HTML.
+Opening or reloading the dashboard checks that version for release highlights.
+A tab open during a rollout keeps the notes for its loaded build until reloaded.
+
+Live health views refresh service status every 15 seconds while visible.
+Elsewhere, a stale status used by the dashboard refreshes when you return to the
+tab. Release notes use the build in the document and make no network request.
+
+Managed dashboards run in **What’s new only** mode. Customers see product
+highlights after an administrator rolls out a release. Releases without
+applicable highlights are quiet. This mode hides version numbers in the
+navigation, available-version prompts, and package or source links in the
+notice. A release can invite customers to the Canonry Discord. Set
+`dashboard.showResourceLinks: false` to hide that invitation. Public demos
+and embedded views omit release notices.
+
+To use the same presentation on a standalone dashboard, set
+`dashboard.whatsNewOnly: true` in the YAML config or
+`CANONRY_DASHBOARD_WHATS_NEW_ONLY=1` in the container environment. The
+environment takes precedence over YAML on standalone instances.
+`CANONRY_RUNTIME_MODE=cloud` selects this mode automatically.
+
+`showUpdateNotification: false` hides the installed-update notice and the
+available-version badge, including “What’s new” on hosted installations.
+Update checks and CLI notices stay active.
 
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.

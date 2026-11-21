@@ -37,7 +37,7 @@ function SettingsPageBody() {
   const { dashboard } = useDashboard()
   const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
   const enableLiveStatus = !contextDashboard
-  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health, Boolean(settings))
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
 
   const [configuringGoogle, setConfiguringGoogle] = useState(false)

@@ -101,7 +101,7 @@ export function OverviewPage() {
   // no server-rendered dashboard to fall back on, so it always takes the
   // skeleton branch first and hit this on every cold load.
   const enableLiveStatus = !contextDashboard
-  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health, Boolean(safeDashboard) && !isLoading)
   // TanStack Query clears a failed read's error while it retries, so keep the
   // failure on screen until data arrives. Otherwise each retry, the polling
   // ones included, swaps it for the skeleton and drops focus from Retry.

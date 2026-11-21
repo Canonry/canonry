@@ -6,17 +6,36 @@ import { CANONRY_DISCORD_URL } from '../src/support-links.js'
 afterEach(() => vi.restoreAllMocks())
 
 describe('canonry support', () => {
-  it('prints the Discord invite, issue tracker and feedback command', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  const support = {
+    discord: 'https://discord.gg/jnJ2H2z5Xh',
+    issues: 'https://github.com/Canonry/canonry/issues',
+    feedbackCommand: 'canonry feedback "<what happened>"',
+  }
+  const social = {
+    x: 'https://x.com/canonry_ai',
+    youtube: 'https://www.youtube.com/@Canonry_AI',
+  }
+
+  it('prints support and social links on a self-hosted install', () => {
+    vi.stubEnv('CANONRY_RUNTIME_MODE', undefined)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     supportCommand('text')
-    expect(log.mock.calls[0]?.[0]).toContain('https://discord.gg/jnJ2H2z5Xh')
-    expect(log.mock.calls[0]?.[0]).toContain('canonry feedback')
+    for (const value of Object.values({ ...support, ...social })) {
+      expect(log.mock.calls[0]?.[0]).toContain(value)
+    }
     supportCommand('json')
-    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual({
-      discord: 'https://discord.gg/jnJ2H2z5Xh',
-      issues: 'https://github.com/Canonry/canonry/issues',
-      feedbackCommand: 'canonry feedback "<what happened>"',
-    })
+    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual({ ...support, ...social })
+  })
+
+  it('preserves the existing support output in cloud mode', () => {
+    vi.stubEnv('CANONRY_RUNTIME_MODE', ' Cloud ')
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    supportCommand('text')
+    for (const url of Object.values(social)) expect(log.mock.calls[0]?.[0]).not.toContain(url)
+    supportCommand('json')
+    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual(support)
   })
 })
 

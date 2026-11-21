@@ -3259,11 +3259,7 @@
   /* ── Footer ── */
 
   .footer {
-    @apply flex shrink-0 flex-col gap-2 border-t border-subtle px-4 py-3 text-label-14;
-  }
-
-  .footer-brand {
-    @apply flex items-center gap-2 text-muted;
+    @apply flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-subtle px-4 py-3 text-label-14;
   }
 
   .footer-version {
@@ -3275,7 +3271,7 @@
   }
 
   .footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-secondary transition hover:bg-surface-inset-hover hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-current pointer-coarse:size-11;
   }
 
   /* ── Drawer ── */
@@ -3712,6 +3708,10 @@
 
   .toast-viewport {
     @apply fixed bottom-4 right-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2;
+  }
+
+  .toast-viewport:empty {
+    display: none;
   }
 
   .toast-card {

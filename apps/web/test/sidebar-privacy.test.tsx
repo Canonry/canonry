@@ -172,13 +172,13 @@ test('the mobile navigation keeps one version and the sidebar project names', as
 
   const sidebar = getByRole('complementary', { name: 'Primary navigation' })
   expect(within(sidebar).getAllByText('vphase-1')).toHaveLength(1)
-  expect(within(sidebar).getByRole('link', { name: 'Changelog' })).toBeDefined()
+  expect(within(sidebar).getByRole('link', { name: 'GitHub' })).toBeDefined()
   expect(within(sidebar).getByRole('link', { name: 'Citypoint Dental', exact: true })).toBeDefined()
 
   fireEvent.click(getByRole('button', { name: 'Open navigation' }))
   const navigation = await findByRole('dialog', { name: 'Navigation' })
   expect(within(navigation).getAllByText('vphase-1')).toHaveLength(1)
-  expect(within(navigation).getByRole('link', { name: 'Changelog' })).toBeDefined()
+  expect(within(navigation).getByRole('link', { name: 'GitHub' })).toBeDefined()
   expect(within(navigation).getByRole('link', { name: 'Citypoint Dental', exact: true })).toBeDefined()
   expect(within(navigation).queryByRole('link', { name: 'Citypoint Dental NYC', exact: true })).toBeNull()
 })

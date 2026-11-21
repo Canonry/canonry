@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { dismissToast, getToasts, subscribe, type Toast } from '../../lib/toast-store.js'
@@ -17,7 +17,7 @@ function actionAriaLabel(toast: Toast) {
   return `${toast.cta.label}: ${toast.title}`
 }
 
-export function Toaster() {
+export function Toaster({ children }: { children?: ReactNode }) {
   const toasts = useSyncExternalStore(subscribe, getToasts, getToasts)
   const navigate = useNavigate()
   const { openRun } = useDrawer()
@@ -41,10 +41,11 @@ export function Toaster() {
     dismissToast(toast.id)
   }, [navigate, openRun])
 
-  if (toasts.length === 0) return null
+  if (toasts.length === 0 && !children) return null
 
   return (
     <div className="toast-viewport" aria-label="Notifications">
+      {children}
       {toasts.map((toast) => (
         <section
           key={toast.id}

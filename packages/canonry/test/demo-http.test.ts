@@ -169,7 +169,12 @@ describe('dedicated public demo server', () => {
     for (const url of ['/', '/projects/summit-roofing', '/projects/summit-roofing/technical-aeo', '/projects/summit-roofing/seo-data', '/projects/summit-roofing/traffic', '/projects/summit-roofing/journeys', '/projects/harbor-resorts/seo-data?queryClass=non-brand']) {
       const response = await app.inject(url)
       expect(response.statusCode).toBe(200)
-      expect(response.body).toContain('"demo":{"enabled":true,"readOnly":true,"sampleData":true}')
+      const [configScript] = inlineScripts(response.body)
+      expect(configScript).toMatch(/^window\.__CANONRY_CONFIG__=/)
+      expect(JSON.parse(configScript!.slice('window.__CANONRY_CONFIG__='.length))).toEqual({
+        demo: { enabled: true, readOnly: true, sampleData: true },
+        dashboard: { showAgentBar: false, showUpdateNotification: false },
+      })
       expect(response.body).toContain('<base href="/">')
       expect(response.headers['x-robots-tag']).toContain('noindex')
       expect(response.headers['content-security-policy']).toContain("connect-src 'self'")

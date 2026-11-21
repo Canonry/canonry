@@ -245,7 +245,7 @@ test('the sidebar shows the version once, in the brand lockup, and keeps the pro
   expect(sidebar.textContent?.match(/vphase-1/g)).toEqual(['vphase-1'])
   expect(sidebar.querySelector('.brand-version')?.textContent).toBe('vphase-1')
   expect(sidebar.querySelector('.footer-version')).toBeNull()
-  expect([...sidebar.querySelectorAll('.footer a')].map(link => link.getAttribute('aria-label') ?? link.textContent)).toEqual(['Canonry', 'GitHub', 'Docs', 'Changelog'])
+  expect([...sidebar.querySelectorAll('.footer a')].map(link => link.getAttribute('aria-label') ?? link.textContent)).toEqual(['GitHub', 'Discord', 'X', 'YouTube'])
 })
 
 test('project route renders a concise visibility summary with progressive detail', async () => {

@@ -172,7 +172,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['support'],
     usage: 'canonry support [--format json]',
-    help: 'Where to get help: the Canonry Discord, the issue tracker, and canonry feedback.',
+    help: 'Show Canonry support and available community links.',
     allowPositionals: false,
     run: async (input) => {
       const { supportCommand } = await import('../commands/support.js')

@@ -3,10 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 
 import {
-  BookOpen,
   ChevronRight,
-  FileText,
-  CodeXml,
   Globe,
   History as HistoryIcon,
   LayoutDashboard,
@@ -20,7 +17,6 @@ import {
   Settings,
   Terminal,
   X,
-  type LucideIcon,
 } from 'lucide-react'
 
 import { CitationStates, formatModelName, openRouterRouteModel, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
@@ -29,10 +25,13 @@ import { asyncHandler } from './lib/async-handler.js'
 import { ANSWER_CITATION_LABEL, formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
+  getPublicBase,
+  dashboardShowsWhatsNewOnly,
   isAeroPreview,
   isPublicDemo,
   heyClient,
   shouldShowDashboardAgentBar,
+  shouldShowDashboardCommunityLinks,
   shouldShowDashboardResourceLinks,
   shouldShowDashboardUpdateNotification,
   signOutOfAccount,
@@ -70,6 +69,7 @@ import { ThemeSelector } from './components/shared/ThemeSelector.js'
 import { FeedbackPanel } from './components/shared/FeedbackPanel.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
+import { FooterLinks } from './components/layout/FooterLinks.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
 import { AnswerMarkdown } from './components/shared/AnswerMarkdown.js'
 import { SourceLink } from './components/shared/SourceLink.js'
@@ -82,6 +82,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { InstalledUpdateNotice } from './components/layout/InstalledUpdateNotice.js'
 import { DemoNotice } from './components/layout/DemoNotice.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost, aeroAllowedFor } from './components/shared/AeroBar.js'
@@ -89,15 +90,8 @@ import { RUNS_STALE_MS } from './queries/query-client.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import { formatTrackedRunKind } from './lib/run-labels.js'
 import { toRunListItem } from './build-dashboard.js'
-import { CHECKING_HEALTH_SNAPSHOT } from './lib/health-helpers.js'
 
 import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router'
-
-const resources: { label: string; href: string; Icon: LucideIcon }[] = [
-  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: CodeXml },
-  { label: 'Docs', href: 'https://github.com/Canonry/canonry/tree/main/docs', Icon: BookOpen },
-  { label: 'Changelog', href: 'https://github.com/Canonry/canonry/releases', Icon: FileText },
-]
 
 function terminalToneForRun(status: string): ToastTone {
   if (status === 'completed') return 'positive'
@@ -318,6 +312,7 @@ export function RootLayout() {
   // render. The server-side embed tab policy intentionally blocks /settings.
   const embed = useMemo(() => getEmbedConfig(), [])
   const resourceLinksVisible = useMemo(shouldShowDashboardResourceLinks, [])
+  const communityLinksVisible = useMemo(shouldShowDashboardCommunityLinks, [])
   const deploymentServesAgentBar = useMemo(shouldShowDashboardAgentBar, [])
   // Two independent conditions: the deployment still serves the agent at all,
   // and this account may use it: an administrator, or a signed-in viewer on an
@@ -325,7 +320,8 @@ export function RootLayout() {
   // render site so the bottom padding the bar reserves disappears with it.
   // The public demo has neither, and shows the bar as a scripted preview.
   const agentBarVisible = isAeroPreview() || (deploymentServesAgentBar && aeroAllowedFor({ isAdmin, account }))
-  const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, [])
+  const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, []) && !isPublicDemo()
+  const whatsNewOnly = useMemo(dashboardShowsWhatsNewOnly, [])
 
   // Router state is also a data-fetching input: setup owns the project-create
   // mutation and invalidates the list itself, so the global zero-project poll
@@ -365,9 +361,13 @@ export function RootLayout() {
   useEffect(() => {
     if (!isLoading) setPageShown(true)
   }, [isLoading])
-  const enableLiveStatus = !contextDashboard
-  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
-  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
+  const [documentBuild] = useState(() => typeof window === 'undefined' ? undefined : window.__CANONRY_CONFIG__?.build)
+  const showAvailableUpdates = updateNotificationVisible && !whatsNewOnly && !embed
+  // Unstamped development or older documents can still show the service version in navigation.
+  const needsShellHealth = showAvailableUpdates || (!documentBuild && !whatsNewOnly && !embed)
+  const healthQuery = useHealth(needsShellHealth && !contextDashboard, contextDashboard?.health)
+  const serviceStatus = (healthQuery.data ?? contextDashboard?.health)?.apiStatus
+  const updateNoticeKey = `canonry:installed-update:${JSON.stringify([getPublicBase(), account?.name ?? null])}`
 
   // ── Router state ──
   const { runId, evidenceId, closeDrawer } = useDrawer()
@@ -418,13 +418,13 @@ export function RootLayout() {
   })
   const updateAvailable = forceUpdateVersion
     ? {
-        current: healthSnapshot.apiStatus.version ?? '0.0.0',
+        current: documentBuild?.version ?? serviceStatus?.version ?? '0.0.0',
         latest: forceUpdateVersion,
         url: 'https://www.npmjs.com/package/@canonry/canonry',
         upgradeCommand: 'npm install -g @canonry/canonry',
       }
-    : healthSnapshot.apiStatus.updateAvailable
-  const showUpdatePill = updateNotificationVisible && updateAvailable && updateAvailable.latest !== dismissedUpdateVersion
+    : serviceStatus?.updateAvailable
+  const showUpdatePill = showAvailableUpdates && updateAvailable && updateAvailable.latest !== dismissedUpdateVersion
   const dismissUpdatePill = () => {
     if (!updateAvailable) return
     try {
@@ -599,36 +599,17 @@ export function RootLayout() {
     )
   }
 
-  // The sidebar's brand lockup already shows the version, so the sidebar
-  // footer carries only the product links. The mobile navigation has no
-  // lockup, so its footer keeps the version.
-  const footer = (showVersion: boolean) => (
-    <footer className="footer">
-      <span className="footer-brand">
-        <span><a href='https://canonry.ai'>Canonry</a></span>
-        {showVersion && healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
-          <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
-        ) : null}
-      </span>
-      {resourceLinksVisible ? (
-        <div className="footer-links">
-          {resources.map(({ label, href, Icon }) => (
-            <a
-              key={href}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={label}
-              aria-label={label}
-              className="footer-icon"
-            >
-              <Icon className="size-3.5" />
-            </a>
-          ))}
-        </div>
-      ) : null}
-    </footer>
-  )
+  const navigationVersion = whatsNewOnly ? undefined : documentBuild?.version ?? serviceStatus?.version
+  const footer = (showVersion: boolean) => {
+    const version = showVersion && navigationVersion !== 'unknown' ? navigationVersion : undefined
+    if (!resourceLinksVisible && !version) return null
+    return (
+      <footer className="footer">
+        {resourceLinksVisible && <FooterLinks showCommunity={communityLinksVisible} />}
+        {version && <span className="footer-version">v{version}</span>}
+      </footer>
+    )
+  }
 
   return (
     <Dialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -643,7 +624,7 @@ export function RootLayout() {
       <aside id="desktop-sidebar" className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
           <BrandLockup
-            version={healthSnapshot.apiStatus.version}
+            version={navigationVersion}
             updateAvailable={showUpdatePill ? updateAvailable : null}
             onDismissUpdate={dismissUpdatePill}
           />
@@ -1163,7 +1144,17 @@ export function RootLayout() {
       ) : null}
 
       <RunNotificationObserver />
-      <Toaster />
+      <Toaster>
+        {updateNotificationVisible && documentBuild && (
+          <InstalledUpdateNotice
+            key={updateNoticeKey}
+            storageKey={updateNoticeKey}
+            showResourceLinks={resourceLinksVisible}
+            whatsNewOnly={whatsNewOnly}
+            build={documentBuild}
+          />
+        )}
+      </Toaster>
       {agentBarVisible ? <AeroBarHost /> : null}
     </div>
     </Dialog.Root>

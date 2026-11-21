@@ -408,9 +408,8 @@ export interface DashboardConfigEntry {
   requirePassword?: boolean
 
   /**
-   * Whether the dashboard sidebar and page footer show the Canonry GitHub,
-   * documentation, and changelog links. Defaults to true. Disable for a
-   * quieter branded UI.
+   * Whether the dashboard shows footer links and repository guides on Agent
+   * Setup. Defaults to true.
    */
   showResourceLinks?: boolean
 
@@ -422,11 +421,14 @@ export interface DashboardConfigEntry {
   showLocalAgentSetup?: boolean
 
   /**
-   * Whether the dashboard sidebar shows the available-version notification.
+   * Whether the dashboard shows available-version and installed-update notices.
    * Defaults to true. Disable without turning off the underlying update check
    * or CLI update notice.
    */
   showUpdateNotification?: boolean
+
+  /** Show installed release notes without inviting the operator to upgrade. Always enabled on managed runtimes. */
+  whatsNewOnly?: boolean | null
 
   /**
    * The Canonry mark in the browser tab, sidebar, and dashboard sign-in:
@@ -743,6 +745,12 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: dashboard.managedSweeps must be true, false, or left blank.`,
+    })
+  }
+  if (parsed.dashboard?.whatsNewOnly != null && typeof parsed.dashboard.whatsNewOnly !== 'boolean') {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: dashboard.whatsNewOnly must be true, false, or left blank.`,
     })
   }
   if (!researchAllowViewersSchema.safeParse(parsed.research?.allowViewers).success) {
