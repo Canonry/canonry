@@ -76,6 +76,7 @@ type SearchParams = {
   /** Exact Agent Readiness onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
   seoProfileId?: string
+  trafficSource?: string
   seoRunId?: string
   seoView?: string
   /** The displayed SEO trend selection, preserved in evidence links. */
@@ -194,6 +195,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
       'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
       'journeyView', 'journeyDays', 'journeyVisitor', 'journeyEngine', 'journeyReturned', 'journeyOffset', 'agentHours',
+      'trafficSource',
     ].map(key => [key, typeof search[key] === 'string' && search[key] ? search[key] : undefined])),
   }),
 })

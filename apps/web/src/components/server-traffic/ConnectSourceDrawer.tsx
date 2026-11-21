@@ -28,13 +28,16 @@ export function ConnectSourceDrawer({
   open,
   onOpenChange,
   onClosed,
+  onSourceConnected,
   projectName,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onClosed?: () => void
+  onSourceConnected?: (sourceId: string) => void
   projectName: string
 }) {
+  const navigate = useNavigate()
   const [step, setStep] = useState<Step>('pick')
 
   // Always restart the wizard at the source picker when it reopens.
@@ -47,6 +50,17 @@ export function ConnectSourceDrawer({
   const handleClose = () => {
     onOpenChange(false)
     setStep('pick')
+  }
+
+  const formProps = {
+    projectName,
+    onBack: () => setStep('pick'),
+    onClose: handleClose,
+    onSourceConnected: (sourceId: string) => {
+      handleClose()
+      if (onSourceConnected) onSourceConnected(sourceId)
+      else void navigate({ to: '/traffic/$projectName/$sourceId', params: { projectName, sourceId } })
+    },
   }
 
   return (
@@ -63,23 +77,11 @@ export function ConnectSourceDrawer({
         ) : step === 'cloudflare' ? (
           <CloudflareGuide projectName={projectName} onBack={() => setStep('pick')} onClose={handleClose} />
         ) : step === 'wordpress' ? (
-          <WordpressSourceForm
-            projectName={projectName}
-            onBack={() => setStep('pick')}
-            onClose={handleClose}
-          />
+          <WordpressSourceForm {...formProps} />
         ) : step === 'vercel' ? (
-          <VercelSourceForm
-            projectName={projectName}
-            onBack={() => setStep('pick')}
-            onClose={handleClose}
-          />
+          <VercelSourceForm {...formProps} />
         ) : (
-          <CloudRunSourceForm
-            projectName={projectName}
-            onBack={() => setStep('pick')}
-            onClose={handleClose}
-          />
+          <CloudRunSourceForm {...formProps} />
         )}
       </SheetContent>
     </Sheet>
@@ -180,33 +182,11 @@ function WizardHeader({
   )
 }
 
-/**
- * After a source connects, hand off to its detail page. Adapters with a safe
- * initial history window can kick off a backfill before navigation; adapters
- * with retention-limited history capture forward traffic and leave history as
- * an explicit operator action.
- *
- * Rejects if a requested backfill kickoff fails. A failed kickoff creates no run
- * row, so the caller keeps the drawer open and shows the error instead of
- * routing to a detail page with nothing on it. `afterConnected` runs only
- * once the optional kickoff has succeeded.
- */
-function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
-  const navigate = useNavigate()
-  return async (
-    sourceId: string,
-    options: { startInitialBackfill: boolean; afterConnected?: () => void },
-  ) => {
-    if (options.startInitialBackfill) {
-      await triggerServerTrafficBackfill(projectName, sourceId)
-    }
-    options.afterConnected?.()
-    onClose()
-    void navigate({
-      to: '/traffic/$projectName/$sourceId',
-      params: { projectName, sourceId },
-    })
-  }
+interface SourceFormProps {
+  projectName: string
+  onBack: () => void
+  onClose: () => void
+  onSourceConnected: (sourceId: string) => void
 }
 
 /**
@@ -215,9 +195,8 @@ function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
  * off to the new source's detail page. Each form supplies only the
  * type-specific steps.
  */
-function useConnectFlow(projectName: string, onClose: () => void) {
+function useConnectFlow(projectName: string, onSourceConnected: (sourceId: string) => void) {
   const [error, setError] = useState<string | null>(null)
-  const handoff = useConnectedSourceHandoff(projectName, onClose)
 
   const runConnect = async (steps: {
     /** Return a message when the form is invalid, or null when it is ready. */
@@ -244,17 +223,17 @@ function useConnectFlow(projectName: string, onClose: () => void) {
       return
     }
 
-    // The source row exists now. Start history only for adapters that can do
-    // so safely, then route to its detail page. A requested backfill kickoff
-    // failure creates no run row, so keep the drawer open and surface it.
+    // Keep the form open if the initial backfill failed to create a run.
     try {
-      await handoff(source.id, {
-        startInitialBackfill: steps.startInitialBackfill ?? true,
-        afterConnected: steps.onConnected,
-      })
+      if (steps.startInitialBackfill !== false) {
+        await triggerServerTrafficBackfill(projectName, source.id)
+      }
     } catch (e) {
       setError(`Source connected, but starting the initial backfill failed: ${extractErrorMessage(e)}`)
+      return
     }
+    steps.onConnected?.()
+    onSourceConnected(source.id)
   }
 
   return { error, runConnect }
@@ -335,22 +314,14 @@ function ConnectSourceFormShell({
   )
 }
 
-function WordpressSourceForm({
-  projectName,
-  onBack,
-  onClose,
-}: {
-  projectName: string
-  onBack: () => void
-  onClose: () => void
-}) {
+function WordpressSourceForm({ projectName, onBack, onClose, onSourceConnected }: SourceFormProps) {
   const [baseUrl, setBaseUrl] = useState('')
   const [username, setUsername] = useState('')
   const [applicationPassword, setApplicationPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
 
   const connect = useConnectServerTrafficWordpress(projectName || null)
-  const { error, runConnect } = useConnectFlow(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onSourceConnected)
 
   const handleSubmit = () =>
     runConnect({
@@ -452,15 +423,7 @@ function WordpressSourceForm({
   )
 }
 
-function CloudRunSourceForm({
-  projectName,
-  onBack,
-  onClose,
-}: {
-  projectName: string
-  onBack: () => void
-  onClose: () => void
-}) {
+function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }: SourceFormProps) {
   const [gcpProjectId, setGcpProjectId] = useState('')
   const [serviceName, setServiceName] = useState('')
   const [location, setLocation] = useState('')
@@ -468,7 +431,7 @@ function CloudRunSourceForm({
   const [keyJson, setKeyJson] = useState('')
 
   const connect = useConnectServerTrafficCloudRun(projectName || null)
-  const { error, runConnect } = useConnectFlow(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onSourceConnected)
 
   const handleSubmit = () =>
     runConnect({
@@ -598,15 +561,7 @@ function CloudRunSourceForm({
   )
 }
 
-function VercelSourceForm({
-  projectName,
-  onBack,
-  onClose,
-}: {
-  projectName: string
-  onBack: () => void
-  onClose: () => void
-}) {
+function VercelSourceForm({ projectName, onBack, onClose, onSourceConnected }: SourceFormProps) {
   const [projectId, setProjectId] = useState('')
   const [teamId, setTeamId] = useState('')
   const [token, setToken] = useState('')
@@ -614,7 +569,7 @@ function VercelSourceForm({
   const [displayName, setDisplayName] = useState('')
 
   const connect = useConnectServerTrafficVercel(projectName || null)
-  const { error, runConnect } = useConnectFlow(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onSourceConnected)
 
   const handleSubmit = () =>
     runConnect({

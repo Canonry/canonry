@@ -40,6 +40,14 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### Server traffic
+
+The project tab opens the selected source's traffic report in place. The
+`trafficSource` search parameter selects a source from this project. Without
+a valid selection, show the newest connected source, falling back to the
+newest configured source. A confirmed empty project opens the setup drawer
+for writers. The global Traffic sources page remains the source list.
+
 ### Journeys
 
 Journeys is a project tab (`/projects/$projectName/journeys`, `JourneysSection`)

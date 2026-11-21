@@ -2759,7 +2759,13 @@ function ProjectPageContent({
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'traffic' ? (
-        <ServerTrafficSection projectName={model.project.name} />
+        <ServerTrafficSection
+          key={model.project.id}
+          view="project"
+          projectName={projectName}
+          sourceId={typeof projectSearchParams.trafficSource === 'string' ? projectSearchParams.trafficSource : undefined}
+          onSelectSource={trafficSource => updateVisibilitySearch({ trafficSource })}
+        />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : tab === 'seo-data' ? (
