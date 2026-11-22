@@ -861,6 +861,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       opts,
       projectsSharingGoogleConnection(app.db, project.canonicalDomain).filter((other) => other.id !== project.id),
     )
+    if (oauthConn && others.length > 0) requireInstanceAdministrator(request)
     opts.ga4CredentialStore?.deleteConnection(project.name)
     opts.googleConnectionStore?.deleteConnection(project.canonicalDomain, 'ga4')
 

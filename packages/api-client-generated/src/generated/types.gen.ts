@@ -19643,6 +19643,21 @@ export type TrafficSourceDto = {
     updatedAt: string;
 };
 
+export type TrafficConnectCloudRunRequest = {
+    gcpProjectId: string;
+    serviceName?: string;
+    location?: string;
+    displayName?: string;
+    /**
+     * For a new source, collect logs from connection time onward. Existing sources keep their sync position.
+     */
+    startFromNow?: boolean;
+    /**
+     * Omit to reuse this project’s saved service account for the exact GCP project, service and region. Supply a new key only through a secure credential input.
+     */
+    keyJson?: string;
+};
+
 export type TrafficSourceListResponse = {
     sources: Array<{
         id: string;
@@ -30721,7 +30736,7 @@ export type PostApiV1ProjectsByNameGoogleConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * A project-scoped key cannot authorize Search Console or GA4 on a domain shared with another project.
+     * Selecting a Search Console or GA4 property or authorizing a shared Google connection requires an instance administrator.
      */
     403: ErrorEnvelope;
 };
@@ -30759,9 +30774,17 @@ export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Removing a shared Search Console or GA4 connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Search Console sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeError = DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors[keyof DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors];
@@ -30844,6 +30867,10 @@ export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors = {
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Search Console sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyError = PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors[keyof PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors];
@@ -33829,13 +33856,17 @@ export type PostApiV1ProjectsByNameBingConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * Using the saved Bing key requires an install administrator.
+     * Using the saved Bing key or authorizing a shared Bing connection requires an install administrator.
      */
     403: ErrorEnvelope;
     /**
      * Project not found.
      */
     404: ErrorEnvelope;
+    /**
+     * The project changed during credential verification.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameBingConnectError = PostApiV1ProjectsByNameBingConnectErrors[keyof PostApiV1ProjectsByNameBingConnectErrors];
@@ -33863,9 +33894,17 @@ export type DeleteApiV1ProjectsByNameBingDisconnectData = {
 
 export type DeleteApiV1ProjectsByNameBingDisconnectErrors = {
     /**
+     * Removing a shared Bing connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Bing sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameBingDisconnectError = DeleteApiV1ProjectsByNameBingDisconnectErrors[keyof DeleteApiV1ProjectsByNameBingDisconnectErrors];
@@ -33974,6 +34013,10 @@ export type PostApiV1ProjectsByNameBingSetSiteErrors = {
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Bing sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameBingSetSiteError = PostApiV1ProjectsByNameBingSetSiteErrors[keyof PostApiV1ProjectsByNameBingSetSiteErrors];
@@ -38033,16 +38076,7 @@ export type GetApiV1ProjectsByNameBacklinksSourcesResponses = {
 export type GetApiV1ProjectsByNameBacklinksSourcesResponse = GetApiV1ProjectsByNameBacklinksSourcesResponses[keyof GetApiV1ProjectsByNameBacklinksSourcesResponses];
 
 export type PostApiV1ProjectsByNameTrafficConnectCloudRunData = {
-    body: {
-        gcpProjectId: string;
-        serviceName?: string;
-        location?: string;
-        displayName?: string;
-        /**
-         * Service-account JSON content.
-         */
-        keyJson?: string;
-    };
+    body: TrafficConnectCloudRunRequest;
     path: {
         /**
          * Project name.

@@ -5,8 +5,8 @@ import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
-  forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
-  hostMatchesDomain,
+  forbidden, operationInProgress, quotaExceeded, providerError, escapeLikePattern, AppError,
+  isSitemapOwnedByProperty,
   effectiveDomains,
   gbpWebsiteHost,
   gbpWebsiteMatchesProject,
@@ -44,9 +44,10 @@ import {
   readEarliestGscDataDate, readEarliestGscQueryDataDate, readLatestGscDataDate,
   resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
-import { assertNotProjectScoped, requireGooglePropertyDiscovery, requireInstanceAdministrator } from './auth.js'
+import { assertNotProjectScoped, isInstanceAdministrator, requireGooglePropertyDiscovery, requireInstanceAdministrator } from './auth.js'
 import type { Ga4CredentialStore } from './ga.js'
 import { clearGaDataOnPropertyChange, projectsSharingGoogleConnection, readGa4Properties } from './ga-property-data.js'
+import { changeSearchSite, isSameSearchSite } from './search-site-change.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { startRouteOutcome } from './feature-outcome.js'
@@ -209,35 +210,6 @@ function scopesForConnectionType(type: GoogleConnectionType): string[] {
   }
 }
 
-export function isSitemapOwnedByProperty(sitemapUrl: string, propertyId: string, canonicalDomain: string): boolean {
-  let sitemap: URL
-  try {
-    sitemap = new URL(sitemapUrl)
-  } catch {
-    return false
-  }
-  if (sitemap.protocol !== 'http:' && sitemap.protocol !== 'https:') return false
-
-  if (/^sc-domain:/i.test(propertyId)) {
-    const domain = propertyId.slice('sc-domain:'.length).toLowerCase()
-    return hostMatchesDomain(sitemap.hostname, domain)
-  }
-
-  if (/^\d+$/.test(propertyId)) {
-    return hostOf(sitemap.hostname) === hostOf(canonicalDomain)
-  }
-
-  try {
-    const property = new URL(propertyId)
-    if (property.protocol !== 'http:' && property.protocol !== 'https:') return false
-    if (sitemap.origin !== property.origin) return false
-    const prefix = property.pathname.endsWith('/') ? property.pathname : `${property.pathname}/`
-    return sitemap.pathname === property.pathname || sitemap.pathname.startsWith(prefix)
-  } catch {
-    return false
-  }
-}
-
 export interface GoogleConnectionRecord {
   domain: string
   connectionType: GoogleConnectionType
@@ -258,6 +230,13 @@ export interface GoogleConnectionRecord {
   gbpAccountName?: string | null
   createdAt: string
   updatedAt: string
+}
+
+function retainedGscSitemap(connection: GoogleConnectionRecord | undefined, propertyId: string | null): string | null {
+  if (!connection?.sitemapUrl) return null
+  return !propertyId || isSitemapOwnedByProperty(connection.sitemapUrl, propertyId, connection.domain)
+    ? connection.sitemapUrl
+    : null
 }
 
 /** Public connection fields only. Tokens stay in the connection store. */
@@ -558,6 +537,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     return type === 'ga4' ? readGa4Properties(opts, projectsSharingGoogleConnection(app.db, domain)) : []
   }
 
+  function changeConnection<T>(
+    type: string, domain: string, previous: string | null | undefined, next: string | null | undefined,
+    write: (tx: Parameters<Parameters<typeof app.db.transaction>[0]>[0]) => T, actor = 'api',
+  ): T {
+    return type === 'gsc' ? changeSearchSite(app.db, 'google', domain, previous, next, write, actor) : app.db.transaction(write)
+  }
+
   // GET /projects/:name/google/connections
   app.get<{ Params: { name: string } }>('/projects/:name/google/connections', async (request) => {
     const project = resolveProject(app.db, request.params.name)
@@ -585,9 +571,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const project = resolveProject(app.db, request.params.name)
     if (telemetryRead(() => opts.googleConnectionStore?.getConnection(project.canonicalDomain, type), undefined)) attempt.update({ action: 'reauth' })
-    const scopedGoogleGrant = type !== 'gbp' && Boolean(request.apiKey?.projectId)
-    if (scopedGoogleGrant && projectsSharingGoogleConnection(app.db, project.canonicalDomain).some(other => other.id !== project.id)) {
-      throw forbidden('A project-scoped key cannot authorize a Google connection shared with another project.')
+    const adminGrant = isInstanceAdministrator(request)
+    if (type !== 'gbp' && !adminGrant) {
+      if (propertyId !== undefined) throw forbidden('Selecting a Google property requires an instance administrator.')
+      if (projectsSharingGoogleConnection(app.db, project.canonicalDomain).some(other => other.id !== project.id)) {
+        throw forbidden('Authorizing a shared Google connection requires an instance administrator.')
+      }
     }
 
     let redirectUri: string
@@ -615,7 +604,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       {
         projectId: project.id,
         projectName: project.name,
-        ...(scopedGoogleGrant ? { scopedGoogleGrant: true } : {}),
+        ...(adminGrant && type !== 'gbp' ? { instanceAdministrator: true } : {}),
         domain: project.canonicalDomain,
         type,
         propertyId,
@@ -781,29 +770,35 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             `before re-connecting from "${escapeHtml(projectName ?? '')}".`,
         )
     }
-    // A sibling can start sharing the domain while the operator is at Google.
-    if (stateData.scopedGoogleGrant === true && projectsSharingGoogleConnection(app.db, domain).some(other => other.id !== projectId)) {
-      attempt.failed(undefined, 'AUTH_DENIED')
-      return reply.status(403).send('The project now shares this domain. Restart Google authorization with an instance administrator.')
+    if (type === 'gsc' || type === 'ga4') {
+      // Check after the remote token exchange. The project may have moved or another project may now share its connection.
+      const sharing = projectsSharingGoogleConnection(app.db, domain)
+      if (!sharing.some(other => other.id === projectId)) {
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
+        return reply.status(400).send('The project or its domain changed. Restart Google authorization.')
+      }
+      if (stateData.instanceAdministrator !== true && (propertyId !== undefined || sharing.length > 1)) {
+        attempt.failed(undefined, 'AUTH_DENIED')
+        return reply.status(403).send('Selecting a property or authorizing a shared connection requires an instance administrator. Restart Google authorization.')
+      }
     }
 
     const ga4Before = ga4PropertiesBefore(type, domain)
-    store.upsertConnection({
-      domain,
-      connectionType: type as GoogleConnectionType,
-      propertyId: propertyId ?? existing?.propertyId ?? null,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
-      tokenExpiresAt: expiresAt,
-      scopes: tokens.scope?.split(' ') ?? [],
-      // Stamp ownership on first write; subsequent same-project re-connects
-      // preserve it.
-      createdByProjectId: existing?.createdByProjectId ?? projectId,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    })
-
-    app.db.transaction((tx) => {
+    const nextPropertyId = propertyId ?? existing?.propertyId ?? null
+    changeConnection(type, domain, existing?.propertyId, nextPropertyId, (tx) => {
+      store.upsertConnection({
+        domain,
+        connectionType: type as GoogleConnectionType,
+        propertyId: nextPropertyId,
+        ...(type === 'gsc' ? { sitemapUrl: retainedGscSitemap(existing, nextPropertyId) } : {}),
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
+        tokenExpiresAt: expiresAt,
+        scopes: tokens.scope?.split(' ') ?? [],
+        createdByProjectId: existing?.createdByProjectId ?? projectId,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      })
       clearGaDataOnPropertyChange(tx, opts, ga4Before, 'oauth')
       writeAuditLog(tx, {
         projectId: null,
@@ -813,7 +808,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         entityId: type,
         diff: { domain, type, propertyId },
       })
-    })
+    }, 'oauth')
 
     attempt.succeeded()
     return reply.type('text/html').send(googleOAuthSuccessHtml(type as GoogleConnectionType))
@@ -860,13 +855,14 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const ga4Before = ga4PropertiesBefore(type, project.canonicalDomain)
-    const deleted = store.deleteConnection(project.canonicalDomain, type)
-    if (!deleted) {
-      attempt.failed(undefined, 'NOT_CONNECTED')
-      throw notFound('Google connection', type)
+    if ((type === 'gsc' || type === 'ga4') && projectsSharingGoogleConnection(app.db, project.canonicalDomain).length > 1) {
+      requireInstanceAdministrator(request)
     }
-
-    app.db.transaction((tx) => {
+    changeConnection(type, project.canonicalDomain, existing.propertyId, null, (tx) => {
+      if (!store.deleteConnection(project.canonicalDomain, type)) {
+        attempt.failed(undefined, 'NOT_CONNECTED')
+        throw notFound('Google connection', type)
+      }
       clearGaDataOnPropertyChange(tx, opts, ga4Before)
       writeAuditLog(tx, {
         projectId: project.id,
@@ -1472,6 +1468,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         throw outcome.refuse(OutcomeReasonCodes.PROPERTY_NOT_FOUND, validationError('No GSC property configured for this connection'))
       }
       result = await gscInspectUrl(accessToken, url, propertyId)
+      if (!isSameSearchSite(store.getConnection(project.canonicalDomain, 'gsc')?.propertyId, propertyId)) {
+        throw operationInProgress('The Search Console property changed during inspection. Retry with the current property.')
+      }
     } catch (err) {
       outcome.report({ status: OutcomeStatuses.failed, ...gscOutcomeFailure(err) })
       throw gscErrorToAppError(err, 'Failed to inspect URL in Search Console')
@@ -2049,18 +2048,21 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const ga4Before = ga4PropertiesBefore(request.params.type, project.canonicalDomain)
-    const conn = store.updateConnection(
-      project.canonicalDomain,
-      request.params.type as GoogleConnectionType,
-      { propertyId, updatedAt: new Date().toISOString() },
-    )
-    if (!conn) {
-      attempt.failed(undefined, 'NOT_CONNECTED')
-      throw notFound('Google connection', request.params.type)
-    }
-    app.db.transaction((tx) => clearGaDataOnPropertyChange(tx, opts, ga4Before))
-
-    return googleConnectionDto(conn)
+    const type = request.params.type as GoogleConnectionType
+    const previous = store.getConnection(project.canonicalDomain, type)
+    return changeConnection(type, project.canonicalDomain, previous?.propertyId, propertyId, (tx) => {
+      const conn = store.updateConnection(project.canonicalDomain, type, {
+        propertyId,
+        ...(type === 'gsc' ? { sitemapUrl: retainedGscSitemap(previous, propertyId) } : {}),
+        updatedAt: new Date().toISOString(),
+      })
+      if (!conn) {
+        attempt.failed(undefined, 'NOT_CONNECTED')
+        throw notFound('Google connection', type)
+      }
+      clearGaDataOnPropertyChange(tx, opts, ga4Before)
+      return googleConnectionDto(conn)
+    })
   }))
 
   // POST /projects/:name/google/indexing/request

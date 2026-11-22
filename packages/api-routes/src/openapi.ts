@@ -4661,7 +4661,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google auth URL returned.', 'GoogleOAuthStartResponse'),
       400: errorResponse('Invalid Google connection request.'),
-      403: errorResponse('A project-scoped key cannot authorize Search Console or GA4 on a domain shared with another project.'),
+      403: errorResponse('Selecting a Search Console or GA4 property or authorizing a shared Google connection requires an instance administrator.'),
     },
   },
   {
@@ -4673,7 +4673,9 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       204: { description: 'Google connection deleted.' },
       400: errorResponse('The connection belongs to another project that tracks the same domain; nothing was removed.'),
+      403: errorResponse('Removing a shared Search Console or GA4 connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Search Console sync or inspection is in progress.'),
     },
   },
   {
@@ -4714,6 +4716,7 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('Invalid property request.'),
       403: errorResponse('Selecting a Search Console or GA4 property on a shared OAuth connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Search Console sync or inspection is in progress.'),
     },
   },
   {
@@ -6027,8 +6030,9 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Bing connection returned.', 'BingConnectResponseDto'),
       400: errorResponse('Invalid Bing connection request.'),
-      403: errorResponse('Using the saved Bing key requires an install administrator.'),
+      403: errorResponse('Using the saved Bing key or authorizing a shared Bing connection requires an install administrator.'),
       404: errorResponse('Project not found.'),
+      409: errorResponse('The project changed during credential verification.'),
     },
   },
   {
@@ -6039,7 +6043,9 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       204: { description: 'Bing connection deleted.' },
+      403: errorResponse('Removing a shared Bing connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Bing sync or inspection is in progress.'),
     },
   },
   {
@@ -6071,7 +6077,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/bing/set-site',
     summary: 'Set the active Bing site',
-    description: 'Select an HTTP(S) site from the project that owns the connection. A project-scoped writer can select its own domain when no sibling project shares the connection.',
+    description: 'Select a Bing site for the owning project. A project writer may select its exclusive canonical site with the exact scheme, host, port and path. Changing the site retires the previous site’s measurements.',
     tags: ['bing'],
     parameters: [nameParameter],
     requestBody: {
@@ -6093,6 +6099,7 @@ const routeCatalog: OpenApiOperation[] = [
       403: errorResponse('The credential cannot change this connection or select this domain.'),
       400: errorResponse('Invalid Bing site request.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Bing sync or inspection is in progress.'),
     },
   },
   {
@@ -7877,24 +7884,14 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/connect/cloud-run',
     summary: 'Connect a Cloud Run traffic source',
     description:
-      'Connects a Cloud Run log source. Omit keyJson to use a service account already saved for this Canonry project, GCP project, service and region. When a credential is needed, the validation error includes the project dashboard path for secure setup. Reconnecting updates the existing source.',
+      'Connects Cloud Run logs with the credential saved for this project and target. When a key is needed, the error includes the dashboard setup path and a link when the public origin is known. Set startFromNow to collect only new logs. The same target keeps its sync position. Changing targets archives the old source and starts a separate history.',
     tags: ['traffic'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['gcpProjectId'],
-            properties: {
-              gcpProjectId: stringSchema,
-              serviceName: stringSchema,
-              location: stringSchema,
-              displayName: stringSchema,
-              keyJson: { ...stringSchema, description: 'Service-account JSON content.' },
-            },
-          },
+          schema: { $ref: '#/components/schemas/TrafficConnectCloudRunRequest' },
         },
       },
     },

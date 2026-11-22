@@ -1166,6 +1166,16 @@ cnry wordpress onboard <project> --url <url> --user <user>  # full onboarding wo
 
 ## Server-Side Traffic
 
+To collect new Cloud Run logs as they arrive, connect with:
+
+```bash
+cnry traffic connect cloud-run <project> --gcp-project <id> --start-from-now
+```
+
+Include `--service` and `--location` to narrow the target. The server can
+reuse a service account saved for that exact target. On first setup, pass
+`--service-account-key <path>` with the private JSON file.
+
 Cloudflare supports direct push and Queue pull. Run Cloudflare connect only from
 the local host that owns the Canonry configuration and Wrangler profile. This
 operation is not available through MCP because it uses local credentials.

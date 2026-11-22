@@ -141,6 +141,62 @@ describe('createServer config persistence', () => {
     expect(settings.json().providers).toContainEqual(expect.objectContaining({ name: 'openai', configured: true }))
   })
 
+  it('requires another upload when saving a Cloud Run key fails', async () => {
+    const configPath = path.join(root, 'config.yaml')
+    const headers = await startDashboard({ loadFrom: configPath })
+    const projectUrl = '/api/v1/projects/traffic'
+    const project = await app!.inject({
+      method: 'PUT', url: projectUrl, headers,
+      payload: { displayName: 'Traffic', canonicalDomain: 'example.test', country: 'US', language: 'en' },
+    })
+    expect(project.statusCode).toBe(201)
+    const url = `${projectUrl}/traffic/connect/cloud-run`
+    const target = { gcpProjectId: 'hosting', serviceName: 'web' }
+    const keyJson = JSON.stringify({ client_email: 'test@example.test', private_key: 'fixture-only' })
+    // The atomic rename cannot replace a directory, including when CI runs as root.
+    fs.renameSync(configPath, configPath + '.saved')
+    fs.mkdirSync(configPath)
+    const upload = await app!.inject({ method: 'POST', url, headers, payload: { ...target, keyJson } })
+    expect(upload.statusCode).toBe(500)
+    fs.rmdirSync(configPath)
+    fs.renameSync(configPath + '.saved', configPath)
+    const retry = await app!.inject({ method: 'POST', url, headers, payload: target })
+    expect(retry.statusCode).toBe(400)
+    expect(retry.json().error.details.reason).toBe('cloud-run-credential-required')
+    const saved = await app!.inject({ method: 'POST', url, headers, payload: { ...target, keyJson } })
+    expect(saved.statusCode).toBe(200)
+    expect(loadConfig(configPath).cloudRun?.connections?.[0]).toMatchObject({ projectId: project.json().id, ...target })
+  })
+
+  it('keeps the previous Bing site live when persisting a site change fails', async () => {
+    const configPath = path.join(root, 'server', 'config.yaml')
+    const headers = await startDashboard({ loadFrom: configPath })
+    const url = '/api/v1/projects/search'
+    const project = await app!.inject({ method: 'PUT', url, headers, payload: { displayName: 'Search', canonicalDomain: 'example.test', country: 'US', language: 'en' } })
+    expect(project.statusCode).toBeLessThan(300)
+    const oldSite = 'https://example.test/'
+    const newSite = 'https://www.example.test/'
+    const bing = await import('@canonry/canonry-integration-bing')
+    const discovery = vi.spyOn(bing, 'getSites').mockResolvedValue([{ Url: oldSite, IsVerified: true }, { Url: newSite, IsVerified: true }])
+    try {
+      const connect = await app!.inject({ method: 'POST', url: url + '/bing/connect', headers, payload: { apiKey: 'fixture' } })
+      expect(connect.statusCode).toBe(200)
+      const select = (siteUrl: string) => app!.inject({ method: 'POST', url: url + '/bing/set-site', headers, payload: { siteUrl } })
+      expect((await select(oldSite)).statusCode).toBe(200)
+      fs.renameSync(configPath, configPath + '.saved')
+      fs.mkdirSync(configPath)
+      expect((await select(newSite)).statusCode).toBe(500)
+      const status = await app!.inject({ method: 'GET', url: url + '/bing/status', headers })
+      expect(status.json().siteUrl).toBe(oldSite)
+      fs.rmdirSync(configPath)
+      fs.renameSync(configPath + '.saved', configPath)
+      expect((await select(newSite)).statusCode).toBe(200)
+      expect(loadConfig(configPath).bing?.connections?.[0]?.siteUrl).toBe(newSite)
+    } finally {
+      discovery.mockRestore()
+    }
+  })
+
   it('sends dashboard telemetry without saving an install ID in the operator config.yaml', async () => {
     // Telemetry is on, the operator's file has no install ID yet, and a
     // runtime port override is set that must never reach the file.

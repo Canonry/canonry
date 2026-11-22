@@ -122,7 +122,7 @@ export const bingConnectRequestSchema = z.union([
 ])
 export type BingConnectRequest = z.infer<typeof bingConnectRequestSchema>
 
-export const bingSiteUrlSchema = z.httpUrl()
+export { searchSiteUrlSchema as bingSiteUrlSchema, searchSiteUrl as bingProjectSiteUrl } from './url-normalize.js'
 
 /**
  * Response shape for `GET /projects/:name/bing/status`. Carries

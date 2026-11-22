@@ -143,12 +143,13 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'connect', 'cloud-run'],
-    usage: 'canonry traffic connect cloud-run <project> --gcp-project <id> [--service-account-key <path>] [--service <name>] [--location <region>] [--display-name <name>] [--format json]',
+    usage: 'canonry traffic connect cloud-run <project> --gcp-project <id> [--service-account-key <path>] [--service <name>] [--location <region>] [--display-name <name>] [--start-from-now] [--format json]',
     options: {
       'gcp-project': stringOption(),
       service: stringOption(),
       location: stringOption(),
       'service-account-key': stringOption(),
+      'start-from-now': { type: 'boolean' },
       'display-name': stringOption(),
     },
     run: async (input) => {
@@ -166,6 +167,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         service: getString(input.values, 'service'),
         location: getString(input.values, 'location'),
         serviceAccountKey: getString(input.values, 'service-account-key'),
+        startFromNow: getBoolean(input.values, 'start-from-now') || undefined,
         displayName: getString(input.values, 'display-name'),
         format: input.format,
       })

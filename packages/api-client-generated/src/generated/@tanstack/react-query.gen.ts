@@ -6853,7 +6853,7 @@ export const getApiV1ProjectsByNameBingSitesOptions = (options: Options<GetApiV1
 /**
  * Set the active Bing site
  *
- * Select an HTTP(S) site from the project that owns the connection. A project-scoped writer can select its own domain when no sibling project shares the connection.
+ * Select a Bing site for the owning project. A project writer may select its exclusive canonical site with the exact scheme, host, port and path. Changing the site retires the previous site’s measurements.
  */
 export const postApiV1ProjectsByNameBingSetSiteMutation = (options?: Partial<Options<PostApiV1ProjectsByNameBingSetSiteData>>): UseMutationOptions<PostApiV1ProjectsByNameBingSetSiteResponse, PostApiV1ProjectsByNameBingSetSiteError, Options<PostApiV1ProjectsByNameBingSetSiteData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameBingSetSiteResponse, PostApiV1ProjectsByNameBingSetSiteError, Options<PostApiV1ProjectsByNameBingSetSiteData>> = {
@@ -9078,7 +9078,7 @@ export const getApiV1ProjectsByNameBacklinksSourcesOptions = (options: Options<G
 /**
  * Connect a Cloud Run traffic source
  *
- * Connects a Cloud Run log source. Omit keyJson to use a service account already saved for this Canonry project, GCP project, service and region. When a credential is needed, the validation error includes the project dashboard path for secure setup. Reconnecting updates the existing source.
+ * Connects Cloud Run logs with the credential saved for this project and target. When a key is needed, the error includes the dashboard setup path and a link when the public origin is known. Set startFromNow to collect only new logs. The same target keeps its sync position. Changing targets archives the old source and starts a separate history.
  */
 export const postApiV1ProjectsByNameTrafficConnectCloudRunMutation = (options?: Partial<Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData>>): UseMutationOptions<PostApiV1ProjectsByNameTrafficConnectCloudRunResponse, PostApiV1ProjectsByNameTrafficConnectCloudRunError, Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameTrafficConnectCloudRunResponse, PostApiV1ProjectsByNameTrafficConnectCloudRunError, Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData>> = {

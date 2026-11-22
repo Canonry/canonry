@@ -2174,6 +2174,21 @@ export async function createServer(opts: {
     ),
   };
 
+  // Keep the previous site live if its config write fails and the evidence
+  // transaction rolls back. A retry must still see the previous site.
+  function saveSearchConnection<K extends "bing" | "google", T>(
+    section: K,
+    change: (draft: CanonryConfig) => T,
+  ): T {
+    const draft = { ...opts.config, [section]: structuredClone(opts.config[section]) };
+    const result = change(draft);
+    if (result) {
+      persistConfigPatch({ [section]: draft[section] });
+      opts.config[section] = draft[section];
+    }
+    return result;
+  }
+
   // Bing connection store — stores connections in ~/.canonry/config.yaml
   const bingConnectionStore = {
     getSavedApiKey: () => opts.config.bing?.apiKey,
@@ -2187,10 +2202,10 @@ export async function createServer(opts: {
       createdByProjectId?: string | null;
       createdAt: string;
       updatedAt: string;
-    }) => {
-      if (!opts.config.bing) opts.config.bing = {};
-      if (!opts.config.bing.connections) opts.config.bing.connections = [];
-      const idx = opts.config.bing.connections.findIndex(
+    }) => saveSearchConnection("bing", (draft) => {
+      if (!draft.bing) draft.bing = {};
+      if (!draft.bing.connections) draft.bing.connections = [];
+      const idx = draft.bing.connections.findIndex(
         (c) => c.domain === connection.domain,
       );
       const normalized = {
@@ -2198,13 +2213,12 @@ export async function createServer(opts: {
         createdByProjectId: connection.createdByProjectId ?? null,
       };
       if (idx >= 0) {
-        opts.config.bing.connections[idx] = normalized;
+        draft.bing.connections[idx] = normalized;
       } else {
-        opts.config.bing.connections.push(normalized);
+        draft.bing.connections.push(normalized);
       }
-      persistConfigPatch(opts.config);
       return normalized;
-    },
+    }),
     updateConnection: (
       domain: string,
       patch: Partial<{
@@ -2212,25 +2226,23 @@ export async function createServer(opts: {
         siteUrl: string | null;
         updatedAt: string;
       }>,
-    ) => {
-      const conn = opts.config.bing?.connections?.find(
+    ) => saveSearchConnection("bing", (draft) => {
+      const conn = draft.bing?.connections?.find(
         (c) => c.domain === domain,
       );
       if (!conn) return undefined;
       Object.assign(conn, patch);
-      persistConfigPatch(opts.config);
       return conn;
-    },
-    deleteConnection: (domain: string) => {
-      if (!opts.config.bing?.connections) return false;
-      const idx = opts.config.bing.connections.findIndex(
+    }),
+    deleteConnection: (domain: string) => saveSearchConnection("bing", (draft) => {
+      if (!draft.bing?.connections) return false;
+      const idx = draft.bing.connections.findIndex(
         (c) => c.domain === domain,
       );
       if (idx < 0) return false;
-      opts.config.bing.connections.splice(idx, 1);
-      persistConfigPatch(opts.config);
+      draft.bing.connections.splice(idx, 1);
       return true;
-    },
+    }),
   } as const;
 
   // GA4 credential store — stores service account keys in ~/.canonry/config.yaml
@@ -2263,14 +2275,10 @@ export async function createServer(opts: {
       return getCloudRunConnection(opts.config, projectName);
     },
     upsertConnection: (record: CloudRunConnectionConfigEntry) => {
-      const updated = upsertCloudRunConnection(opts.config, record);
-      persistConfigPatch(opts.config);
-      return updated;
+      return upsertCloudRunConnection(opts.config, record, persistConfigPatch);
     },
     deleteConnection: (projectName: string) => {
-      const removed = removeCloudRunConnection(opts.config, projectName);
-      if (removed) persistConfigPatch(opts.config);
-      return removed;
+      return removeCloudRunConnection(opts.config, projectName, persistConfigPatch);
     },
   } as const;
 
@@ -2379,11 +2387,7 @@ export async function createServer(opts: {
       createdByProjectId?: string | null;
       createdAt: string;
       updatedAt: string;
-    }) => {
-      const updated = upsertGoogleConnection(opts.config, connection);
-      persistConfigPatch(opts.config);
-      return updated;
-    },
+    }) => saveSearchConnection("google", draft => upsertGoogleConnection(draft, connection)),
     updateConnection: (
       domain: string,
       connectionType: "gsc" | "ga4" | "gbp",
@@ -2396,28 +2400,11 @@ export async function createServer(opts: {
         scopes?: string[];
         updatedAt: string;
       }>,
-    ) => {
-      const updated = patchGoogleConnection(
-        opts.config,
-        domain,
-        connectionType,
-        patch,
-      );
-      if (updated) persistConfigPatch(opts.config);
-      return updated;
-    },
+    ) => saveSearchConnection("google", draft => patchGoogleConnection(draft, domain, connectionType, patch)),
     deleteConnection: (
       domain: string,
       connectionType: "gsc" | "ga4" | "gbp",
-    ) => {
-      const removed = removeGoogleConnection(
-        opts.config,
-        domain,
-        connectionType,
-      );
-      if (removed) persistConfigPatch(opts.config);
-      return removed;
-    },
+    ) => saveSearchConnection("google", draft => removeGoogleConnection(draft, domain, connectionType)),
   } as const;
 
   const wordpressConnectionStore = {

@@ -10,6 +10,7 @@ vi.mock('recharts', () => {
 
 import { BingSection, bingPositionChange } from '../src/components/project/BingSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { AccountProvider } from '../src/contexts/account-context.js'
 
 afterEach(() => {
   cleanup()
@@ -55,9 +56,11 @@ function listBody(groupBy: string, key: 'query' | 'page', rows: unknown[]) {
 
 const snapshot = (kind: string, payload: unknown, status = 'ok', error: string | null = null) => ({ kind, status, payload, error, syncedAt: SYNCED_AT })
 
-function mountBing({ synced = true, liveFails = false, embed = false, demo = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { synced?: boolean; liveFails?: boolean; embed?: boolean; demo?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
+function mountBing({ scopedSetup, synced = true, liveFails = false, embed = false, demo = false, sitemapIndex = false, crawlErrors = 0, trafficSplit = false, readsFail = false, submitFails = false, runs = [] }: { scopedSetup?: 'new' | 'previous'; synced?: boolean; liveFails?: boolean; embed?: boolean; demo?: boolean; sitemapIndex?: boolean; crawlErrors?: number; trafficSplit?: boolean; readsFail?: boolean; submitFails?: boolean; runs?: Array<Record<string, unknown>> } = {}) {
   // The project's bing-sync runs, newest first. Starting a sync adds a queued one.
   let syncRuns = runs
+  let connected = scopedSetup !== 'new'
+  let siteUrl = scopedSetup ? null : SITE
   if (embed) window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
   if (demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const requests: Array<{ method: string; path: string; search: URLSearchParams }> = []
@@ -68,7 +71,19 @@ function mountBing({ synced = true, liveFails = false, embed = false, demo = fal
     if (demo && !/\/bing\/(?:status|coverage|inspections)$/.test(path)) {
       return jsonResponse({ error: { code: 'DEMO_READ_ONLY', message: 'This action is unavailable in the view-only demo.' } }, 403)
     }
-    if (path.endsWith('/bing/status')) return jsonResponse({ connected: true, domain: 'example.com', siteUrl: SITE, createdAt: SYNCED_AT, updatedAt: SYNCED_AT })
+    if (path.endsWith('/bing/status')) return jsonResponse({ connected, domain: 'example.com', siteUrl, createdAt: SYNCED_AT, updatedAt: SYNCED_AT })
+    if (path.endsWith('/bing/connect')) {
+      expect(JSON.parse(String(init?.body))).toEqual({ apiKey: 'own-key' })
+      connected = true
+      return jsonResponse({ connected, domain: 'example.com', siteUrl, availableSites: [
+        { url: SITE, verified: true }, { url: 'https://example.com/other/', verified: true },
+      ] })
+    }
+    if (path.endsWith('/bing/set-site')) {
+      const selected = JSON.parse(String(init?.body)) as { siteUrl: string }
+      siteUrl = selected.siteUrl
+      return jsonResponse(selected)
+    }
     if (path.endsWith('/bing/sync')) {
       const run = { id: 'run-1', projectId: 'p1', kind: 'bing-sync', status: 'queued', trigger: 'manual', createdAt: SYNCED_AT }
       syncRuns = [run, ...syncRuns]
@@ -135,9 +150,28 @@ function mountBing({ synced = true, liveFails = false, embed = false, demo = fal
   onTestFinished(restore)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => client.clear())
-  render(<QueryClientProvider client={client}><BingSection projectName="sample" refreshNonce={0} /></QueryClientProvider>)
+  const section = <BingSection projectName="sample" refreshNonce={0} />
+  render(<QueryClientProvider client={client}>{scopedSetup
+    ? <AccountProvider account={null} apiKey={{ id: 'key', projectId: 'p1', scopes: ['*'], readOnly: false }}>{section}</AccountProvider>
+    : section}</QueryClientProvider>)
   return { requests }
 }
+
+test.each(['new', 'previous'] as const)('a scoped writer selects a verified site on a %s Bing connection without account discovery', async scopedSetup => {
+  const { requests } = mountBing({ scopedSetup })
+  if (scopedSetup === 'new') {
+    fireEvent.change(await screen.findByLabelText('API Key'), { target: { value: 'own-key' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    const select = await screen.findByRole('combobox', { name: 'Bing site' })
+    expect(within(select).queryByRole('option', { name: /other/ })).toBeNull()
+    fireEvent.change(select, { target: { value: SITE } })
+  } else {
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Verified Bing site URL' }), { target: { value: SITE } })
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Set Site' }))
+  await screen.findByRole('button', { name: /Clicks 24/ })
+  expect(requests.some(request => request.path.endsWith('/bing/sites'))).toBe(false)
+})
 
 test('the search figures show the API totals and its comparison, position from the weekly read', async () => {
   const { requests } = mountBing()

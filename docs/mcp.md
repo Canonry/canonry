@@ -662,8 +662,10 @@ For project connections, call `canonry_help({intent:"connect"})`. On a
 write-capable connection, Search Console and GA4 can start Google consent in
 the operator's browser and select a property afterward. Bing uses the key
 saved in Canonry Settings. Cloud Run uses the service account saved for the
-same project and log target, or directs the operator to the private setup
-form. Recheck the saved connection after completing any browser step.
+same project and log target, or returns a private setup link in `dashboardUrl`.
+New sources connected this way collect logs from connection time. An approved
+historical import can set `startFromNow: false`. Recheck the saved connection
+after completing any browser step.
 Hosted OAuth grants for read access or research do not include connection
 setup. An administrator can use a write-authorized MCP API key for setup.
 
