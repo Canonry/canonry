@@ -491,9 +491,10 @@ describe('traffic CLI commands', () => {
 
     // Credentials persisted to ~/.canonry/config.yaml (CANONRY_CONFIG_DIR points at tmpDir)
     const yaml = parse(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf-8')) as {
-      cloudRun?: { connections?: Array<{ projectName: string; clientEmail: string }> }
+      cloudRun?: { connections?: Array<{ projectName: string; projectId?: string; clientEmail: string }> }
     }
     expect(yaml.cloudRun?.connections?.[0]?.projectName).toBe('test-proj')
+    expect(yaml.cloudRun?.connections?.[0]?.projectId).toBe(rows[0].projectId)
     expect(yaml.cloudRun?.connections?.[0]?.clientEmail).toBe('sa@openclaw-nyc.iam.gserviceaccount.com')
   })
 

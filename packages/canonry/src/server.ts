@@ -102,6 +102,7 @@ import {
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
+  CloudRunConnectionConfigEntry,
   ProviderConfigEntry,
   CloudflareTrafficConnectionConfigEntry,
 } from "./config.js";
@@ -2261,20 +2262,7 @@ export async function createServer(opts: {
     getConnection: (projectName: string) => {
       return getCloudRunConnection(opts.config, projectName);
     },
-    upsertConnection: (record: {
-      projectName: string;
-      gcpProjectId: string;
-      serviceName?: string;
-      location?: string;
-      authMode: "oauth" | "service-account";
-      clientEmail?: string;
-      privateKey?: string;
-      refreshToken?: string;
-      tokenExpiresAt?: string;
-      scopes?: string[];
-      createdAt: string;
-      updatedAt: string;
-    }) => {
+    upsertConnection: (record: CloudRunConnectionConfigEntry) => {
       const updated = upsertCloudRunConnection(opts.config, record);
       persistConfigPatch(opts.config);
       return updated;

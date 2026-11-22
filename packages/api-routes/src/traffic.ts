@@ -191,6 +191,7 @@ import {
 
 export interface CloudRunCredentialRecord {
   projectName: string
+  projectId?: string
   gcpProjectId: string
   serviceName?: string
   location?: string
@@ -210,19 +211,31 @@ export interface CloudRunCredentialStore {
   deleteConnection: (projectName: string) => boolean
 }
 
-function hasCloudRunCredentialForTarget(
+function matchesCloudRunTarget(
   credential: CloudRunCredentialRecord | undefined,
   projectName: string,
   config: Record<string, unknown>,
-): boolean {
+): credential is CloudRunCredentialRecord {
   return credential?.projectName === projectName
-    && credential.authMode === TrafficSourceAuthModes['service-account']
-    && config.authMode === TrafficSourceAuthModes['service-account']
-    && typeof credential.clientEmail === 'string' && credential.clientEmail.trim() !== ''
-    && typeof credential.privateKey === 'string' && credential.privateKey.trim() !== ''
+    && credential.authMode === config.authMode
     && credential.gcpProjectId === config.gcpProjectId
     && (credential.serviceName ?? null) === (config.serviceName ?? null)
     && (credential.location ?? null) === (config.location ?? null)
+}
+
+export function hasCloudRunCredentialForSource(
+  credential: CloudRunCredentialRecord | undefined,
+  projectName: string,
+  source: Pick<typeof trafficSources.$inferSelect, 'projectId' | 'configJson'>,
+): credential is CloudRunCredentialRecord {
+  return matchesCloudRunTarget(credential, projectName, source.configJson)
+    && (credential.projectId === undefined || credential.projectId === source.projectId)
+}
+
+function hasCloudRunServiceAccount(credential: CloudRunCredentialRecord): boolean {
+  return credential.authMode === TrafficSourceAuthModes['service-account']
+    && typeof credential.clientEmail === 'string' && credential.clientEmail.trim() !== ''
+    && typeof credential.privateKey === 'string' && credential.privateKey.trim() !== ''
 }
 
 export interface WordpressTrafficCredentialRecord {
@@ -2004,6 +2017,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       cloudflareIngestRateLimitKey(request, opts.cloudflareTrafficCredentialStore, app.db),
   })
 
+  function requireCloudRunSourceCredential(source: typeof trafficSources.$inferSelect, projectName: string) {
+    if (!opts.cloudRunCredentialStore) {
+      throw validationError('Cloud Run credential storage is not configured for this deployment')
+    }
+    const credential = opts.cloudRunCredentialStore.getConnection(projectName)
+    if (!hasCloudRunCredentialForSource(credential, projectName, source)) {
+      throw validationError('Cloud Run credential is not configured for this source')
+    }
+    return credential
+  }
+
   function validateTrafficSourceCredential(
     source: typeof trafficSources.$inferSelect,
     projectName: string,
@@ -2034,8 +2058,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       return { usesPullSchedule: false }
     }
     if (source.sourceType === TrafficSourceTypes['cloud-run']) {
-      const credential = opts.cloudRunCredentialStore?.getConnection(projectName)
-      if (!hasCloudRunCredentialForTarget(credential, projectName, source.configJson)) {
+      if (!hasCloudRunServiceAccount(requireCloudRunSourceCredential(source, projectName))) {
         throw validationError('Cloud Run credential is not configured for this source')
       }
       return { usesPullSchedule: true }
@@ -2082,17 +2105,19 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (!gcpProjectId || typeof gcpProjectId !== 'string') {
       throw validationError('gcpProjectId is required')
     }
-    if (!opts.cloudRunCredentialStore) {
+    const store = opts.cloudRunCredentialStore
+    if (!store) {
       throw validationError('Cloud Run credential storage is not configured for this deployment')
     }
     const now = new Date().toISOString()
-    const existing = opts.cloudRunCredentialStore.getConnection(project.name)
+    const existing = store.getConnection(project.name)
     const config: Record<string, unknown> = {
       gcpProjectId,
       serviceName: serviceName ?? null,
       location: location ?? null,
       authMode: TrafficSourceAuthModes['service-account'],
     }
+    let uploadedCredential: CloudRunCredentialRecord | undefined
     if (keyJson !== undefined) {
       let parsed: { client_email?: unknown; private_key?: unknown } | null
       try {
@@ -2104,25 +2129,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         || typeof parsed.private_key !== 'string' || !parsed.private_key.trim()) {
         throw validationError('Service-account JSON must contain client_email and private_key')
       }
-      if (existing) attempt.update({ action: 'reauth' })
-      opts.cloudRunCredentialStore.upsertConnection({
+      uploadedCredential = {
         projectName: project.name,
+        projectId: project.id,
         gcpProjectId,
         serviceName: serviceName ?? undefined,
         location: location ?? undefined,
         authMode: TrafficSourceAuthModes['service-account'],
         clientEmail: parsed.client_email,
         privateKey: parsed.private_key,
-        createdAt: existing?.createdAt ?? now,
+        createdAt: now,
         updatedAt: now,
-      })
-    } else if (!hasCloudRunCredentialForTarget(existing, project.name, config)) {
-      const search = new URLSearchParams({ connectCloudRun: JSON.stringify({ gcpProjectId, serviceName, location }) })
-      const dashboardPath = `${(opts.dashboardPath ?? '/').replace(/\/$/, '')}/projects/${encodeURIComponent(project.name)}/traffic?${search}`
-      throw validationError(
-        'This Cloud Run target needs a service-account key. Open the Cloud Run form at dashboardPath and upload the key there.',
-        { reason: 'cloud-run-credential-required', dashboardPath },
-      )
+      }
     }
     const fallbackName = displayName ?? `Cloud Run · ${gcpProjectId}${serviceName ? ` / ${serviceName}` : ''}`
 
@@ -2134,6 +2152,28 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .where(eq(trafficSources.projectId, project.id)).all()
         .find(row => row.sourceType === TrafficSourceTypes['cloud-run']
           && row.status !== TrafficSourceStatuses.archived)
+      // A legacy config entry has only a reusable project name. Its matching
+      // source row proves ownership before this request creates or edits one.
+      const matchesExistingSource = activeSource && hasCloudRunCredentialForSource(existing, project.name, activeSource)
+      const sameOwner = existing?.projectId === project.id || matchesExistingSource
+      let credentialToSave = uploadedCredential
+      if (credentialToSave && existing && sameOwner) {
+        attempt.update({ action: 'reauth' })
+        credentialToSave = { ...credentialToSave, createdAt: existing.createdAt }
+      } else if (!credentialToSave) {
+        if (!matchesCloudRunTarget(existing, project.name, config) || !hasCloudRunServiceAccount(existing)
+          || !sameOwner) {
+          const search = new URLSearchParams({ connectCloudRun: JSON.stringify({ gcpProjectId, serviceName, location }) })
+          const dashboardPath = `${(opts.dashboardPath ?? '/').replace(/\/$/, '')}/projects/${encodeURIComponent(project.name)}/traffic?${search}`
+          throw validationError(
+            'This Cloud Run target needs a service-account key. Open the Cloud Run form at dashboardPath and upload the key there.',
+            { reason: 'cloud-run-credential-required', dashboardPath },
+          )
+        }
+        if (existing.projectId === undefined) {
+          credentialToSave = { ...existing, projectId: project.id, updatedAt: now }
+        }
+      }
       const sourceId = activeSource?.id ?? crypto.randomUUID()
       const sourceStatus = trafficConnectStatus(tx, project.id, activeSource)
       if (activeSource) {
@@ -2170,6 +2210,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         entityType: 'traffic_source',
         entityId: sourceId,
       })
+      if (credentialToSave) store.upsertConnection(credentialToSave)
       return {
         sourceRow: tx.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!,
         scheduleChanged: scheduleBinding.changed,
@@ -3496,6 +3537,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // because its continuation state is durable; Cloud Run and Vercel need it
     // so a scheduled tick waits out a running backfill, which holds the same
     // lease, instead of committing into the window the backfill replaces.
+    const cloudRunCredential = sourceRow.sourceType === TrafficSourceTypes['cloud-run']
+      ? requireCloudRunSourceCredential(sourceRow, project.name) : undefined
     const isWordpressSource = sourceRow.sourceType === TrafficSourceTypes.wordpress
     const syncLeaseOwner = crypto.randomUUID()
     if (!tryClaimTrafficSyncLease({
@@ -3603,23 +3646,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // boundary when an adaptive drain stops at its deadline mid-window.
     let effectiveWindowEnd = windowEnd
 
-    if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
+    if (cloudRunCredential) {
       auditAction = 'traffic.cloud-run.synced'
-      const credentialStore = opts.cloudRunCredentialStore
-      if (!credentialStore) {
-        throw validationError('Cloud Run credential storage is not configured for this deployment')
-      }
-      const credential = credentialStore.getConnection(project.name)
-      if (!credential) {
-        throw validationError(
-          `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
-        )
-      }
-
-      const config = parseSourceConfig(sourceRow)
-      const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
-      const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
-      const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+      const { gcpProjectId, serviceName, location } = cloudRunCredential
 
       const requestedMinutes = request.body?.sinceMinutes
       const windowMinutes = Number.isFinite(requestedMinutes) && requestedMinutes && requestedMinutes > 0
@@ -3638,7 +3667,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
       let accessToken: string
       try {
-        accessToken = await resolveAccessToken(credential)
+        accessToken = await resolveAccessToken(cloudRunCredential)
       } catch (e) {
         const msg = describeError(e)
         markFailed(msg, 'PROVIDER_AUTH')
@@ -4560,21 +4589,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let pullErrorPrefix: string
 
     if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
-      const credentialStore = opts.cloudRunCredentialStore
-      if (!credentialStore) {
-        throw validationError('Cloud Run credential storage is not configured for this deployment')
-      }
-      const credential = credentialStore.getConnection(project.name)
-      if (!credential) {
-        throw validationError(
-          `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
-        )
-      }
-
-      const config = parseSourceConfig(sourceRow)
-      const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
-      const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
-      const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+      const credential = requireCloudRunSourceCredential(sourceRow, project.name)
+      const { gcpProjectId, serviceName, location } = credential
 
       pullErrorPrefix = 'Cloud Run pull failed'
       pullForBackfill = async () => {

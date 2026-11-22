@@ -278,7 +278,7 @@ function ConnectSourceFormShell({
           form is taller than a laptop screen. */}
       <div className="-mr-1 mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="flex flex-col gap-5">
-        <AgentHandoff request={guide.agentRequest} docsUrl={guide.docsUrl} />
+        <AgentHandoff guide={guide} />
         <SetupSteps steps={guide.steps} />
       </div>
 
@@ -469,7 +469,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
           <InfoTooltip text={storageNote('service-account private key')} />
         </span>
       }
-      guide={cloudRunGuide(projectName, gcpProjectId)}
+      guide={cloudRunGuide(projectName, gcpProjectId, serviceName, location)}
       projectName={projectName}
       onBack={onBack}
       onClose={onClose}
@@ -509,10 +509,10 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
           <input
             type="file"
             accept="application/json,.json"
-            className="hidden"
+            className="peer sr-only"
             onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
           />
-          <span className="rounded-md border border-base px-2 py-1">Or upload a key file</span>
+          <span className="rounded-md border border-base px-2 py-1 peer-focus-visible:ring-2 peer-focus-visible:ring-mono-400">Or upload a key file</span>
         </label>
       </Field>
 
@@ -745,6 +745,7 @@ export interface SetupStep {
 export interface SourceGuide {
   steps: SetupStep[]
   agentRequest: string
+  agentClient?: string
   docsUrl: string
 }
 
@@ -838,12 +839,14 @@ ${SECRET_RULE}`,
   }
 }
 
-export function cloudRunGuide(projectName: string, gcpProjectId: string): SourceGuide {
+export function cloudRunGuide(projectName: string, gcpProjectId: string, serviceName = '', location = ''): SourceGuide {
   const project = shellQuote(projectName)
   const gcpProject = gcpProjectId.trim()
+  const target = { gcpProjectId: gcpProject, serviceName: serviceName.trim() || undefined, location: location.trim() || undefined }
   const serviceAccountsUrl = `https://console.cloud.google.com/iam-admin/serviceaccounts${gcpProject ? `?project=${encodeURIComponent(gcpProject)}` : ''}`
   return {
     docsUrl: `${TRAFFIC_DOCS}#connecting-a-cloud-run-source`,
+    agentClient: 'an agent connected to Canonry MCP',
     steps: [
       {
         title: 'Create a service account in the Google Cloud project',
@@ -859,12 +862,12 @@ export function cloudRunGuide(projectName: string, gcpProjectId: string): Source
 
 Follow the Cloud Run section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-cloud-run-source
 
-1. Confirm the GCP project ID, Cloud Run service and region I want to track.
-2. With my approval, call canonry_traffic_connect_cloud_run with that target and no keyJson to use its saved key. If a key is needed, direct me to upload a Logs Viewer key in this project's Server traffic form.
-3. For a CLI setup I explicitly request, use cnry traffic connect cloud-run ${project} --gcp-project <project-id> --service-account-key <path/to/key.json> with the approved service and region.
-4. Confirm the source with canonry_traffic_sources_list. Report its last sync separately.
+1. Confirm the GCP project ID, Cloud Run service and region with me. The current form selection is ${JSON.stringify({ project: projectName, request: target })}.
+2. Call canonry_traffic_connect_cloud_run for the approved target. Omit keyJson to reuse its saved Logs Viewer key.
+3. If it returns cloud-run-credential-required, give me the dashboard link from dashboardPath. I will upload the key there and connect the source myself. Never ask me to paste a password, token, or key into this chat.
+4. Confirm the source with canonry_traffic_sources_list. Report its last sync separately. Start a backfill only if I request one.
 
-${SECRET_RULE}`,
+If I explicitly request a CLI setup, use cnry traffic connect cloud-run ${project} --gcp-project <project-id> with the approved service and region.`,
   }
 }
 
@@ -902,12 +905,12 @@ ${SECRET_RULE}`,
   }
 }
 
-function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }) {
+function AgentHandoff({ guide }: { guide: SourceGuide }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
       // `navigator.clipboard` is absent outside a secure context.
-      await navigator.clipboard.writeText(request)
+      await navigator.clipboard.writeText(guide.agentRequest)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch {
@@ -931,8 +934,8 @@ function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }
         </Button>
       </div>
       <p className="mt-1.5 text-copy-13 text-secondary">
-        Paste it into Claude Code, Codex, or any agent with a terminal. It follows the{' '}
-        <a href={docsUrl} target="_blank" rel="noreferrer" className="text-link underline-offset-4 hover:underline">
+        Paste it into {guide.agentClient ?? 'Claude Code, Codex, or any agent with a terminal'}. It follows the{' '}
+        <a href={guide.docsUrl} target="_blank" rel="noreferrer" className="text-link underline-offset-4 hover:underline">
           setup guide
           <ExternalLink className="ml-0.5 inline size-3" aria-hidden="true" />
         </a>{' '}
@@ -1022,7 +1025,7 @@ function CloudflareGuide({
       />
       <div className="-mr-1 mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
         <div className="flex flex-col gap-5">
-          <AgentHandoff request={guide.agentRequest} docsUrl={guide.docsUrl} />
+          <AgentHandoff guide={guide} />
           <SetupSteps steps={guide.steps} />
         </div>
         <div className="mt-6 flex items-center justify-end gap-2 border-t border-default pt-4">

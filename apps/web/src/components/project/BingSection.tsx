@@ -337,11 +337,11 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                 <label className="text-label-12 text-muted" htmlFor="bing-api-key">
                   API Key
                 </label>
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     id="bing-api-key"
                     type="password"
-                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
+                    className="min-w-0 flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                     placeholder="Leave blank to use the key in Settings"
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}

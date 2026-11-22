@@ -1014,6 +1014,7 @@ describe('POST /traffic/connect/cloud-run', () => {
     const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
     const saved = {
       ...target, projectName: 'test-project', authMode: TrafficSourceAuthModes['service-account'],
+      projectId: h.db.select().from(projects).get()!.id,
       clientEmail: 'logging@example.test', privateKey: 'host-only-test-key',
       createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     }
@@ -1044,6 +1045,68 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(connected.body).not.toContain(saved.privateKey)
     expect(h.credentials.get(saved.projectName)).toEqual(saved)
     expect(h.db.select().from(trafficSources).all()).toHaveLength(1)
+  })
+
+  it('requires a new key after deleting and recreating a project with the same name', async () => {
+    const url = '/api/v1/projects/test-project'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const connect = (keyJson?: string) => h.app.inject({
+      method: 'POST', url: `${url}/traffic/connect/cloud-run`, payload: { ...target, keyJson },
+    })
+    const original = await connect(SA_KEY)
+    expect(original.statusCode).toBe(200)
+    const saved = h.credentials.get('test-project')!
+    expect((await h.app.inject({ method: 'DELETE', url })).statusCode).toBe(204)
+    const recreated = await h.app.inject({
+      method: 'PUT', url, payload: { displayName: 'Replacement', canonicalDomain: 'replacement.example', country: 'US', language: 'en' },
+    })
+    expect(recreated.statusCode).toBe(201)
+    expect(recreated.json().id).not.toBe(original.json().projectId)
+
+    // Upgrades can encounter an orphaned legacy key as well as a bound one.
+    for (const projectId of [original.json().projectId, undefined]) {
+      h.credentials.set('test-project', { ...saved, projectId })
+      const refused = await connect()
+      expect(refused.statusCode).toBe(400)
+      expect(refused.json().error.details.reason).toBe('cloud-run-credential-required')
+      expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+    }
+    const replacement = await connect(JSON.stringify({ client_email: 'new@example.test', private_key: 'new-test-key' }))
+    expect(replacement.statusCode).toBe(200)
+    expect(h.credentials.get('test-project')).toMatchObject({ projectId: recreated.json().id, privateKey: 'new-test-key' })
+
+    // A stale host configuration must not be used by an existing source either.
+    h.credentials.set('test-project', { ...saved, projectId: original.json().projectId })
+    expect((await connect()).statusCode).toBe(400)
+    for (const operation of ['activate', 'sync', 'backfill']) {
+      const result = await h.app.inject({
+        method: 'POST', url: `${url}/traffic/sources/${replacement.json().id}/${operation}`, payload: {},
+      })
+      expect(result.statusCode, operation).toBe(400)
+      expect(result.json().error.message).toMatch(/credential/)
+    }
+    const doctor = await h.app.inject({ method: 'GET', url: `${url}/doctor?check=traffic.source.credentials` })
+    expect(doctor.json().checks).toContainEqual(expect.objectContaining({ code: 'traffic.credentials.failed' }))
+    expect(h.getPullCount()).toBe(0)
+    expect(h.db.select().from(runs).all()).toHaveLength(0)
+  })
+
+  it('binds a legacy key only when the existing source proves its target and owner', async () => {
+    const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web' }
+    const source = await h.app.inject({ method: 'POST', url, payload: { ...target, keyJson: SA_KEY } })
+    expect(source.statusCode).toBe(200)
+    const legacy = { ...h.credentials.get('test-project')!, projectId: undefined }
+    h.credentials.set('test-project', { ...legacy, serviceName: 'other' })
+    const mismatch = await h.app.inject({ method: 'POST', url, payload: { ...target, serviceName: 'other' } })
+    expect(mismatch.statusCode).toBe(400)
+    expect(mismatch.json().error.details.reason).toBe('cloud-run-credential-required')
+
+    h.credentials.set('test-project', legacy)
+    const reused = await h.app.inject({ method: 'POST', url, payload: target })
+    expect(reused.statusCode).toBe(200)
+    expect(reused.json().id).toBe(source.json().id)
+    expect(h.credentials.get('test-project')).toMatchObject({ projectId: source.json().projectId, privateKey: legacy.privateKey })
   })
 
   it('rejects malformed keyJson', async () => {
