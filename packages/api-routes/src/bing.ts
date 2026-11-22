@@ -1,9 +1,10 @@
 import crypto from 'node:crypto'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, ne } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
+import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, projects, runs } from '@canonry/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomeOperationKinds, OutcomePhases, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
-import { assertNotProjectScoped } from './auth.js'
+import { bingConnectRequestSchema, bingSiteUrlSchema, forbidden, hostOf } from '@canonry/canonry-contracts'
+import { requireInstanceAdministrator } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
@@ -77,6 +78,7 @@ export interface BingConnectionRecord {
 }
 
 export interface BingConnectionStore {
+  getSavedApiKey?: () => string | undefined
   getConnection: (domain: string) => BingConnectionRecord | undefined
   upsertConnection: (connection: BingConnectionRecord) => BingConnectionRecord
   updateConnection: (
@@ -135,14 +137,14 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   // POST /projects/:name/bing/connect
   app.post<{
     Params: { name: string }
-    Body: { apiKey: string }
+    Body: unknown
   }>('/projects/:name/bing/connect', connectionRoute(app, () => ({ integration: 'bing', action: 'connect' }), async (request, _reply, attempt) => {
+    const input = bingConnectRequestSchema.safeParse(request.body)
+    if (!input.success) throw validationError('Supply either apiKey or useSavedKey: true.')
+    if ('useSavedKey' in input.data) requireInstanceAdministrator(request)
     const store = requireConnectionStore()
-
-    const { apiKey } = request.body ?? {}
-    if (!apiKey || typeof apiKey !== 'string') {
-      throw validationError('apiKey is required')
-    }
+    const apiKey = 'apiKey' in input.data ? input.data.apiKey : store.getSavedApiKey?.()
+    if (!apiKey) throw validationError('Save a Bing Webmaster Tools API key in Canonry Settings before connecting this project.')
 
     const project = resolveProject(app.db, request.params.name)
 
@@ -155,7 +157,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         keyChecks.set(keyCheck, sites)
         bingLog('info', 'connect.verify-key', { domain: project.canonicalDomain, siteCount: sites.length })
       } catch (e) {
-        const msg = describeError(e)
+        const msg = 'useSavedKey' in input.data
+          ? 'Check the Bing key saved in Canonry Settings and its access in Bing Webmaster Tools.'
+          : describeError(e)
         bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
         attempt.failed(e)
         throw validationError(`Failed to verify Bing API key: ${msg}`)
@@ -260,10 +264,10 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   })
 
   // GET /projects/:name/bing/sites
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/sites', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/sites', { config: { paidRead: true } }, async (request) => {
     // The Bing Webmaster key is ACCOUNT-scoped, so this lists every verified
     // site in the operator's account, not just this project's.
-    assertNotProjectScoped(request, 'listing Bing Webmaster sites')
+    requireInstanceAdministrator(request)
 
     const store = requireConnectionStore()
 
@@ -279,19 +283,30 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     Params: { name: string }
     Body: { siteUrl: string }
   }>('/projects/:name/bing/set-site', connectionRoute(app, () => ({ integration: 'bing', action: 'select' }), async (request, _reply, attempt) => {
+    if (!request.principal?.projectId) requireInstanceAdministrator(request)
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
+    let connection: BingConnectionRecord
     try {
-      requireConnection(store, project.canonicalDomain)
+      connection = requireConnection(store, project.canonicalDomain)
     } catch (err) {
       attempt.failed(err, 'NOT_CONNECTED')
       throw err
     }
+    if (connection.createdByProjectId && connection.createdByProjectId !== project.id) {
+      throw validationError('This Bing connection is owned by another project. Select the site from the owning project.')
+    }
 
-    const { siteUrl } = request.body ?? {}
-    if (!siteUrl || typeof siteUrl !== 'string') {
-      throw validationError('siteUrl is required')
+    const selected = bingSiteUrlSchema.safeParse(request.body?.siteUrl)
+    if (!selected.success) throw validationError('siteUrl must be an HTTP or HTTPS site URL.')
+    const siteUrl = selected.data
+    if (request.principal?.projectId) {
+      const shared = app.db.select({ id: projects.id }).from(projects)
+        .where(and(eq(projects.canonicalDomain, project.canonicalDomain), ne(projects.id, project.id))).get()
+      if (connection.createdByProjectId !== request.principal.projectId || hostOf(siteUrl) !== hostOf(project.canonicalDomain) || shared) {
+        throw forbidden('A project key can select a Bing site only on its own domain and on a connection exclusive to that project.')
+      }
     }
 
     store.updateConnection(project.canonicalDomain, {

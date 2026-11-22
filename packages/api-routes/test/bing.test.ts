@@ -721,6 +721,13 @@ describe('Bing routes', () => {
       // Fastify renders AppError via its default formatter. The message ride
       // unmolested either way — that's what we assert.
       expect(res.payload).toMatch(/owned by another project/)
+      const selection = await app.inject({
+        method: 'POST',
+        url: '/projects/rogue-project/bing/set-site',
+        payload: { siteUrl: 'https://elsewhere.example/' },
+      })
+      expect(selection.statusCode).toBe(400)
+      expect(connections.get('example.com')!.siteUrl).toBe('https://example.com/')
       // Legitimate connection unchanged.
       expect(connections.get('example.com')!.apiKey).toBe('legit-key')
       expect(connections.get('example.com')!.createdByProjectId).toBe(projectId)

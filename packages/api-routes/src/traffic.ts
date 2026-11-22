@@ -210,6 +210,21 @@ export interface CloudRunCredentialStore {
   deleteConnection: (projectName: string) => boolean
 }
 
+function hasCloudRunCredentialForTarget(
+  credential: CloudRunCredentialRecord | undefined,
+  projectName: string,
+  config: Record<string, unknown>,
+): boolean {
+  return credential?.projectName === projectName
+    && credential.authMode === TrafficSourceAuthModes['service-account']
+    && config.authMode === TrafficSourceAuthModes['service-account']
+    && typeof credential.clientEmail === 'string' && credential.clientEmail.trim() !== ''
+    && typeof credential.privateKey === 'string' && credential.privateKey.trim() !== ''
+    && credential.gcpProjectId === config.gcpProjectId
+    && (credential.serviceName ?? null) === (config.serviceName ?? null)
+    && (credential.location ?? null) === (config.location ?? null)
+}
+
 export interface WordpressTrafficCredentialRecord {
   projectName: string
   baseUrl: string
@@ -336,6 +351,7 @@ export interface TrafficIngestedEvent {
 }
 
 export interface TrafficRoutesOptions {
+  dashboardPath?: string
   claimScheduledSync?: ScheduledSyncClaim
   /**
    * Install secret for AI visitor journey keys (a keyed hash per visitor). When
@@ -2019,14 +2035,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     if (source.sourceType === TrafficSourceTypes['cloud-run']) {
       const credential = opts.cloudRunCredentialStore?.getConnection(projectName)
-      if (!credential
-        || credential.authMode !== TrafficSourceAuthModes['service-account']
-        || !credential.clientEmail?.trim()
-        || !credential.privateKey?.trim()
-        || credential.gcpProjectId !== source.configJson.gcpProjectId
-        || source.configJson.authMode !== TrafficSourceAuthModes['service-account']
-        || (credential.serviceName ?? null) !== (source.configJson.serviceName ?? null)
-        || (credential.location ?? null) !== (source.configJson.location ?? null)) {
+      if (!hasCloudRunCredentialForTarget(credential, projectName, source.configJson)) {
         throw validationError('Cloud Run credential is not configured for this source')
       }
       return { usesPullSchedule: true }
@@ -2073,45 +2082,47 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (!gcpProjectId || typeof gcpProjectId !== 'string') {
       throw validationError('gcpProjectId is required')
     }
-    if (!keyJson) {
-      throw validationError(
-        'keyJson is required for v1 (service-account JSON content). OAuth-mode Cloud Run is not yet supported.',
-      )
-    }
     if (!opts.cloudRunCredentialStore) {
       throw validationError('Cloud Run credential storage is not configured for this deployment')
     }
-
-    let parsed: { client_email?: string; private_key?: string }
-    try {
-      parsed = JSON.parse(keyJson) as { client_email?: string; private_key?: string }
-    } catch {
-      throw validationError('Invalid JSON in keyJson')
-    }
-    if (!parsed.client_email || !parsed.private_key) {
-      throw validationError('Service-account JSON must contain client_email and private_key')
-    }
-
     const now = new Date().toISOString()
     const existing = opts.cloudRunCredentialStore.getConnection(project.name)
-    if (existing) attempt.update({ action: 'reauth' })
-    opts.cloudRunCredentialStore.upsertConnection({
-      projectName: project.name,
-      gcpProjectId,
-      serviceName: serviceName ?? undefined,
-      location: location ?? undefined,
-      authMode: TrafficSourceAuthModes['service-account'],
-      clientEmail: parsed.client_email,
-      privateKey: parsed.private_key,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    })
-
     const config: Record<string, unknown> = {
       gcpProjectId,
       serviceName: serviceName ?? null,
       location: location ?? null,
       authMode: TrafficSourceAuthModes['service-account'],
+    }
+    if (keyJson !== undefined) {
+      let parsed: { client_email?: unknown; private_key?: unknown } | null
+      try {
+        parsed = JSON.parse(keyJson) as typeof parsed
+      } catch {
+        throw validationError('Invalid JSON in keyJson')
+      }
+      if (typeof parsed?.client_email !== 'string' || !parsed.client_email.trim()
+        || typeof parsed.private_key !== 'string' || !parsed.private_key.trim()) {
+        throw validationError('Service-account JSON must contain client_email and private_key')
+      }
+      if (existing) attempt.update({ action: 'reauth' })
+      opts.cloudRunCredentialStore.upsertConnection({
+        projectName: project.name,
+        gcpProjectId,
+        serviceName: serviceName ?? undefined,
+        location: location ?? undefined,
+        authMode: TrafficSourceAuthModes['service-account'],
+        clientEmail: parsed.client_email,
+        privateKey: parsed.private_key,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      })
+    } else if (!hasCloudRunCredentialForTarget(existing, project.name, config)) {
+      const search = new URLSearchParams({ connectCloudRun: JSON.stringify({ gcpProjectId, serviceName, location }) })
+      const dashboardPath = `${(opts.dashboardPath ?? '/').replace(/\/$/, '')}/projects/${encodeURIComponent(project.name)}/traffic?${search}`
+      throw validationError(
+        'This Cloud Run target needs a service-account key. Open the Cloud Run form at dashboardPath and upload the key there.',
+        { reason: 'cloud-run-credential-required', dashboardPath },
+      )
     }
     const fallbackName = displayName ?? `Cloud Run · ${gcpProjectId}${serviceName ? ` / ${serviceName}` : ''}`
 

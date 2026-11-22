@@ -93,6 +93,14 @@ and does not use `traffic sync`.
 
 ## Connecting a Cloud Run source
 
+For an approved MCP connection, call `canonry_traffic_connect_cloud_run`
+with the Canonry project and `request.gcpProjectId`. Include the approved
+`serviceName` and `location`. The server can use a service account saved
+for that exact target. If it returns `cloud-run-credential-required`,
+open the project's Server traffic tab, choose **Connect a source → Google
+Cloud Run**, and upload the Logs Viewer key there. Keep the key out of chat.
+Read `canonry_traffic_sources_list` to verify the source.
+
 ```bash
 # 1. Create a service account in the Cloud project that hosts the Cloud Run
 #    service. Grant it `roles/logging.viewer`. Download the JSON key.
@@ -110,6 +118,7 @@ cnry traffic connect cloud-run <project> \
   --location us-east1
 ```
 
+Omit `--service-account-key` to use the saved key for the same target.
 Credentials are stored in `~/.canonry/config.yaml` (not the DB). The
 canonical key lives only on the host that runs `cnry serve`. The
 sync flow does NOT echo the private key back in any response.

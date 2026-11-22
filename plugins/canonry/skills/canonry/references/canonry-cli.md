@@ -1092,7 +1092,8 @@ After probing, the configured classifier labels recurring cited domains. Gemini 
 ## Bing Webmaster Tools
 
 ```bash
-cnry bing connect <project> --api-key <key>   # connect Bing WMT
+cnry bing connect <project> --use-saved-key   # administrator, using the Bing key in Canonry Settings
+cnry bing connect <project> --api-key <key>   # supply a Bing Webmaster Tools key for this project
 cnry bing disconnect <project>                # disconnect
 cnry bing status <project>                    # connection status
 cnry bing sites <project>                     # list verified sites

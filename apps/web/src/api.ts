@@ -1763,12 +1763,12 @@ export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
   )
 }
 
-export function bingConnect(project: string, apiKey: string): Promise<BingConnectResponseDto> {
+export function bingConnect(project: string, apiKey?: string): Promise<BingConnectResponseDto> {
   return invokeWeb<BingConnectResponseDto>(() =>
     postApiV1ProjectsByNameBingConnect({
       client: heyClient,
       path: { name: project },
-      body: { apiKey },
+      body: apiKey ? { apiKey } : { useSavedKey: true },
     }),
   )
 }
@@ -2107,7 +2107,7 @@ export function connectServerTrafficCloudRun(
     postApiV1ProjectsByNameTrafficConnectCloudRun({
       client: heyClient,
       path: { name: project },
-      body: body as never,
+      body,
     }),
   )
 }

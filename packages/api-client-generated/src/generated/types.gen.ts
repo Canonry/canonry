@@ -4301,6 +4301,12 @@ export type BacklinksInstallStatusDto = {
     pluginDir: string;
 };
 
+export type BingConnectRequest = {
+    apiKey: string;
+} | {
+    useSavedKey: true;
+};
+
 export type BingConnectResponseDto = {
     connected: boolean;
     domain: string;
@@ -30714,6 +30720,10 @@ export type PostApiV1ProjectsByNameGoogleConnectErrors = {
      * Invalid Google connection request.
      */
     400: ErrorEnvelope;
+    /**
+     * A project-scoped key cannot authorize Search Console or GA4 on a domain shared with another project.
+     */
+    403: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameGoogleConnectError = PostApiV1ProjectsByNameGoogleConnectErrors[keyof PostApiV1ProjectsByNameGoogleConnectErrors];
@@ -30783,6 +30793,10 @@ export type GetApiV1ProjectsByNameGooglePropertiesErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -30822,6 +30836,10 @@ export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors = {
      * Invalid property request.
      */
     400: ErrorEnvelope;
+    /**
+     * Selecting a Search Console or GA4 property on a shared OAuth connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
     /**
      * Project or connection not found.
      */
@@ -33794,9 +33812,7 @@ export type GetApiV1ProjectsByNameAdsLiveDeliveryResponses = {
 export type GetApiV1ProjectsByNameAdsLiveDeliveryResponse = GetApiV1ProjectsByNameAdsLiveDeliveryResponses[keyof GetApiV1ProjectsByNameAdsLiveDeliveryResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
-    body: {
-        apiKey: string;
-    };
+    body: BingConnectRequest;
     path: {
         /**
          * Project name.
@@ -33812,6 +33828,10 @@ export type PostApiV1ProjectsByNameBingConnectErrors = {
      * Invalid Bing connection request.
      */
     400: ErrorEnvelope;
+    /**
+     * Using the saved Bing key requires an install administrator.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -33907,6 +33927,10 @@ export type GetApiV1ProjectsByNameBingSitesErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Listing account sites requires an install administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -33942,6 +33966,10 @@ export type PostApiV1ProjectsByNameBingSetSiteErrors = {
      * Invalid Bing site request.
      */
     400: ErrorEnvelope;
+    /**
+     * The credential cannot change this connection or select this domain.
+     */
+    403: ErrorEnvelope;
     /**
      * Project or connection not found.
      */
@@ -35895,7 +35923,7 @@ export type PostApiV1ProjectsByNameGaConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.
+     * Selecting a property on the saved OAuth grant requires an instance administrator. If Google refused the property, details.reason is ga4-permission-missing and details.nextCheckAt gives the next check time.
      */
     403: ErrorEnvelope;
     /**
@@ -35994,6 +36022,10 @@ export type GetApiV1ProjectsByNameGaPropertiesErrors = {
      * No OAuth GA4 connection for this project.
      */
     400: ErrorEnvelope;
+    /**
+     * Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -38009,7 +38041,7 @@ export type PostApiV1ProjectsByNameTrafficConnectCloudRunData = {
         /**
          * Service-account JSON content.
          */
-        keyJson: string;
+        keyJson?: string;
     };
     path: {
         /**

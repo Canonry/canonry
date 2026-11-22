@@ -44,9 +44,9 @@ import {
   readEarliestGscDataDate, readEarliestGscQueryDataDate, readLatestGscDataDate,
   resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
-import { assertNotProjectScoped } from './auth.js'
+import { assertNotProjectScoped, requireGooglePropertyDiscovery, requireInstanceAdministrator } from './auth.js'
 import type { Ga4CredentialStore } from './ga.js'
-import { clearGaDataOnPropertyChange, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { clearGaDataOnPropertyChange, projectsSharingGoogleConnection, readGa4Properties } from './ga-property-data.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { startRouteOutcome } from './feature-outcome.js'
@@ -555,7 +555,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // that domain to another GA4 property, or to none. Read where each stands
   // first, so `clearGaDataOnPropertyChange` can clear the ones that moved.
   function ga4PropertiesBefore(type: string, domain: string) {
-    return type === 'ga4' ? readGa4Properties(opts, projectsSharingGa4Connection(app.db, domain)) : []
+    return type === 'ga4' ? readGa4Properties(opts, projectsSharingGoogleConnection(app.db, domain)) : []
   }
 
   // GET /projects/:name/google/connections
@@ -585,6 +585,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const project = resolveProject(app.db, request.params.name)
     if (telemetryRead(() => opts.googleConnectionStore?.getConnection(project.canonicalDomain, type), undefined)) attempt.update({ action: 'reauth' })
+    const scopedGoogleGrant = type !== 'gbp' && Boolean(request.apiKey?.projectId)
+    if (scopedGoogleGrant && projectsSharingGoogleConnection(app.db, project.canonicalDomain).some(other => other.id !== project.id)) {
+      throw forbidden('A project-scoped key cannot authorize a Google connection shared with another project.')
+    }
 
     let redirectUri: string
     if (publicUrl) {
@@ -611,6 +615,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       {
         projectId: project.id,
         projectName: project.name,
+        ...(scopedGoogleGrant ? { scopedGoogleGrant: true } : {}),
         domain: project.canonicalDomain,
         type,
         propertyId,
@@ -776,6 +781,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             `before re-connecting from "${escapeHtml(projectName ?? '')}".`,
         )
     }
+    // A sibling can start sharing the domain while the operator is at Google.
+    if (stateData.scopedGoogleGrant === true && projectsSharingGoogleConnection(app.db, domain).some(other => other.id !== projectId)) {
+      attempt.failed(undefined, 'AUTH_DENIED')
+      return reply.status(403).send('The project now shares this domain. Restart Google authorization with an instance administrator.')
+    }
 
     const ga4Before = ga4PropertiesBefore(type, domain)
     store.upsertConnection({
@@ -871,10 +881,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   }))
 
   // GET /projects/:name/google/properties
-  app.get<{ Params: { name: string } }>('/projects/:name/google/properties', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/google/properties', { config: { paidRead: true } }, async (request) => {
     // Answers for the OAuth PRINCIPAL, not this project: every verified
     // Search Console property the operator can see, other clients included.
-    assertNotProjectScoped(request, 'listing Search Console properties')
+    requireGooglePropertyDiscovery(request)
 
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
@@ -2029,6 +2039,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const integration = googleIntegration(request.params.type)
     return integration ? { integration, action: 'select' } : undefined
   }, async (request, _reply, attempt) => {
+    if (request.params.type === 'gsc' || request.params.type === 'ga4') requireInstanceAdministrator(request)
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)

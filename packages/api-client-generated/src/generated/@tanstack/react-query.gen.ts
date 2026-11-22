@@ -6778,6 +6778,8 @@ export const getApiV1ProjectsByNameAdsLiveDeliveryOptions = (options: Options<Ge
 
 /**
  * Connect Bing Webmaster Tools
+ *
+ * Supply an API key or, as an install administrator, use the Bing key saved in Settings. Returns the sites available for selection.
  */
 export const postApiV1ProjectsByNameBingConnectMutation = (options?: Partial<Options<PostApiV1ProjectsByNameBingConnectData>>): UseMutationOptions<PostApiV1ProjectsByNameBingConnectResponse, PostApiV1ProjectsByNameBingConnectError, Options<PostApiV1ProjectsByNameBingConnectData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameBingConnectResponse, PostApiV1ProjectsByNameBingConnectError, Options<PostApiV1ProjectsByNameBingConnectData>> = {
@@ -6832,6 +6834,8 @@ export const getApiV1ProjectsByNameBingSitesQueryKey = (options: Options<GetApiV
 
 /**
  * List Bing sites for the current connection
+ *
+ * Lists sites across the Bing account. Requires install administrator authority.
  */
 export const getApiV1ProjectsByNameBingSitesOptions = (options: Options<GetApiV1ProjectsByNameBingSitesData>) => queryOptions<GetApiV1ProjectsByNameBingSitesResponse, GetApiV1ProjectsByNameBingSitesError, GetApiV1ProjectsByNameBingSitesResponse, ReturnType<typeof getApiV1ProjectsByNameBingSitesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -6848,6 +6852,8 @@ export const getApiV1ProjectsByNameBingSitesOptions = (options: Options<GetApiV1
 
 /**
  * Set the active Bing site
+ *
+ * Select an HTTP(S) site from the project that owns the connection. A project-scoped writer can select its own domain when no sibling project shares the connection.
  */
 export const postApiV1ProjectsByNameBingSetSiteMutation = (options?: Partial<Options<PostApiV1ProjectsByNameBingSetSiteData>>): UseMutationOptions<PostApiV1ProjectsByNameBingSetSiteResponse, PostApiV1ProjectsByNameBingSetSiteError, Options<PostApiV1ProjectsByNameBingSetSiteData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameBingSetSiteResponse, PostApiV1ProjectsByNameBingSetSiteError, Options<PostApiV1ProjectsByNameBingSetSiteData>> = {
@@ -7928,7 +7934,7 @@ export const getApiV1ProjectsByNameGaPropertiesQueryKey = (options: Options<GetA
 /**
  * List GA4 properties the connected account can read
  *
- * Lists every GA4 property visible to the project's OAuth connection, so the numeric property id needed by ga/connect can be discovered without leaving canonry. Requires an OAuth GA4 connection; service-account connections already carry their property id.
+ * Lists every GA4 property visible to the connected Google account, with numeric IDs for ga/connect. Requires an instance administrator and a GA4 OAuth connection. Service-account connections already specify a property ID.
  */
 export const getApiV1ProjectsByNameGaPropertiesOptions = (options: Options<GetApiV1ProjectsByNameGaPropertiesData>) => queryOptions<GetApiV1ProjectsByNameGaPropertiesResponse, GetApiV1ProjectsByNameGaPropertiesError, GetApiV1ProjectsByNameGaPropertiesResponse, ReturnType<typeof getApiV1ProjectsByNameGaPropertiesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -9072,7 +9078,7 @@ export const getApiV1ProjectsByNameBacklinksSourcesOptions = (options: Options<G
 /**
  * Connect a Cloud Run traffic source
  *
- * Stores the service-account JSON in `~/.canonry/config.yaml` and creates a `traffic_sources` row for the project. Reconnecting updates the existing active source rather than creating a duplicate.
+ * Connects a Cloud Run log source. Omit keyJson to use a service account already saved for this Canonry project, GCP project, service and region. When a credential is needed, the validation error includes the project dashboard path for secure setup. Reconnecting updates the existing source.
  */
 export const postApiV1ProjectsByNameTrafficConnectCloudRunMutation = (options?: Partial<Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData>>): UseMutationOptions<PostApiV1ProjectsByNameTrafficConnectCloudRunResponse, PostApiV1ProjectsByNameTrafficConnectCloudRunError, Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData>> => {
     const mutationOptions: UseMutationOptions<PostApiV1ProjectsByNameTrafficConnectCloudRunResponse, PostApiV1ProjectsByNameTrafficConnectCloudRunError, Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData>> = {

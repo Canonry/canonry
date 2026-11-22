@@ -100,10 +100,11 @@ Search Console; the rest can follow.
 | Source | What it adds | Who connects it |
 |---|---|---|
 | AI engine keys | The AI visibility check itself (`openai` measures ChatGPT) | Operator: dashboard Settings, or `cnry settings provider <name>` in their terminal |
-| Google Search Console | Real searches, clicks and indexing | Operator: Google sign-in in the dashboard, or `cnry google connect <project> --type gsc` |
-| GA4 | Visits from search and AI assistants | Operator: dashboard, or `cnry ga connect` |
-| Bing Webmaster Tools | Bing's index and searches | Operator: dashboard, or `cnry bing connect` |
-| Server-side traffic | AI crawlers and AI referral visits from logs | Operator: dashboard, or `cnry traffic connect <type> <project>` |
+| Google Search Console | Real searches, clicks and indexing | Use `canonry_gsc_connect` and give the operator the Google consent link. After sign-in, list properties with `canonry_gsc_properties` and select the approved one with `canonry_gsc_set_property`. |
+| GA4 | Visits from search and AI assistants | Use `canonry_ga_oauth_start` when Google consent is needed. After sign-in, use `canonry_ga_properties` and `canonry_ga_connect` to select the approved property. |
+| Bing Webmaster Tools | Bing's index and searches | Use `canonry_bing_connect` with the key saved in Canonry Settings. Choose the approved site from the result with `canonry_bing_set_site`. The operator enters a missing key in the dashboard. |
+| Cloud Run logs | AI crawlers and AI referral visits | Use `canonry_traffic_connect_cloud_run` with the saved credential for the project's GCP project, service and region. For first-time credential entry, the operator uses **Traffic → Connect a source** in the dashboard. |
+| Other server-side traffic | AI crawlers and AI referral visits from logs | Use the setup instructions for the site's log source in the server-side traffic reference. |
 | Google Business Profile | Local profile, reviews, calls | Operator: Google sign-in, then location choice |
 | WordPress | Publishing pages | Operator: `cnry wordpress connect` |
 

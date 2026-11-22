@@ -3,7 +3,7 @@ import { useQueries } from '@tanstack/react-query'
 import { lazyRouteComponent, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Plus } from 'lucide-react'
 
-import { TrafficSourceStatuses, type TrafficSourceDto } from '@canonry/canonry-contracts'
+import { TrafficSourceStatuses, type CloudRunTrafficTarget, type TrafficSourceDto } from '@canonry/canonry-contracts'
 
 import { heyClient, isEmbed, isPublicDemo, type ApiTrafficSourceDetail } from '../../api.js'
 import { getApiV1ProjectsByNameTrafficSourcesByIdOptions } from '@canonry/canonry-api-client/react-query'
@@ -37,14 +37,15 @@ function formatCompact(n: number): string {
 
 type ServerTrafficProps = { projectName: string } & (
   | { view: 'sources' }
-  | { view: 'project'; sourceId?: string; onSelectSource: (id: string) => void }
+  | { view: 'project'; sourceId?: string; initialCloudRunTarget?: CloudRunTrafficTarget; onSelectSource: (id: string) => void }
 )
 
 export function ServerTrafficSection(props: ServerTrafficProps) {
   const { projectName } = props
   const { canWrite } = useAccount()
   const canConnect = canWrite && !isEmbed() && !isPublicDemo()
-  const [connectOpen, setConnectOpen] = useState<boolean>()
+  const [initialCloudRunTarget, setInitialCloudRunTarget] = useState(props.view === 'project' ? props.initialCloudRunTarget : undefined)
+  const [connectOpen, setConnectOpen] = useState<boolean | undefined>(initialCloudRunTarget ? true : undefined)
   const connectOpener = useRef<HTMLButtonElement | null>(null)
   const sourcesQuery = useServerTrafficSources(projectName)
   const sources = sourcesQuery.data?.sources
@@ -112,9 +113,11 @@ export function ServerTrafficSection(props: ServerTrafficProps) {
 
       {canConnect && (
         <ConnectSourceDrawer
+          initialCloudRunTarget={initialCloudRunTarget}
           open={connectOpen === true}
           onOpenChange={open => {
             setConnectOpen(open)
+            if (!open) setInitialCloudRunTarget(undefined)
             // CLI-based setup can add the first source outside this browser.
             if (!open && props.view === 'project' && sources?.length === 0 && !sourcesQuery.isFetching) void sourcesQuery.refetch()
           }}

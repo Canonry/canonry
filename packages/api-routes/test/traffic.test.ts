@@ -260,6 +260,7 @@ async function buildHarness(
   app.register(apiRoutes, {
     db,
     skipAuth: true,
+    dashboardPath: '/canonry/',
     cloudRunCredentialStore,
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
@@ -993,14 +994,56 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(JSON.parse(res.payload).error.message).toMatch(/gcpProjectId/)
   })
 
-  it('rejects requests without keyJson', async () => {
+  it('directs a project without a saved key to its private setup form', async () => {
+    const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1' }
     const res = await h.app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'openclaw-nyc' },
+      payload: target,
     })
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.payload).error.message).toMatch(/keyJson/)
+    const details = res.json().error.details
+    expect(details.reason).toBe('cloud-run-credential-required')
+    const form = new URL(details.dashboardPath, 'https://example.test')
+    expect(form.pathname).toBe('/canonry/projects/test-project/traffic')
+    expect(JSON.parse(form.searchParams.get('connectCloudRun')!)).toEqual(target)
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+  })
+
+  it('uses a preconfigured service account only within its Canonry project, GCP project, service and region', async () => {
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const saved = {
+      ...target, projectName: 'test-project', authMode: TrafficSourceAuthModes['service-account'],
+      clientEmail: 'logging@example.test', privateKey: 'host-only-test-key',
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    }
+    h.credentials.set(saved.projectName, saved)
+    const connect = (projectName: string, payload: Partial<typeof target>) => h.app.inject({
+      method: 'POST', url: `/api/v1/projects/${projectName}/traffic/connect/cloud-run`, payload,
+    })
+    const foreign = await h.app.inject({
+      method: 'PUT', url: '/api/v1/projects/other',
+      payload: { displayName: 'Other', canonicalDomain: 'other.example', country: 'US', language: 'en' },
+    })
+    expect(foreign.statusCode).toBeLessThan(300)
+    for (const res of [
+      await connect('other', target),
+      await connect(saved.projectName, { ...target, gcpProjectId: 'different' }),
+      await connect(saved.projectName, { gcpProjectId: target.gcpProjectId, location: target.location }),
+      await connect(saved.projectName, { gcpProjectId: target.gcpProjectId, serviceName: target.serviceName }),
+    ]) {
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.details.reason).toBe('cloud-run-credential-required')
+      expect(res.body).not.toContain(saved.privateKey)
+    }
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+
+    const connected = await connect(saved.projectName, target)
+    expect(connected.statusCode).toBe(200)
+    expect(connected.json()).toMatchObject({ status: TrafficSourceStatuses.connected, config: target })
+    expect(connected.body).not.toContain(saved.privateKey)
+    expect(h.credentials.get(saved.projectName)).toEqual(saved)
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(1)
   })
 
   it('rejects malformed keyJson', async () => {

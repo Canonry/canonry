@@ -12,7 +12,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { shellQuote } from '@canonry/canonry-contracts'
+import { shellQuote, type CloudRunTrafficTarget } from '@canonry/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
@@ -29,21 +29,22 @@ export function ConnectSourceDrawer({
   onOpenChange,
   onClosed,
   onSourceConnected,
+  initialCloudRunTarget,
   projectName,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onClosed?: () => void
   onSourceConnected?: (sourceId: string) => void
+  initialCloudRunTarget?: CloudRunTrafficTarget
   projectName: string
 }) {
   const navigate = useNavigate()
-  const [step, setStep] = useState<Step>('pick')
-
-  // Always restart the wizard at the source picker when it reopens.
+  const firstStep = initialCloudRunTarget ? 'cloud-run' : 'pick'
+  const [step, setStep] = useState<Step>(firstStep)
   useEffect(() => {
-    if (open) setStep('pick')
-  }, [open])
+    if (open) setStep(firstStep)
+  }, [open, firstStep])
 
   // Every close path resets the step synchronously so a reopened drawer never
   // flashes the previously-selected form before the reopen effect above runs.
@@ -81,7 +82,7 @@ export function ConnectSourceDrawer({
         ) : step === 'vercel' ? (
           <VercelSourceForm {...formProps} />
         ) : (
-          <CloudRunSourceForm {...formProps} />
+          <CloudRunSourceForm {...formProps} initialTarget={initialCloudRunTarget} />
         )}
       </SheetContent>
     </Sheet>
@@ -423,10 +424,11 @@ function WordpressSourceForm({ projectName, onBack, onClose, onSourceConnected }
   )
 }
 
-function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }: SourceFormProps) {
-  const [gcpProjectId, setGcpProjectId] = useState('')
-  const [serviceName, setServiceName] = useState('')
-  const [location, setLocation] = useState('')
+function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, initialTarget }: SourceFormProps & { initialTarget?: CloudRunTrafficTarget }) {
+  const [gcpProjectId, setGcpProjectId] = useState(initialTarget?.gcpProjectId ?? '')
+  const [serviceName, setServiceName] = useState(initialTarget?.serviceName ?? '')
+  const [location, setLocation] = useState(initialTarget?.location ?? '')
+  const [backfill, setBackfill] = useState(!initialTarget)
   const [displayName, setDisplayName] = useState('')
   const [keyJson, setKeyJson] = useState('')
 
@@ -437,7 +439,6 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }:
     runConnect({
       validate: () => {
         if (!gcpProjectId.trim()) return 'GCP project ID is required.'
-        if (!keyJson.trim()) return 'Service-account JSON content is required.'
         return null
       },
       mutate: () =>
@@ -446,8 +447,9 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }:
           serviceName: serviceName.trim() || undefined,
           location: location.trim() || undefined,
           displayName: displayName.trim() || undefined,
-          keyJson: keyJson.trim(),
+          keyJson: keyJson.trim() || undefined,
         }),
+      startInitialBackfill: backfill,
       // Don't keep the private-key payload around in memory after submit.
       onConnected: () => setKeyJson(''),
     })
@@ -492,8 +494,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }:
 
       <Field
         label="Service-account JSON"
-        description="Paste the contents of the SA key (JSON). The SA needs roles/logging.viewer (or any role granting logging.logEntries.list)."
-        required
+        description="Upload a Logs Viewer key for this target, or leave empty to reuse its saved key. The GCP project, service and region must match."
       >
         <textarea
           value={keyJson}
@@ -503,7 +504,6 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }:
           autoComplete="off"
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-copy-14-mono text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
           placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
-          required
         />
         <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-label-14 text-secondary hover:text-strong">
           <input
@@ -516,7 +516,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }:
         </label>
       </Field>
 
-      <OptionalFields>
+      <OptionalFields initiallyOpen={Boolean(initialTarget)}>
       <Field
         label="Service name (optional)"
         description="Restrict log pulls to a specific Cloud Run service. Omit to pull all services in the project."
@@ -557,6 +557,10 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected }:
       </Field>
 
       </OptionalFields>
+      <label className="flex items-center gap-2 text-label-14 text-secondary">
+        <input type="checkbox" checked={backfill} onChange={event => setBackfill(event.target.checked)} />
+        Import the last 30 days of available logs
+      </label>
     </ConnectSourceFormShell>
   )
 }
@@ -855,10 +859,10 @@ export function cloudRunGuide(projectName: string, gcpProjectId: string): Source
 
 Follow the Cloud Run section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-cloud-run-source
 
-1. Ask me for the Google Cloud project ID and, if there is more than one, the Cloud Run service name and region.
-2. If gcloud is installed and signed in, propose the exact commands to create a service account with only roles/logging.viewer and download a JSON key, and run them after I approve. Otherwise walk me through it in the Cloud Console.
-3. Connect with: cnry traffic connect cloud-run ${project} --gcp-project <project-id> --service-account-key <path/to/key.json> (add --service and --location to narrow it).
-4. Confirm with cnry doctor --project ${project} --check 'traffic.source.*' --format json and tell me in plain words whether logs are readable.
+1. Confirm the GCP project ID, Cloud Run service and region I want to track.
+2. With my approval, call canonry_traffic_connect_cloud_run with that target and no keyJson to use its saved key. If a key is needed, direct me to upload a Logs Viewer key in this project's Server traffic form.
+3. For a CLI setup I explicitly request, use cnry traffic connect cloud-run ${project} --gcp-project <project-id> --service-account-key <path/to/key.json> with the approved service and region.
+4. Confirm the source with canonry_traffic_sources_list. Report its last sync separately.
 
 ${SECRET_RULE}`,
   }
@@ -978,9 +982,9 @@ function SetupSteps({ steps, heading = 'Or do it yourself' }: { steps: SetupStep
 }
 
 /** Fields most operators never need, kept out of the way until asked for. */
-function OptionalFields({ children }: { children: ReactNode }) {
+function OptionalFields({ children, initiallyOpen }: { children: ReactNode; initiallyOpen?: boolean }) {
   return (
-    <details className="group">
+    <details className="group" open={initiallyOpen}>
       <summary className="cursor-pointer list-none text-label-14-strong text-secondary hover:text-heading">
         <span className="group-open:hidden">Show more options</span>
         <span className="hidden group-open:inline">Hide more options</span>

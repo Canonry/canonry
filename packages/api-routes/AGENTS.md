@@ -670,6 +670,8 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 
 ### GA4 property-bound data
 
+Search Console and GA4 property lists query the entire Google account. Require administrator role and full-instance scope before contacting Google. Selecting a property on the saved domain-wide OAuth grant requires an instance administrator. GA4 service-account connections belong to one project. A project-scoped OAuth start may authorize only its own unshared domain; the callback checks again before saving the grant.
+
 `src/ga-property-data.ts`. GA rows record no GA4 property (only the landing-page windows and sync coverage do), so a project's GA data must come from the one property it resolves to now (`resolveCurrentGa4PropertyId`: its service account, then its domain's OAuth `ga4` connection).
 
 - `GA_PROPERTY_TABLES` lists every table a sync fills, `ga_measurement_sync_state` included: its timestamps would turn the new property's first sync into an incremental one. Add a new GA table there; `ga-property-data.test.ts` reads every `ga_*` table from the schema and fails on one a clear leaves behind.
@@ -753,6 +755,7 @@ Pure live-vs-stored comparison engine (no DB/clock/network; the `gbp-summary.ts`
 `src/traffic.ts` holds the server-side traffic ingestion routes.
 
 - Connect: `POST /traffic/connect/cloud-run`, `POST /traffic/connect/wordpress`, `POST /traffic/connect/vercel`.
+  - Cloud Run accepts an omitted `keyJson` only when this project's saved service account matches the exact GCP project, service and region. A mismatch returns `cloud-run-credential-required` with the project dashboard path for private setup. Keep the comparison shared with activation.
   - Vercel connect seeds `lastSyncedAt = NOW` so the first scheduled sync uses a tight window — leaving it null would fall back to `DEFAULT_SYNC_WINDOW_MINUTES = 30 days`, which exceeds Vercel `request-logs` retention (~14d) and would make every first sync throw a retention error.
   - Vercel connect also **auto-creates the project's `traffic-sync` schedule** (`*/30 * * * *`, idempotent via the unique `(project, kind)` index, registered with the live scheduler through `onScheduleUpdated`) in the same transaction as the source upsert, so the source actually keeps syncing without a manual `schedule set` step: seeding `lastSyncedAt = NOW` only keeps the FIRST window tight, and the schedule is what stops the watermark drifting into an unbounded — wedging — pull on a later trigger.
 - `POST /traffic/sources/:id/sync` — see "Sync dispatcher" below.

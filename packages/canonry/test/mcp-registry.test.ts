@@ -123,6 +123,9 @@ const expectedToolNames = [
   'canonry_provider_test',
   'canonry_telemetry_get',
   'canonry_google_connections_list',
+  'canonry_gsc_connect',
+  'canonry_gsc_properties',
+  'canonry_gsc_set_property',
   'canonry_gsc_performance',
   'canonry_gsc_performance_daily',
   'canonry_gsc_top_pages',
@@ -131,6 +134,10 @@ const expectedToolNames = [
   'canonry_gsc_deindexed',
   'canonry_gsc_coverage',
   'canonry_gsc_coverage_history',
+  'canonry_bing_status',
+  'canonry_bing_connect',
+  'canonry_bing_sites',
+  'canonry_bing_set_site',
   'canonry_bing_coverage',
   'canonry_bing_submit_sitemap',
       'canonry_bing_sync',
@@ -149,7 +156,9 @@ const expectedToolNames = [
   'canonry_gsc_sitemaps',
   'canonry_gsc_sitemaps_submit',
   'canonry_ga_status',
+  'canonry_ga_oauth_start',
   'canonry_ga_properties',
+  'canonry_ga_connect',
   'canonry_ga_acquisition',
   'canonry_ga_measurement_analysis',
   'canonry_ga_search_landing_pages',
@@ -869,8 +878,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    // 218 canonical reads plus 16 deprecated read aliases (canonry_technical_aeo_run is the one write alias).
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(235)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(238)
     expect(canonryMcpTools.filter(tool => tool.deprecatedAliasOf !== undefined)).toHaveLength(17)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)
@@ -914,8 +922,8 @@ describe('MCP tool registry', () => {
     // 66 canonical monitoring tools plus the 17 deprecated Agent Readiness names.
     expect(counts.get('monitoring')).toBe(83)
     expect(counts.get('setup')).toBe(74)
-    expect(counts.get('gsc')).toBe(11)
-    expect(counts.get('ga')).toBe(14)
+    expect(counts.get('gsc')).toBe(14)
+    expect(counts.get('ga')).toBe(16)
     expect(counts.get('gbp')).toBe(18)
     expect(counts.get('ads')).toBe(26)
     expect(counts.get('google-ads')).toBe(6)

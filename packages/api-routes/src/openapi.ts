@@ -4661,6 +4661,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google auth URL returned.', 'GoogleOAuthStartResponse'),
       400: errorResponse('Invalid Google connection request.'),
+      403: errorResponse('A project-scoped key cannot authorize Search Console or GA4 on a domain shared with another project.'),
     },
   },
   {
@@ -4684,6 +4685,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google properties returned.', 'GscSiteListResponseDto'),
       400: errorResponse('Google OAuth is not configured.'),
+      403: errorResponse('Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -4710,6 +4712,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google property updated.', 'GoogleConnectionDto'),
       400: errorResponse('Invalid property request.'),
+      403: errorResponse('Selecting a Search Console or GA4 property on a shared OAuth connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
     },
   },
@@ -6010,25 +6013,21 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/bing/connect',
     summary: 'Connect Bing Webmaster Tools',
+    description: 'Supply an API key or, as an install administrator, use the Bing key saved in Settings. Returns the sites available for selection.',
     tags: ['bing'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['apiKey'],
-            properties: {
-              apiKey: stringSchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/BingConnectRequest' },
         },
       },
     },
     responses: {
       200: jsonResponse('Bing connection returned.', 'BingConnectResponseDto'),
       400: errorResponse('Invalid Bing connection request.'),
+      403: errorResponse('Using the saved Bing key requires an install administrator.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6058,11 +6057,13 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/bing/sites',
     summary: 'List Bing sites for the current connection',
+    description: 'Lists sites across the Bing account. Requires install administrator authority.',
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Bing sites returned.', 'BingSitesResponseDto'),
       400: errorResponse('Bing is not configured for this project.'),
+      403: errorResponse('Listing account sites requires an install administrator.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6070,6 +6071,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/bing/set-site',
     summary: 'Set the active Bing site',
+    description: 'Select an HTTP(S) site from the project that owns the connection. A project-scoped writer can select its own domain when no sibling project shares the connection.',
     tags: ['bing'],
     parameters: [nameParameter],
     requestBody: {
@@ -6088,6 +6090,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonResponse('Active Bing site updated.', 'BingSetSiteResponseDto'),
+      403: errorResponse('The credential cannot change this connection or select this domain.'),
       400: errorResponse('Invalid Bing site request.'),
       404: errorResponse('Project or connection not found.'),
     },
@@ -6900,7 +6903,7 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `GaConnectResponse` Zod schema in contracts.
       200: rawJsonResponse('GA4 connection established.', looseObjectSchema),
       400: errorResponse('Invalid GA4 connection request.'),
-      403: errorResponse('Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.'),
+      403: errorResponse('Selecting a property on the saved OAuth grant requires an instance administrator. If Google refused the property, details.reason is ga4-permission-missing and details.nextCheckAt gives the next check time.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6931,12 +6934,13 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/properties',
     summary: 'List GA4 properties the connected account can read',
     description:
-      'Lists every GA4 property visible to the project\'s OAuth connection, so the numeric property id needed by ga/connect can be discovered without leaving canonry. Requires an OAuth GA4 connection; service-account connections already carry their property id.',
+      'Lists every GA4 property visible to the connected Google account, with numeric IDs for ga/connect. Requires an instance administrator and a GA4 OAuth connection. Service-account connections already specify a property ID.',
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('GA4 properties returned.', 'GA4PropertiesDto'),
       400: errorResponse('No OAuth GA4 connection for this project.'),
+      403: errorResponse('Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -7873,7 +7877,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/connect/cloud-run',
     summary: 'Connect a Cloud Run traffic source',
     description:
-      'Stores the service-account JSON in `~/.canonry/config.yaml` and creates a `traffic_sources` row for the project. Reconnecting updates the existing active source rather than creating a duplicate.',
+      'Connects a Cloud Run log source. Omit keyJson to use a service account already saved for this Canonry project, GCP project, service and region. When a credential is needed, the validation error includes the project dashboard path for secure setup. Reconnecting updates the existing source.',
     tags: ['traffic'],
     parameters: [nameParameter],
     requestBody: {
@@ -7882,7 +7886,7 @@ const routeCatalog: OpenApiOperation[] = [
         'application/json': {
           schema: {
             type: 'object',
-            required: ['gcpProjectId', 'keyJson'],
+            required: ['gcpProjectId'],
             properties: {
               gcpProjectId: stringSchema,
               serviceName: stringSchema,

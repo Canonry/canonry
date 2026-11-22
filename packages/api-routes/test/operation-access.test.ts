@@ -8,6 +8,17 @@ import { buildOpenApiDocument } from '../src/openapi.js'
 import { LIVE_READ_OPERATIONS, READ_SEMANTIC_OPERATIONS, STORED_READ_OPERATIONS, WRITE_OPERATIONS } from '@canonry/canonry-contracts'
 import { apiRoutes, canonicalRouteTemplate } from '../src/index.js'
 
+const paidReadRoutes = [
+  'GET /api/v1/projects/{name}/ads/account',
+  'GET /api/v1/projects/{name}/ads/geo/search',
+  'GET /api/v1/projects/{name}/ads/conversions/pixels',
+  'GET /api/v1/projects/{name}/ads/conversions/event-settings',
+  'GET /api/v1/projects/{name}/ads/live-delivery',
+  'GET /api/v1/projects/{name}/bing/sites',
+  'GET /api/v1/projects/{name}/google/properties',
+  'GET /api/v1/projects/{name}/ga/properties',
+]
+
 describe('OpenAPI operation access metadata', () => {
   it('declares access for every operation and marks provider routes live', () => {
     const document = buildOpenApiDocument() as { paths: Record<string, Record<string, { 'x-canonry-access'?: string }>> }
@@ -39,14 +50,7 @@ describe('OpenAPI operation access metadata', () => {
     }
     expect([...LIVE_READ_OPERATIONS].some(operation => operation.includes('/ads/'))).toBe(true)
     expect([...LIVE_READ_OPERATIONS].some(operation => operation.includes('/google-ads/'))).toBe(true)
-    const paidAdsReads = [
-      'GET /api/v1/projects/{name}/ads/account',
-      'GET /api/v1/projects/{name}/ads/geo/search',
-      'GET /api/v1/projects/{name}/ads/conversions/pixels',
-      'GET /api/v1/projects/{name}/ads/conversions/event-settings',
-      'GET /api/v1/projects/{name}/ads/live-delivery',
-    ]
-    for (const operation of paidAdsReads) {
+    for (const operation of paidReadRoutes) {
       expect(LIVE_READ_OPERATIONS.has(operation)).toBe(true)
       expect(operations.has(operation)).toBe(true)
     }
@@ -84,14 +88,7 @@ describe('OpenAPI operation access metadata', () => {
       expect(semantic).toContain('POST /api/v1/telemetry/ui')
       expect([...READ_SEMANTIC_OPERATIONS]).not.toContain('DELETE /api/v1/projects/{name}/agent/transcript')
       expect([...READ_SEMANTIC_OPERATIONS]).not.toContain('POST /api/v1/telemetry/ui')
-      const paidAdsReads = [
-        'GET /api/v1/projects/{name}/ads/account',
-        'GET /api/v1/projects/{name}/ads/geo/search',
-        'GET /api/v1/projects/{name}/ads/conversions/pixels',
-        'GET /api/v1/projects/{name}/ads/conversions/event-settings',
-        'GET /api/v1/projects/{name}/ads/live-delivery',
-      ]
-      expect(paidReads.sort()).toEqual(paidAdsReads.sort())
+      expect(paidReads.sort()).toEqual([...paidReadRoutes].sort())
       expect(paidReads.every(operation => LIVE_READ_OPERATIONS.has(operation))).toBe(true)
     } finally {
       await app.close()

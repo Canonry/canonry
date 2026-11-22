@@ -67,19 +67,19 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     name: 'gsc',
     title: 'Google Search Console',
     description: 'Read GSC performance, per-query totals, inspections, coverage, sitemaps, and deindexed URLs.',
-    whenToLoad: 'Load when you need indexing, coverage, or sitemap data from Google Search Console.',
+    whenToLoad: 'Load to connect Search Console, select a property, or inspect indexing, coverage and sitemaps.',
   },
   {
     name: 'bing',
     title: 'Bing Webmaster Tools',
-    description: 'Read stored project index coverage and URL inspection evidence without calling Bing.',
-    whenToLoad: 'Load when reviewing indexed, not indexed or unknown URLs from a connected Bing site.',
+    description: 'Connect with the Bing Webmaster Tools key saved in Canonry Settings, select a site, and review its index coverage and search data.',
+    whenToLoad: 'Load to connect a Bing site or review its indexed, not indexed and unknown URLs.',
   },
   {
     name: 'ga',
     title: 'Google Analytics 4',
     description: 'Read GA traffic (with social and creator platforms ranked by conversions per 1,000 sessions), AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page).',
-    whenToLoad: 'Load when you need traffic, referral, or attribution data from Google Analytics 4.',
+    whenToLoad: 'Load to connect Google Analytics 4, select a property, or read traffic, referral and attribution data.',
   },
   {
     name: 'gbp',
