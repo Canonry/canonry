@@ -144,8 +144,8 @@ the managed engine.
 `showResourceLinks: false` hides the footer links and the repository
 documentation links on Agent Setup. On self-hosted dashboards, an installed
 update shows a dismissible notice with release highlights when available. “View
-changes” opens the changes between the two builds on GitHub. A first visit can
-show highlights for the running release. The browser remembers dismissal
+changes” opens the changes between the two builds on GitHub. On a first visit, the dashboard
+shows the newest applicable highlights at or below the running version. The browser remembers dismissal
 separately for each dashboard base path and signed-in account. The server
 includes its installed version and optional build commit in the dashboard HTML.
 Opening or reloading the dashboard checks that version for release highlights.

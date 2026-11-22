@@ -109,11 +109,14 @@ test.each([true, false])('a hosted dashboard respects showResourceLinks=%s for t
     build: { version: '7.117.0' },
     dashboard: { managedInstance: true, showResourceLinks },
   } }))
-  const title = await view.findByText('What’s new')
-  const notice = within(title.closest('[role="status"]') as HTMLElement)
-  const links = notice.queryAllByRole('link').map(link => link.getAttribute('href'))
-  expect(links).toEqual(showResourceLinks ? ['https://discord.gg/8K9yY7GywJ'] : [])
-  expect(notice.queryByText(/7\.117|upgrade|npm/i)).toBeNull()
+  if (showResourceLinks) {
+    const title = await view.findByText('What’s new')
+    const notice = within(title.closest('[role="status"]') as HTMLElement)
+    expect(notice.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['https://discord.gg/8K9yY7GywJ'])
+    expect(notice.queryByText(/7\.117|upgrade|npm/i)).toBeNull()
+  } else {
+    expect(view.queryByText('What’s new')).toBeNull()
+  }
   expect(view.queryByRole('navigation', { name: 'Canonry community' })).toBeNull()
 })
 

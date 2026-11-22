@@ -16,13 +16,13 @@ afterEach(() => {
 })
 
 describe('installed update notices', () => {
-  it('shows first-visit highlights only for the installed release and remembers a dismissal', () => {
+  it('remembers a dismissal separately for each dashboard', () => {
     expect(observe(featured)).toEqual({ current: featured })
     expect(observe(featured)).toEqual({ current: featured })
     dismiss(featured.version)
     expect(observe(featured)).toBeNull()
     expect(observe(later)).toEqual({ from: featured, current: later })
-    expect(observeInstalledBuild(localStorage, 'another-base-path', later)).toBeNull()
+    expect(observeInstalledBuild(localStorage, 'another-base-path', later)).toEqual({ current: later })
   })
 
   it('carries unread first-visit highlights across upgrades and reloads until dismissal', () => {

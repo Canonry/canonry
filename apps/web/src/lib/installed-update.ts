@@ -1,5 +1,5 @@
 import { compareSemver, isStrictSemver } from '@canonry/canonry-contracts'
-import { releaseHighlightsForVersion } from './release-notes.js'
+import { latestReleaseNotes } from './release-notes.js'
 
 export type InstalledBuild = { version: string; commit?: string }
 export type InstalledUpdate = { from?: InstalledBuild; current: InstalledBuild; includeFromHighlights?: true }
@@ -85,12 +85,12 @@ export function observeInstalledBuild(storage: Storage, key: string, current: In
     let next: StoredUpdate
     if (!state) {
       // A corrupt record loses its baseline. Recover quietly, without repeating a first-visit notice.
-      next = { current: build, pending: raw === null && releaseHighlightsForVersion(build.version).length > 0 }
+      next = { current: build, pending: raw === null && latestReleaseNotes(build.version) !== undefined }
     } else {
       const order = compareVersions(build.version, state.current.version)
       if (order > 0) {
         next = { from: state.from ?? state.current, current: build, pending: true }
-        // The first-visit notice contains the starting release itself, which an ordinary upgrade range excludes.
+        // Carry the first visit’s featured release even when its notes predate the starting build.
         if (state.includeFromHighlights || (state.pending && !state.from)) next.includeFromHighlights = true
       } else if (order < 0) {
         // An older tab or rolled-back server must leave the newer tab's receipt intact.

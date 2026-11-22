@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowUpRight, CircleCheck, X } from 'lucide-react'
 import { dismissInstalledBuild, observeInstalledBuild, readInstalledUpdate, type InstalledBuild, type InstalledUpdate } from '../../lib/installed-update.js'
-import { releaseChangesUrl, releaseHighlights, releaseHighlightsForVersion } from '../../lib/release-notes.js'
+import { latestReleaseNotes, releaseChangesUrl, releaseHighlights } from '../../lib/release-notes.js'
 import { Button } from '../ui/button.js'
 import { BrandIcon } from './FooterLinks.js'
 
@@ -33,15 +33,19 @@ export function InstalledUpdateNotice({ build, storageKey, showResourceLinks = t
 
   if (!notice || notice.current.version !== version) return null
   const { from, current } = notice
-  const highlights = from
-    ? releaseHighlights(from.version, current.version, showResourceLinks)
-    : releaseHighlightsForVersion(current.version, showResourceLinks)
-  if (from && notice.includeFromHighlights) {
-    highlights.push(...releaseHighlightsForVersion(from.version, showResourceLinks))
-  }
-  if (whatsNewOnly && highlights.length === 0) return null
-  const title = whatsNewOnly ? 'What’s new' : from ? `Updated to v${current.version}` : `What’s new in v${current.version}`
-  const href = whatsNewOnly ? undefined : releaseChangesUrl(from?.commit, current.commit, current.version)
+  const firstVisitRelease = !from || notice.includeFromHighlights
+    ? latestReleaseNotes(from?.version ?? current.version, showResourceLinks)
+    : undefined
+  const highlights = from ? releaseHighlights(from.version, current.version, showResourceLinks) : []
+  if (firstVisitRelease) highlights.push(...firstVisitRelease.highlights)
+  if (highlights.length === 0 && (whatsNewOnly || !from)) return null
+
+  // A first visit can feature an older release. Its package link must match the title.
+  const linkedBuild: InstalledBuild = !from && firstVisitRelease && firstVisitRelease.version !== current.version.split('+', 1)[0]
+    ? firstVisitRelease
+    : current
+  const title = whatsNewOnly ? 'What’s new' : from ? `Updated to v${current.version}` : `What’s new in v${linkedBuild.version}`
+  const href = whatsNewOnly ? undefined : releaseChangesUrl(from?.commit, linkedBuild.commit, linkedBuild.version)
 
   function dismiss() {
     try {

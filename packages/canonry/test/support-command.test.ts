@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { supportCommand } from '../src/commands/support.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError } from '../src/cli-error.js'
-import { CANONRY_DISCORD_URL } from '../src/support-links.js'
+
+const welcomeInvite = 'https://discord.gg/8K9yY7GywJ'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -9,7 +10,7 @@ describe('canonry support', () => {
   afterEach(() => vi.unstubAllEnvs())
 
   const support = {
-    discord: 'https://discord.gg/jnJ2H2z5Xh',
+    discord: welcomeInvite,
     issues: 'https://github.com/Canonry/canonry/issues',
     feedbackCommand: 'canonry feedback "<what happened>"',
   }
@@ -29,7 +30,7 @@ describe('canonry support', () => {
     expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual({ ...support, ...social })
   })
 
-  it('preserves the existing support output in cloud mode', () => {
+  it('shows the welcome invite in cloud mode and omits the social links', () => {
     vi.stubEnv('CANONRY_RUNTIME_MODE', ' Cloud ')
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     supportCommand('text')
@@ -47,7 +48,7 @@ describe('the help hint on errors', () => {
     tty(true)
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     printCliError(new Error('boom'), 'text')
-    expect(err.mock.calls.map(c => String(c[0])).join('\n')).toContain(CANONRY_DISCORD_URL)
+    expect(err.mock.calls.map(c => String(c[0])).join('\n')).toContain(welcomeInvite)
     err.mockClear()
     printCliError(new CliError({ code: 'INTERNAL', message: 'x', exitCode: EXIT_SYSTEM_ERROR }), 'text')
     expect(err.mock.calls.map(c => String(c[0])).join('\n')).toContain("canonry support")
@@ -60,6 +61,6 @@ describe('the help hint on errors', () => {
     printCliError(new Error('boom'), 'json')
     tty(false)
     printCliError(new Error('boom'), 'text')
-    expect(err.mock.calls.map(c => String(c[0])).join('\n')).not.toContain(CANONRY_DISCORD_URL)
+    expect(err.mock.calls.map(c => String(c[0])).join('\n')).not.toMatch(/discord\.gg|canonry support/)
   })
 })

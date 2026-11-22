@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { releaseChangesUrl, releaseHighlights, releaseHighlightsForVersion } from '../src/lib/release-notes.js'
+import { latestReleaseNotes, releaseChangesUrl, releaseHighlights } from '../src/lib/release-notes.js'
 
 describe('releaseHighlights', () => {
   const highlights = [{ text: expect.any(String), action: { label: 'Join our Discord', href: 'https://discord.gg/8K9yY7GywJ', icon: 'Discord' } }]
 
-  it('introduces only the exact stable build on the first visit', () => {
-    expect(releaseHighlightsForVersion('7.117.0')).toEqual(highlights)
-    expect(releaseHighlightsForVersion('7.117.0+custom-build')).toEqual(highlights)
-    expect(releaseHighlightsForVersion('7.117.0-rc.1+custom-build')).toEqual([])
-    expect(releaseHighlightsForVersion('7.118.0')).toEqual([])
-    expect(releaseHighlightsForVersion('7.117.0+')).toEqual([])
+  it('finds the newest applicable stable notes at or below the installed build', () => {
+    for (const build of ['7.117.0', '7.117.0+custom-build', '7.117.1+custom-build', '8.0.0-rc.1']) {
+      expect(latestReleaseNotes(build)).toEqual({ version: '7.117.0', highlights })
+    }
+    for (const build of ['7.116.9', '7.117.0-rc.1+custom-build', '7.117.0+']) {
+      expect(latestReleaseNotes(build)).toBeUndefined()
+    }
   })
 
   it('includes notes for the installed version and skipped releases', () => {
@@ -17,10 +18,9 @@ describe('releaseHighlights', () => {
     expect(releaseHighlights('7.116.1', '7.120.0')).toEqual(highlights)
   })
 
-  it('selects the available dashboard feature for both exact and skipped releases', () => {
-    const updateNote = [{ text: 'Dismiss a release note once to clear it across tabs and on your next visit.' }]
-    expect(releaseHighlightsForVersion('7.117.0', false)).toEqual(updateNote)
-    expect(releaseHighlights('7.116.1', '7.118.0', false)).toEqual(updateNote)
+  it('omits the community highlight when resource links are disabled', () => {
+    expect(latestReleaseNotes('7.117.1', false)).toBeUndefined()
+    expect(releaseHighlights('7.116.1', '7.118.0', false)).toEqual([])
   })
 
   it('skips releases already seen, downgrades, and unknown versions', () => {

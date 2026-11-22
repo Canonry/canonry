@@ -9,12 +9,10 @@ interface ReleaseHighlight {
 const releases = [
   {
     version: '7.117.0',
-    highlights: (showResourceLinks: boolean): ReleaseHighlight[] => [showResourceLinks
-      ? {
-          text: 'Meet other Canonry users, get help, and share what you’re building.',
-          action: { label: 'Join our Discord', href: CANONRY_COMMUNITY_LINKS.discord, icon: 'Discord' },
-        }
-      : { text: 'Dismiss a release note once to clear it across tabs and on your next visit.' }],
+    highlights: (showResourceLinks: boolean): ReleaseHighlight[] => showResourceLinks ? [{
+      text: 'Meet other Canonry users, get help, and share what you’re building.',
+      action: { label: 'Join our Discord', href: CANONRY_COMMUNITY_LINKS.discord, icon: 'Discord' },
+    }] : [],
   },
 ]
 
@@ -31,10 +29,14 @@ export function releaseHighlights(previous: string, current: string, showResourc
     .flatMap(({ highlights }) => highlights(showResourceLinks))
 }
 
-export function releaseHighlightsForVersion(current: string, showResourceLinks = true): ReleaseHighlight[] {
-  if (!isStrictSemver(current)) return []
-  const [version] = current.split('+', 1)
-  return releases.find((release) => release.version === version)?.highlights(showResourceLinks) ?? []
+export function latestReleaseNotes(current: string, showResourceLinks = true): { version: string; highlights: ReleaseHighlight[] } | undefined {
+  if (!isStrictSemver(current)) return undefined
+  for (const release of releases) {
+    if (!reachedRelease(current, release.version)) continue
+    const highlights = release.highlights(showResourceLinks)
+    if (highlights.length > 0) return { version: release.version, highlights }
+  }
+  return undefined
 }
 
 const repositoryUrl = 'https://github.com/Canonry/canonry'

@@ -35,15 +35,20 @@ it('opens the exact installed package in an isolated tab when the build has no c
   expect(screen.getByText(firstVisitTitle)).toBeTruthy()
 })
 
-it.each([
-  { initial: current, title: firstVisitTitle },
-  { initial: previous, title: upgradeTitle },
-])('shows the update feature when resource links are disabled for $title', ({ initial, title }) => {
-  const install = render(<InstalledUpdateNotice build={initial} storageKey={storageKey} showResourceLinks={false} />)
-  install.rerender(<InstalledUpdateNotice build={current} storageKey={storageKey} showResourceLinks={false} />)
-  expect(screen.getByText(title)).toBeTruthy()
-  expect(screen.getByText('Dismiss a release note once to clear it across tabs and on your next visit.')).toBeTruthy()
-  expect(screen.queryByText(/Discord/)).toBeNull()
+it('keeps a first visit quiet with resource links disabled and describes a subsequent self-hosted upgrade', () => {
+  const install = render(<InstalledUpdateNotice build={current} storageKey={storageKey} showResourceLinks={false} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  install.rerender(<InstalledUpdateNotice build={{ version: '7.117.1' }} storageKey={storageKey} showResourceLinks={false} />)
+  expect(screen.getByText('Updated to v7.117.1')).toBeTruthy()
+  expect(screen.getByText('Previously v7.117.0.')).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Join our Discord' })).toBeNull()
+})
+
+it('labels first-visit highlights with their authored version when the install has advanced', () => {
+  render(<InstalledUpdateNotice build={{ version: '7.117.1', commit: 'aaaaaaa' }} storageKey={storageKey} />)
+  expect(screen.getByText(firstVisitTitle)).toBeTruthy()
+  expect(screen.getByRole<HTMLAnchorElement>('link', { name: 'View package on npm' }).href)
+    .toBe('https://www.npmjs.com/package/@canonry/canonry/v/7.117.0')
 })
 
 it('compares observed builds and remembers dismissal across remounts', () => {
@@ -99,12 +104,12 @@ it('shows only customer-facing highlights after a hosted rollout and stays quiet
   expect(screen.queryByRole('status')).toBeNull()
 })
 
-it('retains unread first-visit highlights when a hosted patch ships without new notes', () => {
-  const view = render(<InstalledUpdateNotice build={current} storageKey={storageKey} whatsNewOnly />)
-  expect(screen.getByText('What’s new')).toBeTruthy()
-  view.rerender(<InstalledUpdateNotice build={{ version: '7.117.1' }} storageKey={storageKey} whatsNewOnly />)
+it('retains the unread Discord invitation when a first visit and subsequent upgrades skip the featured release', () => {
+  const view = render(<InstalledUpdateNotice build={{ version: '7.117.1' }} storageKey={storageKey} whatsNewOnly />)
+  expect(screen.getByRole('link', { name: 'Join our Discord' })).toBeTruthy()
+  view.rerender(<InstalledUpdateNotice build={{ version: '7.118.0' }} storageKey={storageKey} whatsNewOnly />)
   expect(screen.getByRole('link', { name: 'Join our Discord' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss what’s new' }))
-  view.rerender(<InstalledUpdateNotice build={{ version: '7.117.2' }} storageKey={storageKey} whatsNewOnly />)
+  view.rerender(<InstalledUpdateNotice build={{ version: '7.118.1' }} storageKey={storageKey} whatsNewOnly />)
   expect(screen.queryByRole('status')).toBeNull()
 })
