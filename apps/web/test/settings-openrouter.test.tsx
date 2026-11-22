@@ -123,7 +123,9 @@ test.each(['ok', 'error'] as const)('shows every connection and %s service healt
   expect(document.getElementById('browser-connection')).toBe(chrome)
 })
 
-test('Settings always offers feedback, opening the panel the top bar opens', async () => {
+test.each([true, false])('Settings respects showFeedback=%s for the shared feedback entry point', async showFeedback => {
+  window.__CANONRY_CONFIG__ = { dashboard: { showFeedback } }
+  onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
   const restore = mockFetch((url, init) => {
     const path = pathOf(url)
     if (path === '/api/v1/settings') return jsonResponse(settingsFixture([]))
@@ -134,6 +136,11 @@ test('Settings always offers feedback, opening the panel the top bar opens', asy
   const opened = vi.fn()
   onTestFinished(onFeedbackPanelOpen(opened))
   await renderSettings(createDashboardFixture())
+  if (!showFeedback) {
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Feedback' })).toBeNull()
+    return
+  }
   const feedback = screen.getByRole('region', { name: 'Feedback' })
   expect(within(feedback).getByText(/Feedback is also at the top of every page\./)).toBeTruthy()
   fireEvent.click(within(feedback).getByRole('button', { name: 'Share feedback' }))

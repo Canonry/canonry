@@ -100,13 +100,16 @@ it.each([
   expect(calls).toBe(2)
 })
 
-it.each(['viewer', 'embed', 'demo'] as const)('does not offer feedback in %s mode', mode => {
+it.each(['viewer', 'embed', 'demo', 'disabled'] as const)('hides feedback in %s mode even when another page asks to open it', mode => {
   if (mode === 'embed') window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
   if (mode === 'demo') window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
+  if (mode === 'disabled') window.__CANONRY_CONFIG__ = { dashboard: { showFeedback: false } }
   const fetch = vi.fn(() => jsonResponse({ accepted: true }))
   restoreFetch = mockFetch(fetch)
   mount(mode === 'viewer')
   expect(screen.queryByRole('button', { name: 'Feedback', exact: true })).toBeNull()
+  act(() => { openFeedbackPanel() })
+  expect(screen.queryByRole('dialog', { name: 'Share feedback' })).toBeNull()
   expect(fetch).not.toHaveBeenCalled()
 })
 
@@ -116,10 +119,4 @@ it('opens the same panel when another page asks for it, ready to type', () => {
   act(() => { openFeedbackPanel() })
   expect(screen.getByRole('dialog', { name: 'Share feedback' })).toBeTruthy()
   expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Your feedback' }))
-})
-
-it('stays closed for a viewer, who cannot send feedback, even when another page asks', () => {
-  mount(true)
-  act(() => { openFeedbackPanel() })
-  expect(screen.queryByRole('dialog', { name: 'Share feedback' })).toBeNull()
 })
