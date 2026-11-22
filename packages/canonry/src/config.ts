@@ -106,6 +106,7 @@ export type CloudRunAuthMode = 'oauth' | 'service-account'
 
 export interface CloudRunConnectionConfigEntry {
   projectName: string
+  projectId?: string
   gcpProjectId: string
   serviceName?: string
   location?: string

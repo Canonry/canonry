@@ -372,17 +372,21 @@ test('every source hands the whole setup to an agent, with the real command and 
   expect(guides.vercel.agentRequest).toContain('--token-file')
 })
 
-test('the agent request can be copied from a source form', async () => {
+test('copying a Cloud Run setup request carries the selected target and a private credential handoff', async () => {
   const writeText = vi.fn(async () => {})
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   try {
-    renderDrawer()
-    fireEvent.click(screen.getByText('Vercel'))
+    const target = { gcpProjectId: 'cloud-hosting', serviceName: 'site', location: 'us-east1' }
+    renderDrawer(target)
+    fireEvent.change(screen.getByLabelText(/^Service-account JSON/i), { target: { value: 'private-fixture' } })
     fireEvent.click(screen.getByRole('button', { name: 'Copy setup request' }))
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(vercelGuide('test-project').agentRequest)
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify({ project: 'test-project', request: target })))
     })
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('canonry_traffic_connect_cloud_run'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('dashboardPath'))
+    expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('private-fixture'))
     expect(await screen.findByText('Copied')).toBeTruthy()
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)

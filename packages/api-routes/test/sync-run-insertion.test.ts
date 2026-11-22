@@ -218,7 +218,7 @@ function seedConnections(db: ReturnType<typeof createClient>, projectId: string)
   db.insert(googleAdsConnections).values({ id: crypto.randomUUID(), projectId, scopes: [], selectionGeneration: 0, createdAt: NOW, updatedAt: NOW }).run()
   db.insert(gtmConnections).values({ id: crypto.randomUUID(), projectId, scopes: [], selectionGeneration: 0, createdAt: NOW, updatedAt: NOW }).run()
   db.insert(trafficSources).values([
-    { id: 'cloud-run-source', projectId, sourceType: TrafficSourceTypes['cloud-run'], displayName: 'Cloud Run', status: TrafficSourceStatuses.connected, configJson: {}, createdAt: NOW, updatedAt: NOW },
+    { id: 'cloud-run-source', projectId, sourceType: TrafficSourceTypes['cloud-run'], displayName: 'Cloud Run', status: TrafficSourceStatuses.connected, configJson: { gcpProjectId: 'gcp', authMode: 'service-account' }, createdAt: NOW, updatedAt: NOW },
     { id: 'queue-source', projectId, sourceType: TrafficSourceTypes.cloudflare, displayName: 'Queue', status: TrafficSourceStatuses.connected, configJson: { schemaVersion: 1, deliveryMode: 'queue-pull', accountId: 'account', queueId: 'queue', queueName: 'queue', retentionSeconds: 60, workerVersion: 'test', expectedBotListVersion: 'test', zoneId: null }, createdAt: NOW, updatedAt: NOW },
   ] as never).run()
 }
