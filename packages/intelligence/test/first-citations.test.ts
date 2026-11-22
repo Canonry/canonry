@@ -13,7 +13,7 @@ describe('detectFirstCitations', () => {
       { query: 'k1', provider: 'openai', cited: false },
     ])
     const curr = makeRun('r2', [
-      { query: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com', position: 1 },
+      { query: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com' },
       { query: 'k1', provider: 'openai', cited: false },
     ])
 

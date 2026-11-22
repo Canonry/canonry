@@ -27,7 +27,6 @@ export function detectGains(currentRun: RunData, previousRun: RunData): Gain[] {
         query: snap.query,
         provider: snap.provider,
         citationUrl: snap.citationUrl,
-        position: snap.position,
         snippet: snap.snippet,
         runId: currentRun.runId,
       })

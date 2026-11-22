@@ -16,7 +16,7 @@ describe('detectRegressions', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { query: 'roof repair', provider: 'chatgpt', cited: true, citationUrl: 'https://example.com/roof', position: 2 },
+        { query: 'roof repair', provider: 'chatgpt', cited: true, citationUrl: 'https://example.com/roof' },
       ],
     })
     const curr = makeRun({
@@ -32,7 +32,6 @@ describe('detectRegressions', () => {
       query: 'roof repair',
       provider: 'chatgpt',
       previousCitationUrl: 'https://example.com/roof',
-      previousPosition: 2,
       currentRunId: 'run_002',
       previousRunId: 'run_001',
     })
@@ -57,9 +56,9 @@ describe('detectRegressions', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { query: 'seo tips', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1', position: 1 },
-        { query: 'seo tips', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2', position: 3 },
-        { query: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3', position: 2 },
+        { query: 'seo tips', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1' },
+        { query: 'seo tips', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2' },
+        { query: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3' },
       ],
     })
     const curr = makeRun({
@@ -67,7 +66,7 @@ describe('detectRegressions', () => {
       snapshots: [
         { query: 'seo tips', provider: 'chatgpt', cited: false },
         { query: 'seo tips', provider: 'gemini', cited: false },
-        { query: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3', position: 2 },
+        { query: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3' },
       ],
     })
 
@@ -149,11 +148,11 @@ describe('detectRegressions', () => {
     expect(detectRegressions(curr, prev)).toEqual([])
   })
 
-  it('preserves undefined previousCitationUrl and previousPosition', () => {
+  it('preserves undefined previousCitationUrl', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { query: 'k1', provider: 'chatgpt', cited: true }, // no citationUrl or position
+        { query: 'k1', provider: 'chatgpt', cited: true }, // no citationUrl
       ],
     })
     const curr = makeRun({
@@ -166,7 +165,6 @@ describe('detectRegressions', () => {
     const result = detectRegressions(curr, prev)
     expect(result).toHaveLength(1)
     expect(result[0].previousCitationUrl).toBeUndefined()
-    expect(result[0].previousPosition).toBeUndefined()
   })
 
   it('handles large runs with many queries and providers', () => {

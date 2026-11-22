@@ -13,7 +13,6 @@ export interface Snapshot {
    */
   answerMentioned?: boolean | null
   citationUrl?: string
-  position?: number
   snippet?: string
   /**
    * Location label this snapshot was produced at, or `undefined`/`null` for
@@ -59,7 +58,6 @@ export interface Regression {
   query: string
   provider: string
   previousCitationUrl?: string
-  previousPosition?: number
   currentRunId: string
   previousRunId: string
 }
@@ -68,7 +66,6 @@ export interface Gain {
   query: string
   provider: string
   citationUrl?: string
-  position?: number
   snippet?: string
   runId: string
 }
@@ -152,7 +149,6 @@ export interface FirstCitation {
   query: string
   provider: string
   citationUrl?: string
-  position?: number
   runId: string
 }
 
@@ -160,7 +156,6 @@ export interface ProviderPickup {
   query: string
   provider: string
   citationUrl?: string
-  position?: number
   runId: string
 }
 

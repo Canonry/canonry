@@ -16,17 +16,17 @@ describe('analyzeRuns', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { query: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1', position: 2 },
+        { query: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1' },
         { query: 'k2', provider: 'chatgpt', cited: false },
-        { query: 'k2', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2', position: 1 },
+        { query: 'k2', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2' },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
         { query: 'k1', provider: 'chatgpt', cited: false },            // regression
-        { query: 'k2', provider: 'chatgpt', cited: true, position: 3 }, // gain
-        { query: 'k2', provider: 'gemini', cited: true, position: 1 },  // stable
+        { query: 'k2', provider: 'chatgpt', cited: true }, // gain
+        { query: 'k2', provider: 'gemini', cited: true },  // stable
       ],
     })
 

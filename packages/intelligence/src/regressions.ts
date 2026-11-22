@@ -12,12 +12,11 @@ export function detectRegressions(currentRun: RunData, previousRun: RunData): Re
   }
   const regressions: Regression[] = []
 
-  const previousCited = new Map<string, { citationUrl?: string; position?: number }>()
+  const previousCited = new Map<string, { citationUrl?: string }>()
   for (const snap of previousRun.snapshots) {
     if (snap.cited) {
       previousCited.set(snapshotKey(snap), {
         citationUrl: snap.citationUrl,
-        position: snap.position,
       })
     }
   }
@@ -30,7 +29,6 @@ export function detectRegressions(currentRun: RunData, previousRun: RunData): Re
         query: snap.query,
         provider: snap.provider,
         previousCitationUrl: prev.citationUrl,
-        previousPosition: prev.position,
         currentRunId: currentRun.runId,
         previousRunId: previousRun.runId,
       })
