@@ -12,7 +12,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { shellQuote, type CloudRunTrafficTarget } from '@canonry/canonry-contracts'
+import { shellQuote, type CloudRunTrafficSetup } from '@canonry/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
@@ -36,26 +36,31 @@ export function ConnectSourceDrawer({
   onOpenChange: (open: boolean) => void
   onClosed?: () => void
   onSourceConnected?: (sourceId: string) => void
-  initialCloudRunTarget?: CloudRunTrafficTarget
+  initialCloudRunTarget?: CloudRunTrafficSetup
   projectName: string
 }) {
   const navigate = useNavigate()
-  const firstStep = initialCloudRunTarget ? 'cloud-run' : 'pick'
+  const [handoffTarget, setHandoffTarget] = useState(initialCloudRunTarget)
+  const [cloudRunBackfill, setCloudRunBackfill] = useState(!initialCloudRunTarget || initialCloudRunTarget.startFromNow === false)
+  const firstStep = handoffTarget ? 'cloud-run' : 'pick'
   const [step, setStep] = useState<Step>(firstStep)
   useEffect(() => {
     if (open) setStep(firstStep)
   }, [open, firstStep])
 
-  // Every close path resets the step synchronously so a reopened drawer never
-  // flashes the previously-selected form before the reopen effect above runs.
+  // Drop form credentials on close. Reopening a handoff restores its target.
   const handleClose = () => {
     onOpenChange(false)
-    setStep('pick')
+    setStep(firstStep)
   }
 
   const formProps = {
     projectName,
-    onBack: () => setStep('pick'),
+    onBack: () => {
+      setHandoffTarget(undefined)
+      if (initialCloudRunTarget) setCloudRunBackfill(false)
+      setStep('pick')
+    },
     onClose: handleClose,
     onSourceConnected: (sourceId: string) => {
       handleClose()
@@ -82,7 +87,7 @@ export function ConnectSourceDrawer({
         ) : step === 'vercel' ? (
           <VercelSourceForm {...formProps} />
         ) : (
-          <CloudRunSourceForm {...formProps} initialTarget={initialCloudRunTarget} />
+          <CloudRunSourceForm {...formProps} initialTarget={handoffTarget} backfill={cloudRunBackfill} onBackfillChange={setCloudRunBackfill} />
         )}
       </SheetContent>
     </Sheet>
@@ -424,12 +429,15 @@ function WordpressSourceForm({ projectName, onBack, onClose, onSourceConnected }
   )
 }
 
-function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, initialTarget }: SourceFormProps & { initialTarget?: CloudRunTrafficTarget }) {
+function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, initialTarget, backfill, onBackfillChange }: SourceFormProps & {
+  initialTarget?: CloudRunTrafficSetup
+  backfill: boolean
+  onBackfillChange: (value: boolean) => void
+}) {
   const [gcpProjectId, setGcpProjectId] = useState(initialTarget?.gcpProjectId ?? '')
   const [serviceName, setServiceName] = useState(initialTarget?.serviceName ?? '')
   const [location, setLocation] = useState(initialTarget?.location ?? '')
-  const [backfill, setBackfill] = useState(!initialTarget)
-  const [displayName, setDisplayName] = useState('')
+  const [displayName, setDisplayName] = useState(initialTarget?.displayName ?? '')
   const [keyJson, setKeyJson] = useState('')
 
   const connect = useConnectServerTrafficCloudRun(projectName || null)
@@ -448,6 +456,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
           location: location.trim() || undefined,
           displayName: displayName.trim() || undefined,
           keyJson: keyJson.trim() || undefined,
+          ...(!backfill && { startFromNow: true }),
         }),
       startInitialBackfill: backfill,
       // Don't keep the private-key payload around in memory after submit.
@@ -469,7 +478,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
           <InfoTooltip text={storageNote('service-account private key')} />
         </span>
       }
-      guide={cloudRunGuide(projectName, gcpProjectId, serviceName, location)}
+      guide={cloudRunGuide(projectName, gcpProjectId, serviceName, location, displayName)}
       projectName={projectName}
       onBack={onBack}
       onClose={onClose}
@@ -485,6 +494,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
         <input
           type="text"
           value={gcpProjectId}
+          readOnly={Boolean(initialTarget)}
           onChange={(e) => setGcpProjectId(e.target.value)}
           required
           autoComplete="off"
@@ -524,6 +534,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
         <input
           type="text"
           value={serviceName}
+          readOnly={Boolean(initialTarget)}
           onChange={(e) => setServiceName(e.target.value)}
           autoComplete="off"
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
@@ -537,6 +548,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
         <input
           type="text"
           value={location}
+          readOnly={Boolean(initialTarget)}
           onChange={(e) => setLocation(e.target.value)}
           autoComplete="off"
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
@@ -558,7 +570,7 @@ function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, i
 
       </OptionalFields>
       <label className="flex items-center gap-2 text-label-14 text-secondary">
-        <input type="checkbox" checked={backfill} onChange={event => setBackfill(event.target.checked)} />
+        <input type="checkbox" checked={backfill} onChange={event => onBackfillChange(event.target.checked)} />
         Import the last 30 days of available logs
       </label>
     </ConnectSourceFormShell>
@@ -839,10 +851,10 @@ ${SECRET_RULE}`,
   }
 }
 
-export function cloudRunGuide(projectName: string, gcpProjectId: string, serviceName = '', location = ''): SourceGuide {
+export function cloudRunGuide(projectName: string, gcpProjectId: string, serviceName = '', location = '', displayName = ''): SourceGuide {
   const project = shellQuote(projectName)
   const gcpProject = gcpProjectId.trim()
-  const target = { gcpProjectId: gcpProject, serviceName: serviceName.trim() || undefined, location: location.trim() || undefined }
+  const target = { gcpProjectId: gcpProject, serviceName: serviceName.trim() || undefined, location: location.trim() || undefined, displayName: displayName.trim() || undefined }
   const serviceAccountsUrl = `https://console.cloud.google.com/iam-admin/serviceaccounts${gcpProject ? `?project=${encodeURIComponent(gcpProject)}` : ''}`
   return {
     docsUrl: `${TRAFFIC_DOCS}#connecting-a-cloud-run-source`,
@@ -864,7 +876,7 @@ Follow the Cloud Run section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-c
 
 1. Confirm the GCP project ID, Cloud Run service and region with me. The current form selection is ${JSON.stringify({ project: projectName, request: target })}.
 2. Call canonry_traffic_connect_cloud_run for the approved target. Omit keyJson to reuse its saved Logs Viewer key.
-3. If it returns cloud-run-credential-required, give me the dashboard link from dashboardPath. I will upload the key there and connect the source myself. Never ask me to paste a password, token, or key into this chat.
+3. If it returns cloud-run-credential-required, give me the dashboardUrl to open. If only dashboardPath is available, resolve it against the known Canonry dashboard address. I will upload the key there and connect the source myself. Never ask me to paste a password, token, or key into this chat.
 4. Confirm the source with canonry_traffic_sources_list. Report its last sync separately. Start a backfill only if I request one.
 
 If I explicitly request a CLI setup, use cnry traffic connect cloud-run ${project} --gcp-project <project-id> with the approved service and region.`,

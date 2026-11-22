@@ -116,6 +116,8 @@ canonry bootstrap
    Pass the exact `siteUrl` you want to `canonry_gsc_set_property`.
 3. Check the saved selection with `canonry_google_connections_list`.
 
+Projects with the same connection domain share their selected property. Selecting a different property or disconnecting clears the previous property's stored Search Console data for all of them. A new sync fills the data for the selected property. Wait for active syncs and sitemap inspections to finish before switching.
+
 ### Web UI
 
 1. Navigate to your project → **Search Console** tab

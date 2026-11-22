@@ -71,7 +71,9 @@ An install administrator can pass `--use-saved-key` to use the key from Settings
 
 1. Read `canonry_bing_status` with the project name.
 2. If disconnected, call `canonry_bing_connect` with the project name. It uses the saved key and returns the account’s sites. On an existing connection, `canonry_bing_sites` retrieves the list from Bing.
-3. Call `canonry_bing_set_site` with the owning project and the approved `siteUrl`. Using the saved key and listing account sites require install administrator access. A project-scoped writer can select a site on its own domain when its connection belongs exclusively to that project.
+3. Call `canonry_bing_set_site` with the owning project and the approved `siteUrl`. Using the saved key and listing account sites require install administrator access. A project writer can select its exclusive canonical site. Match its scheme, host (including `www`), port and path. A bare hostname uses its HTTPS root.
+
+Changing the site clears saved Bing measurements for the previous property. Wait for any active Bing sync or inspection to finish before switching. An administrator must authorize or remove a connection whose credentials are shared across projects.
 
 ### Web UI
 

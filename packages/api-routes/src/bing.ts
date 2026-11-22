@@ -1,10 +1,10 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, ne } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, projects, runs } from '@canonry/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomeOperationKinds, OutcomePhases, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
-import { bingConnectRequestSchema, bingSiteUrlSchema, forbidden, hostOf } from '@canonry/canonry-contracts'
-import { requireInstanceAdministrator } from './auth.js'
+import { bingConnectRequestSchema, bingProjectSiteUrl, bingSiteUrlSchema, forbidden, operationInProgress } from '@canonry/canonry-contracts'
+import { isInstanceAdministrator, requireInstanceAdministrator } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
@@ -24,6 +24,7 @@ import {
   BING_SUBMIT_URL_DAILY_LIMIT,
 } from '@canonry/canonry-integration-bing'
 import { bingDataRoutes } from './bing-data.js'
+import { changeSearchSite } from './search-site-change.js'
 
 function bingLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'BingRoutes', action, ...ctx }
@@ -105,6 +106,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   // gets them without another call to Bing; the CLI and dashboard always ask.
   const keyChecks = createVerifyCache<Awaited<ReturnType<typeof getSites>>>()
 
+  function requireSharedConnectionAuthority(request: FastifyRequest, project: { id: string; canonicalDomain: string }) {
+    if (isInstanceAdministrator(request)) return
+    const sibling = app.db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.canonicalDomain, project.canonicalDomain), ne(projects.id, project.id))).get()
+    if (sibling) requireInstanceAdministrator(request)
+  }
+
   function requireConnectionStore(): BingConnectionStore {
     if (opts.bingConnectionStore) return opts.bingConnectionStore
     throw validationError('Bing connection storage is not configured for this deployment')
@@ -149,6 +157,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const project = resolveProject(app.db, request.params.name)
 
     // Verify the API key by listing sites
+    requireSharedConnectionAuthority(request, project)
     const keyCheck = verifyCacheKey('bing-key', apiKey)
     let sites = isInteractiveCaller() ? undefined : keyChecks.get(keyCheck)
     if (!sites) {
@@ -167,6 +176,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     }
     const availableSites = sites.map((s) => ({ url: s.Url, verified: s.IsVerified ?? false }))
 
+    // Verification yields to the provider. Bind the write to the same project
+    // and recheck for a sibling that began sharing this connection meanwhile.
+    const current = resolveProject(app.db, request.params.name)
+    if (current.id !== project.id || current.canonicalDomain !== project.canonicalDomain) {
+      throw operationInProgress('The project changed during Bing verification. Retry the connection.')
+    }
+    requireSharedConnectionAuthority(request, current)
     const now = new Date().toISOString()
     const existing = store.getConnection(project.canonicalDomain)
     if (existing) attempt.update({ action: 'reauth' })
@@ -229,20 +245,21 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         `This Bing connection is owned by a different project. Disconnect from the owning project instead.`,
       )
     }
-
-    const deleted = store.deleteConnection(project.canonicalDomain)
-    if (!deleted) {
-      attempt.failed(undefined, 'NOT_CONNECTED')
-      throw notFound('Bing connection', project.canonicalDomain)
-    }
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'bing.disconnected',
-      entityType: 'bing_connection',
-      entityId: project.canonicalDomain,
+    requireSharedConnectionAuthority(request, project)
+    changeSearchSite(app.db, 'bing', project.canonicalDomain, existing.siteUrl, null, (tx) => {
+      if (!store.deleteConnection(project.canonicalDomain)) {
+        attempt.failed(undefined, 'NOT_CONNECTED')
+        throw notFound('Bing connection', project.canonicalDomain)
+      }
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'bing.disconnected',
+        entityType: 'bing_connection',
+        entityId: project.canonicalDomain,
+      })
     })
+    crawlIssuesCache.delete(project.canonicalDomain)
 
     return reply.status(204).send()
   }))
@@ -302,17 +319,25 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     if (!selected.success) throw validationError('siteUrl must be an HTTP or HTTPS site URL.')
     const siteUrl = selected.data
     if (request.principal?.projectId) {
-      const shared = app.db.select({ id: projects.id }).from(projects)
-        .where(and(eq(projects.canonicalDomain, project.canonicalDomain), ne(projects.id, project.id))).get()
-      if (connection.createdByProjectId !== request.principal.projectId || hostOf(siteUrl) !== hostOf(project.canonicalDomain) || shared) {
-        throw forbidden('A project key can select a Bing site only on its own domain and on a connection exclusive to that project.')
+      const projectSite = bingProjectSiteUrl(project.canonicalDomain)
+      if (connection.createdByProjectId !== request.principal.projectId || projectSite !== new URL(siteUrl).href) {
+        throw forbidden('A project key can select only its own exact Bing site property. An administrator can select another verified site.')
+      }
+      const shared = app.db.select({ domain: projects.canonicalDomain }).from(projects)
+        .where(ne(projects.id, project.id)).all().some(other => bingProjectSiteUrl(other.domain) === projectSite)
+      if (shared) {
+        throw forbidden('A project key cannot select a Bing property shared with another project.')
       }
     }
 
-    store.updateConnection(project.canonicalDomain, {
-      siteUrl,
-      updatedAt: new Date().toISOString(),
+    if (connection.siteUrl === siteUrl) return { siteUrl }
+    changeSearchSite(app.db, 'bing', project.canonicalDomain, connection.siteUrl, siteUrl, () => {
+      store.updateConnection(project.canonicalDomain, {
+        siteUrl,
+        updatedAt: new Date().toISOString(),
+      })
     })
+    crawlIssuesCache.delete(project.canonicalDomain)
 
     return { siteUrl }
   }))

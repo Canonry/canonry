@@ -256,8 +256,13 @@ export const cloudRunTrafficTargetSchema = z.object({
 })
 export type CloudRunTrafficTarget = z.infer<typeof cloudRunTrafficTargetSchema>
 
-export const trafficConnectCloudRunRequestSchema = cloudRunTrafficTargetSchema.extend({
+export const cloudRunTrafficSetupSchema = cloudRunTrafficTargetSchema.extend({
   displayName: z.string().min(1).optional(),
+  startFromNow: z.boolean().optional().describe('For a new source, collect logs from connection time onward. Existing sources keep their sync position.'),
+})
+export type CloudRunTrafficSetup = z.infer<typeof cloudRunTrafficSetupSchema>
+
+export const trafficConnectCloudRunRequestSchema = cloudRunTrafficSetupSchema.extend({
   keyJson: z.string().min(1).optional().describe('Omit to reuse this project’s saved service account for the exact GCP project, service and region. Supply a new key only through a secure credential input.'),
 })
 export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRunRequestSchema>

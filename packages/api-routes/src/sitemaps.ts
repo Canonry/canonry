@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { bingSitemaps, gscSitemaps, runs, siteCrawlPages, siteCrawlSnapshots, sitemapListSyncs } from '@canonry/canonry-db'
-import { RunKinds, RunStatuses, hostMatchesDomain, type EngineSitemapDto, type SitemapCoverageResponseDto } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, hostMatchesDomain, isSitemapOwnedByProperty, type EngineSitemapDto, type SitemapCoverageResponseDto } from '@canonry/canonry-contracts'
 import type { BingConnectionStore } from './bing.js'
-import { isSitemapOwnedByProperty, type GoogleConnectionStore } from './google.js'
+import type { GoogleConnectionStore } from './google.js'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { bingSitemapState, buildSitemapCoverage, googleSitemapState, type EngineList } from './sitemap-coverage.js'
 

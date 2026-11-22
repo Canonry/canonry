@@ -261,6 +261,7 @@ async function buildHarness(
     db,
     skipAuth: true,
     dashboardPath: '/canonry/',
+    publicUrl: 'https://dashboard.example/public-canonry',
     cloudRunCredentialStore,
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
@@ -995,10 +996,11 @@ describe('POST /traffic/connect/cloud-run', () => {
   })
 
   it('directs a project without a saved key to its private setup form', async () => {
-    const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1' }
+    const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1', displayName: 'Customer logs', startFromNow: false }
     const res = await h.app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+      headers: { host: 'untrusted.example' },
       payload: target,
     })
     expect(res.statusCode).toBe(400)
@@ -1007,6 +1009,10 @@ describe('POST /traffic/connect/cloud-run', () => {
     const form = new URL(details.dashboardPath, 'https://example.test')
     expect(form.pathname).toBe('/canonry/projects/test-project/traffic')
     expect(JSON.parse(form.searchParams.get('connectCloudRun')!)).toEqual(target)
+    const publicForm = new URL(details.dashboardUrl)
+    expect(publicForm.origin).toBe('https://dashboard.example')
+    expect(publicForm.pathname).toBe('/public-canonry/projects/test-project/traffic')
+    expect(publicForm.search).toBe(form.search)
     expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
   })
 
@@ -1109,6 +1115,53 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(h.credentials.get('test-project')).toMatchObject({ projectId: source.json().projectId, privateKey: legacy.privateKey })
   })
 
+  it('keeps the source generation, label and error when a keyless retry arrives during a pull', async () => {
+    const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+    const target = { gcpProjectId: 'production', serviceName: 'web' }
+    let confirmedSource: unknown
+    await h.close()
+    h = await buildHarness([], {
+      onCloudRunPull: async () => {
+        const confirmed = await h.app.inject({ method: 'POST', url, payload: target })
+        confirmedSource = confirmed.json()
+      },
+    })
+    const connected = await h.app.inject({ method: 'POST', url, payload: { ...target, displayName: 'Primary logs', keyJson: SA_KEY } })
+    expect(connected.statusCode).toBe(200)
+    const sourceId = connected.json().id
+    h.db.update(trafficSources).set({
+      status: TrafficSourceStatuses.error, lastError: 'previous pull failed', updatedAt: '2026-01-01T00:00:00.000Z',
+    }).where(eq(trafficSources.id, sourceId)).run()
+    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    expect(synced.statusCode).toBe(200)
+    expect(confirmedSource).toMatchObject({
+      displayName: 'Primary logs', status: TrafficSourceStatuses.error, lastError: 'previous pull failed',
+    })
+    expect(h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).get()?.status).toBe(RunStatuses.completed)
+  })
+
+  it('starts the first Cloud Run pull at connect time when history is disabled', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-05T12:00:00Z'))
+      const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+      const payload = { gcpProjectId: 'hosting', startFromNow: true }
+      const connected = await h.app.inject({ method: 'POST', url, payload: { ...payload, keyJson: SA_KEY } })
+      expect(connected.statusCode).toBe(200)
+      expect(connected.json().lastSyncedAt).toBeNull()
+      vi.setSystemTime(new Date('2026-10-05T12:10:00Z'))
+      // Repeating setup must not advance the new source past its first ten minutes.
+      expect((await h.app.inject({ method: 'POST', url, payload })).statusCode).toBe(200)
+      vi.setSystemTime(new Date('2026-10-05T12:15:00Z'))
+      const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${connected.json().id}/sync`, payload: {} })
+      expect(sync.statusCode).toBe(200)
+      expect(h.getObservedWindows()).toEqual([{ startTime: '2026-10-05T12:00:00.000Z', endTime: '2026-10-05T12:15:00.000Z' }])
+      expect(h.getObservedFirstSync()).toEqual([false])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rejects malformed keyJson', async () => {
     const res = await h.app.inject({
       method: 'POST',
@@ -1149,25 +1202,40 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(sourceRows[0].status).toBe(TrafficSourceStatuses.connected)
   })
 
-  it('reuses the existing source row on reconnect rather than creating a duplicate', async () => {
-    await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'old-project', keyJson: SA_KEY },
-    })
+  it.each([
+    { change: { gcpProjectId: 'other-project' }, staged: false },
+    { change: { serviceName: 'new-service' }, staged: true },
+    { change: { location: 'us-west1' }, staged: false },
+  ])('keeps prior Cloud Run evidence on its original target after $change (staged=$staged)', async ({ change, staged }) => {
+    await h.close()
+    h = await buildHarness([buildEvent({ observedAt: new Date(Date.now() - 60_000).toISOString(), remoteIp: GPTBOT_IP })])
+    const traffic = '/api/v1/projects/test-project/traffic'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const connect = (payload: object) => h.app.inject({ method: 'POST', url: traffic + '/connect/cloud-run', payload })
+    const activate = (id: string) => h.app.inject({ method: 'POST', url: `${traffic}/sources/${id}/activate`, payload: {} })
+    const detail = async (id: string) => (await h.app.inject({ method: 'GET', url: `${traffic}/sources/${id}` })).json()
+    const original = (await connect({ ...target, keyJson: SA_KEY })).json()
+    expect((await activate(original.id)).statusCode).toBe(200)
+    const sync = await h.app.inject({ method: 'POST', url: `${traffic}/sources/${original.id}/sync`, payload: {} })
+    expect(sync.json()).toMatchObject({ crawlerHits: 1 })
+    const rotated = await connect({ ...target, keyJson: JSON.stringify({ client_email: 'rotated@example.test', private_key: 'rotated-key' }) })
+    expect(rotated.json()).toMatchObject({ id: original.id, lastSyncedAt: sync.json().windowEnd })
+    if (staged) {
+      const push = await h.app.inject({ method: 'POST', url: traffic + '/connect/cloudflare', payload: {} })
+      expect((await activate(push.json().sourceId)).statusCode).toBe(200)
+    }
 
-    const second = await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'new-project', serviceName: 'new-svc', keyJson: SA_KEY },
+    const replacement = (await connect({ ...target, ...change, keyJson: SA_KEY, startFromNow: true })).json()
+    expect(replacement.id).not.toBe(original.id)
+    expect(await detail(original.id)).toMatchObject({
+      status: TrafficSourceStatuses.archived, config: target, lastSyncedAt: sync.json().windowEnd, totals24h: { crawlerHits: 1 },
     })
-
-    expect(second.statusCode).toBe(200)
-    const sources = h.db.select().from(trafficSources).all()
-    expect(sources.length).toBe(1)
-    const config = sources[0].configJson
-    expect(config.gcpProjectId).toBe('new-project')
-    expect(config.serviceName).toBe('new-svc')
+    expect(await detail(replacement.id)).toMatchObject({
+      status: staged ? TrafficSourceStatuses.paused : TrafficSourceStatuses.connected,
+      config: { ...target, ...change, startFromNow: true }, lastSyncedAt: null, latestRun: null, totals24h: { crawlerHits: 0 },
+    })
+    const schedule = h.db.select().from(schedules).where(eq(schedules.kind, SchedulableRunKinds['traffic-sync'])).get()
+    expect(schedule?.sourceId).toBe(staged ? undefined : replacement.id)
   })
 })
 

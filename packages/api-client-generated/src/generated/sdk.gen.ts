@@ -3721,7 +3721,7 @@ export const getApiV1ProjectsByNameBingSites = <ThrowOnError extends boolean = f
 /**
  * Set the active Bing site
  *
- * Select an HTTP(S) site from the project that owns the connection. A project-scoped writer can select its own domain when no sibling project shares the connection.
+ * Select a Bing site for the owning project. A project writer may select its exclusive canonical site with the exact scheme, host, port and path. Changing the site retires the previous site’s measurements.
  */
 export const postApiV1ProjectsByNameBingSetSite = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameBingSetSiteData, ThrowOnError>): RequestResult<PostApiV1ProjectsByNameBingSetSiteResponses, PostApiV1ProjectsByNameBingSetSiteErrors, ThrowOnError> => (options.client ?? client).post<PostApiV1ProjectsByNameBingSetSiteResponses, PostApiV1ProjectsByNameBingSetSiteErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -4805,7 +4805,7 @@ export const getApiV1ProjectsByNameBacklinksSources = <ThrowOnError extends bool
 /**
  * Connect a Cloud Run traffic source
  *
- * Connects a Cloud Run log source. Omit keyJson to use a service account already saved for this Canonry project, GCP project, service and region. When a credential is needed, the validation error includes the project dashboard path for secure setup. Reconnecting updates the existing source.
+ * Connects Cloud Run logs with the credential saved for this project and target. When a key is needed, the error includes the dashboard setup path and a link when the public origin is known. Set startFromNow to collect only new logs. The same target keeps its sync position. Changing targets archives the old source and starts a separate history.
  */
 export const postApiV1ProjectsByNameTrafficConnectCloudRun = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData, ThrowOnError>): RequestResult<PostApiV1ProjectsByNameTrafficConnectCloudRunResponses, PostApiV1ProjectsByNameTrafficConnectCloudRunErrors, ThrowOnError> => (options.client ?? client).post<PostApiV1ProjectsByNameTrafficConnectCloudRunResponses, PostApiV1ProjectsByNameTrafficConnectCloudRunErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

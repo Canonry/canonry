@@ -497,6 +497,7 @@ export async function trafficConnectCloudRun(project: string, opts: {
   service?: string
   location?: string
   serviceAccountKey?: string
+  startFromNow?: boolean
   displayName?: string
   format?: string
 }): Promise<void> {
@@ -529,6 +530,7 @@ export async function trafficConnectCloudRun(project: string, opts: {
     gcpProjectId: opts.gcpProject,
     serviceName: opts.service,
     location: opts.location,
+    startFromNow: opts.startFromNow,
     displayName: opts.displayName,
     keyJson,
   })

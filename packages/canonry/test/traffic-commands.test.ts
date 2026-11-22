@@ -325,13 +325,16 @@ describe('traffic CLI commands', () => {
   it('connects Cloud Run without a key file when the server has a key for the requested target', async () => {
     const args = [
       'traffic', 'connect', 'cloud-run', 'test-proj', '--gcp-project', 'hosting-project',
-      '--service', 'web', '--location', 'us-east1', '--display-name', 'Website logs', '--format', 'json',
+      '--service', 'web', '--location', 'us-east1', '--display-name', 'Website logs', '--start-from-now', '--format', 'json',
     ]
     const missing = await invokeCli(args)
     expect(missing.exitCode).toBe(1)
-    expect(parseJsonOutput(missing.stderr)).toMatchObject({
+    const failure = parseJsonOutput(missing.stderr) as { error: { details: { dashboardPath: string } } }
+    expect(failure).toMatchObject({
       error: { code: 'VALIDATION_ERROR', details: { reason: 'cloud-run-credential-required' } },
     })
+    const handoff = new URL(failure.error.details.dashboardPath, 'https://dashboard.example')
+    expect(JSON.parse(handoff.searchParams.get('connectCloudRun')!)).toMatchObject({ displayName: 'Website logs', startFromNow: true })
 
     const source = await client.trafficConnectCloudRun('test-proj', {
       gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1',

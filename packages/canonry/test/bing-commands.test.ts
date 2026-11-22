@@ -100,7 +100,7 @@ describe('bing CLI commands', () => {
   })
 
   it('lets a project writer select its own Bing site while protecting other sites and shared connections', async () => {
-    const settings = { displayName: 'Project', canonicalDomain: 'example.com', country: 'US', language: 'en' }
+    const settings = { displayName: 'Project', canonicalDomain: 'WWW.Example.com', country: 'US', language: 'en' }
     const project = await client.putProject('scoped', settings)
     const key = await client.createApiKey({ name: 'project-writer', projectId: project.id, scopes: ['*'] })
     const scoped = new ApiClient(serverUrl, key.key)
@@ -108,11 +108,16 @@ describe('bing CLI commands', () => {
     vi.spyOn(bing, 'getSites').mockResolvedValue([{ Url: 'https://www.example.com/', IsVerified: true }])
     await scoped.bingConnect(project.name, { apiKey: 'project-owned-key' })
     await scoped.bingSetSite(project.name, 'https://www.example.com/')
-    await expect(scoped.bingSetSite(project.name, 'https://another.example/')).rejects.toMatchObject({ code: 'FORBIDDEN' })
-
-    await client.putProject('shared', settings)
-    await expect(scoped.bingSetSite(project.name, 'https://example.com/')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    for (const site of ['https://example.com/', 'http://www.example.com/', 'https://www.example.com:8443/', 'https://www.example.com/shop/', 'https://another.example/']) {
+      await expect(scoped.bingSetSite(project.name, site)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    }
+    await client.putProject('shared', { ...settings, canonicalDomain: 'https://www.example.com/' })
+    await expect(scoped.bingSetSite(project.name, 'https://www.example.com/')).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(await client.bingStatus(project.name)).toMatchObject({ siteUrl: 'https://www.example.com/' })
+    await client.putProject('shared', settings)
+    await expect(scoped.bingConnect(project.name, { apiKey: 'replacement-fixture' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(scoped.bingDisconnect(project.name)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(await client.bingStatus('shared')).toMatchObject({ connected: true, siteUrl: 'https://www.example.com/' })
   })
 
   it('bingRefresh prints "No previously inspected URLs" when project has no inspections', async () => {

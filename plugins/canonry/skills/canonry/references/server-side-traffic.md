@@ -97,8 +97,12 @@ For an approved MCP connection, call `canonry_traffic_connect_cloud_run`
 with the Canonry project and `request.gcpProjectId`. Include the approved
 `serviceName` and `location`. The server can use a service account saved
 for that exact target. If it returns `cloud-run-credential-required`,
-open the project's Server traffic tab, choose **Connect a source → Google
-Cloud Run**, and upload the Logs Viewer key there. Keep the key out of chat.
+give the operator the returned `dashboardUrl`. It opens the requested target
+for private key upload. On older instances, open the returned `dashboardPath`
+at the Canonry dashboard address. Keep the key out of chat.
+New keyless MCP connections start collecting at connection time. Set
+`request.startFromNow` to false only for an approved historical import.
+The CLI option `--start-from-now` starts a new source at connection time.
 Read `canonry_traffic_sources_list` to verify the source.
 
 ```bash

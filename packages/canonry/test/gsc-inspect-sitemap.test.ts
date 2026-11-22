@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { executeInspectSitemap } from '../src/gsc-inspect-sitemap.js'
+import * as sitemaps from '../src/sitemap-parser.js'
 
 type RunUpdate = { status?: string; startedAt?: string; finishedAt?: string; error?: string }
 
@@ -32,6 +33,26 @@ function makeDbWithProject(project: unknown) {
 }
 
 describe('executeInspectSitemap', () => {
+  it.each([
+    ['https://shop.example.com/catalog', 'https://retail.example.com', 'https://shop.example.com/catalog/sitemap.xml'],
+    ['sc-domain:example.com', 'https://shop.example.com/', 'https://shop.example.com/sitemap.xml'],
+  ])('fetches the default sitemap inside the selected property %s', async (propertyId, canonicalDomain, expectedSitemap) => {
+    const db = makeDbWithProject({ id: 'p', name: 'test', canonicalDomain })
+    const fetchSitemap = vi.spyOn(sitemaps, 'fetchAndParseSitemap').mockResolvedValue([])
+    try {
+      await expect(executeInspectSitemap(db as never, 'r', 'p', { config: {
+        apiUrl: 'http://localhost:4100', database: ':memory:', apiKey: 'cnry_test',
+        google: {
+          clientId: 'id', clientSecret: 'secret',
+          connections: [{ domain: canonicalDomain, connectionType: 'gsc', propertyId, refreshToken: 'refresh', accessToken: 'access', tokenExpiresAt: '2099-01-01T00:00:00Z', createdAt: '', updatedAt: '' }],
+        },
+      } })).rejects.toThrow('No URLs found in sitemap')
+      expect(fetchSitemap).toHaveBeenCalledWith(expectedSitemap)
+    } finally {
+      fetchSitemap.mockRestore()
+    }
+  })
+
   it('marks run as running then failed when project is not found', async () => {
     const db = makeDbWithProject(null)
 

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useId, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, RefreshCw, Zap } from 'lucide-react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  bingProjectSiteUrl,
   calendarDateRange,
   formatPercent,
   formatRunErrorOneLine,
@@ -9,6 +10,7 @@ import {
   RatioUnits,
   RunKinds,
   RunStatuses,
+  type BingConnectResponseDto,
   type BingSearchComparisonDto,
   type BingSiteSnapshotDto,
   type BingSiteSnapshotKind,
@@ -236,6 +238,10 @@ function BingFrame({ status, right, children }: { status?: ReactNode; right?: Re
 
 export function BingSection({ projectName, refreshNonce }: { projectName: string; refreshNonce: number }) {
   const queryClient = useQueryClient()
+  const { canWrite, isAdmin } = useAccount()
+  const canConnect = canWrite && !isEmbed() && !isPublicDemo()
+  const [connectedSites, setConnectedSites] = useState<{ project: string; sites: BingConnectResponseDto['availableSites'] }>()
+  const offeredSites = !isAdmin && canConnect && connectedSites?.project === projectName ? connectedSites.sites : undefined
   const status = useQuery({
     ...getApiV1ProjectsByNameBingStatusOptions({
       client: heyClient,
@@ -250,7 +256,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
       path: { name: projectName },
     }),
     staleTime: GSC_STALE_MS,
-    enabled: Boolean(connection?.connected && !connection.siteUrl),
+    enabled: Boolean(isAdmin && canConnect && connection?.connected && !connection.siteUrl),
   })
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [selectedSite, setSelectedSite] = useState('')
@@ -259,13 +265,23 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
   // The page-level refresh invalidates the Bing reads before bumping this; the
   // refetch here covers a status read that was not stale yet.
   useEffect(() => {
-    if (refreshNonce > 0) void status.refetch()
+    if (refreshNonce > 0) {
+      setConnectedSites(undefined)
+      void status.refetch()
+    }
   }, [refreshNonce])
 
   async function handleConnect() {
+    if (!canConnect || (!isAdmin && !apiKeyInput.trim())) return
     setError(null)
     try {
-      await apiBingConnect(projectName, apiKeyInput.trim() || undefined)
+      const result = await apiBingConnect(projectName, apiKeyInput.trim() || undefined)
+      if (!isAdmin) {
+        const projectSite = bingProjectSiteUrl(result.domain)
+        const eligible = result.availableSites.filter(site =>
+          site.verified && projectSite !== null && bingProjectSiteUrl(site.url) === projectSite)
+        setConnectedSites({ project: projectName, sites: eligible })
+      }
       setApiKeyInput('')
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
@@ -277,6 +293,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
     setError(null)
     try {
       await apiBingDisconnect(projectName)
+      setConnectedSites(undefined)
       setSelectedSite('')
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
@@ -285,10 +302,10 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
   }
 
   async function handleSetSite() {
-    if (!selectedSite) return
+    if (!canConnect || !selectedSite.trim()) return
     setError(null)
     try {
-      await apiBingSetSite(projectName, selectedSite)
+      await apiBingSetSite(projectName, selectedSite.trim())
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
       setError(extractErrorMessage(e))
@@ -328,7 +345,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
             </div>
             <ToneBadge tone="caution">Not connected</ToneBadge>
           </div>
-          {isEmbed() ? (
+          {!canConnect ? (
             <p className="text-copy-14 text-neutral">Bing Webmaster Tools is not connected for this project.</p>
           ) : (
             <>
@@ -342,15 +359,15 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                     id="bing-api-key"
                     type="password"
                     className="min-w-0 flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                    placeholder="Leave blank to use the key in Settings"
+                    placeholder={isAdmin ? 'Leave blank to use the key in Settings' : 'Bing Webmaster Tools API key'}
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void handleConnect()
                     }}
                   />
-                  <WriteButton size="sm" onClick={asyncHandler(handleConnect)}>
-                    {apiKeyInput.trim() ? 'Connect' : 'Connect with saved key'}
+                  <WriteButton size="sm" disabled={!isAdmin && !apiKeyInput.trim()} onClick={asyncHandler(handleConnect)}>
+                    {apiKeyInput.trim() || !isAdmin ? 'Connect' : 'Connect with saved key'}
                   </WriteButton>
                 </div>
                 <p className="mt-1 text-copy-14 text-secondary">
@@ -369,7 +386,8 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
   }
 
   if (!connection.siteUrl) {
-    const siteList = sites.data?.sites ?? []
+    const siteList = offeredSites ?? (isAdmin && canConnect ? sites.data?.sites : undefined) ?? []
+    const manualEntry = canConnect && !isAdmin && !offeredSites
     return (
       <BingFrame>
         <Card className="surface-card">
@@ -379,7 +397,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
             </div>
             <div className="flex items-center gap-2">
               <ToneBadge tone="positive">Connected</ToneBadge>
-              {!isEmbed() && (
+              {canConnect && (
                 <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>
                   Disconnect
                 </WriteButton>
@@ -394,7 +412,7 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                 <span className="text-label-12 text-muted">{connection.domain}</span>
               </div>
               <p className="mt-2 text-copy-13 text-muted">
-                The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
+                The API key is connected, but no Bing site is selected yet. A verified site is required for inspections and indexing requests.
               </p>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
@@ -409,7 +427,19 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
             </div>
             <div>
               <p className="text-label-12 normal-case text-muted">Select site</p>
-              {sites.isError ? (
+              {!canConnect ? (
+                <p className="mt-3 text-copy-13 text-secondary">Ask a project administrator to select the verified site.</p>
+              ) : manualEntry ? (
+                <form className="mt-3 flex flex-col gap-2 lg:flex-row" onSubmit={asyncHandler(async (event: React.FormEvent) => {
+                  event.preventDefault()
+                  await handleSetSite()
+                })}>
+                  <input type="url" required aria-label="Verified Bing site URL" placeholder={bingProjectSiteUrl(connection.domain) ?? 'https://example.com/'}
+                    className="min-w-0 flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong"
+                    value={selectedSite} onChange={event => setSelectedSite(event.target.value)} />
+                  <Button type="submit" size="sm" disabled={!selectedSite.trim()}>Set Site</Button>
+                </form>
+              ) : !offeredSites && sites.isError ? (
                 <p className="mt-3 text-copy-13 text-negative">{extractErrorMessage(sites.error)}</p>
               ) : siteList.length > 0 ? (
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
@@ -427,15 +457,11 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                       </option>
                     ))}
                   </select>
-                  {!isEmbed() && (
-                    <WriteButton size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>
-                      Set Site
-                    </WriteButton>
-                  )}
+                  <Button size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</Button>
                 </div>
               ) : (
                 <p className="mt-3 text-copy-13 text-muted">
-                  {sites.isPending
+                  {!offeredSites && sites.isPending
                     ? 'Loading sites…'
                     : 'No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.'}
                 </p>
