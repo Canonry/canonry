@@ -16,7 +16,7 @@ import { OnboardingSetupPage } from '../pages/OnboardingSetupPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { heyClient } from '../api.js'
 import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
-import { seoTrendDaysSchema, seoTrendKeywordSchema, seoTrendMetricSchema, type SeoTrendDays, type SeoTrendMetric } from '@canonry/canonry-contracts'
+import { cloudRunTrafficTargetSchema, seoTrendDaysSchema, seoTrendKeywordSchema, seoTrendMetricSchema, type CloudRunTrafficTarget, type SeoTrendDays, type SeoTrendMetric } from '@canonry/canonry-contracts'
 
 // `lazyRouteComponent` (not React.lazy) handles route-level code splitting
 // in TanStack Router. The key advantage over `React.lazy` + `Suspense` is
@@ -77,6 +77,7 @@ type SearchParams = {
   siteHealthRunId?: string
   seoProfileId?: string
   trafficSource?: string
+  connectCloudRun?: CloudRunTrafficTarget
   seoRunId?: string
   seoView?: string
   /** The displayed SEO trend selection, preserved in evidence links. */
@@ -160,6 +161,7 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
+    connectCloudRun: cloudRunTrafficTargetSchema.safeParse(search.connectCloudRun).data,
     seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined,
     seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
     seoView: typeof search.seoView === 'string' ? search.seoView : undefined,

@@ -5,15 +5,17 @@ import { usageError } from '../cli-error.js'
 export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['bing', 'connect'],
-    usage: 'canonry bing connect <project> [--api-key <key>] [--format json]',
+    usage: 'canonry bing connect <project> (--api-key <key> | --use-saved-key) [--format json]',
     options: {
       'api-key': stringOption(),
+      'use-saved-key': { type: 'boolean', default: false },
     },
     run: async (input) => {
       const { bingConnect } = await import('../commands/bing.js')
-      const project = requireProject(input, 'bing.connect', 'canonry bing connect <project> [--api-key <key>] [--format json]')
+      const project = requireProject(input, 'bing.connect', 'canonry bing connect <project> (--api-key <key> | --use-saved-key) [--format json]')
       await bingConnect(project, {
         apiKey: getString(input.values, 'api-key'),
+        useSavedKey: getBoolean(input.values, 'use-saved-key'),
         format: input.format,
       })
     },

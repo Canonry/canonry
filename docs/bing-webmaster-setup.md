@@ -2,7 +2,7 @@
 
 Canonry connects to Bing Webmaster Tools (WMT) with an API key. It pulls URL coverage, indexing status, search performance, crawl stats, sitemaps, site settings and keyword search volume, and it submits pages for indexing.
 
-You can complete the entire setup via the **web dashboard** or the **CLI** — both are documented below.
+You can connect a project through MCP using the account key saved in Canonry Settings. The CLI also accepts a key directly.
 
 ---
 
@@ -61,11 +61,17 @@ The card shows "Ready" when the key is saved.
 canonry bing connect <project> --api-key <YOUR_API_KEY>
 ```
 
-If you omit `--api-key`, the command exits with `BING_API_KEY_REQUIRED`.
+An install administrator can pass `--use-saved-key` to use the key from Settings.
 
 ---
 
 ## Step 4 — Connect Bing to a Project and Set Your Site
+
+### MCP
+
+1. Read `canonry_bing_status` with the project name.
+2. If disconnected, call `canonry_bing_connect` with the project name. It uses the saved key and returns the account’s sites. On an existing connection, `canonry_bing_sites` retrieves the list from Bing.
+3. Call `canonry_bing_set_site` with the owning project and the approved `siteUrl`. Using the saved key and listing account sites require install administrator access. A project-scoped writer can select a site on its own domain when its connection belongs exclusively to that project.
 
 ### Web UI
 

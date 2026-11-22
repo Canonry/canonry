@@ -28,7 +28,7 @@ prerequisite or a permission mechanism.
 ## Connect and choose a route
 
 Read the initialization guidance, then call `canonry_help` with an `intent`:
-`status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`,
+`status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`, `connections`,
 `seo`, `reports`, `start`, or a short task
 description. Use `start` when the user is new or unsure what to ask. Select an accessible project with `canonry_projects_list` before
 using its exact name in project tools. Inspect each listed tool's input schema;
@@ -166,6 +166,9 @@ Use the saved session read for stored-only work. Promoting candidates needs its
 own approval.
 
 **Integrations:** inspect stored connection state and snapshot freshness first.
+For project setup, call `canonry_help({intent:"connect"})`. Its actions and
+toolkit suggestions reflect the current MCP connection. The getting-started
+playbook covers browser consent, saved credentials and resource selection.
 Provider configuration evidence does not prove a browser event fired or a
 conversion was recorded. Connection, resource selection, refresh/sync, and live
 reads are separate actions. Credentials belong in the operator's secure setup

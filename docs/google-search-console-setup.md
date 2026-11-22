@@ -108,6 +108,14 @@ canonry bootstrap
 
 ## Step 4 — Connect GSC to a Project
 
+### MCP
+
+1. Call `canonry_gsc_connect` with the project name and open the returned
+   `authUrl` in your browser to grant Google access.
+2. With an instance administrator credential, call `canonry_gsc_properties`.
+   Pass the exact `siteUrl` you want to `canonry_gsc_set_property`.
+3. Check the saved selection with `canonry_google_connections_list`.
+
 ### Web UI
 
 1. Navigate to your project → **Search Console** tab

@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { TrafficPage } from '../src/pages/TrafficPage.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import type { CloudRunTrafficTarget } from '@canonry/canonry-contracts'
 
 import {
   ConnectSourceDrawer,
@@ -46,7 +47,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderDrawer() {
+function renderDrawer(initialCloudRunTarget?: CloudRunTrafficTarget) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -58,7 +59,7 @@ function renderDrawer() {
         <button type="button" onClick={() => setOpen(true)}>
           reopen-drawer
         </button>
-        <ConnectSourceDrawer open={open} onOpenChange={setOpen} projectName="test-project" />
+        <ConnectSourceDrawer open={open} onOpenChange={setOpen} projectName="test-project" initialCloudRunTarget={initialCloudRunTarget} />
       </QueryClientProvider>
     )
   }
@@ -216,6 +217,21 @@ test('connecting a Cloud Run source closes the drawer and kicks off a backfill',
     to: '/traffic/$projectName/$sourceId',
     params: { projectName: 'test-project', sourceId: 'src_cr_1' },
   })
+})
+
+test('the Cloud Run handoff opens the requested target and connects without starting a backfill', async () => {
+  const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1' }
+  connectCloudRunMock.mockResolvedValue({ id: 'src_cr_1' })
+  renderDrawer(target)
+  expect(screen.getByDisplayValue(target.gcpProjectId)).toBeTruthy()
+  expect(screen.getByDisplayValue(target.serviceName)).toBeTruthy()
+  expect(screen.getByDisplayValue(target.location)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+  await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({
+    to: '/traffic/$projectName/$sourceId', params: { projectName: 'test-project', sourceId: 'src_cr_1' },
+  }))
+  expect(connectCloudRunMock).toHaveBeenCalledWith('test-project', { ...target, keyJson: undefined, displayName: undefined })
+  expect(backfillMock).not.toHaveBeenCalled()
 })
 
 test('a failed connect keeps the drawer open and surfaces the error', async () => {

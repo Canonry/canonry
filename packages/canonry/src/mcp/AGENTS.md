@@ -102,6 +102,12 @@ MCP parity is the default for every new public API/CLI capability. When adding a
 
 Cloudflare connect is intentionally deferred. It is a local deployment workflow that reads Canonry's local credential store. Direct push installs Worker secret bindings; Queue pull keeps its API token server-side. Do not add `canonry_traffic_connect_cloudflare` to MCP or Aero; agents may instruct the operator to run the CLI, inspect the exact zone route, attach it manually with Fail open, and pass both acknowledgement flags. Credentials and deployment material must not enter a transcript.
 
+The `connections` help workflow discovers project setup in the `gsc`, `ga`,
+`bing` and `traffic` toolkits. Google returns a browser consent URL. Bing
+uses the saved Settings key. Cloud Run reuses a credential bound to the exact
+target or returns the dashboard form for private setup. Keep help filtered
+to the caller's catalog and keep account credentials out of agent prompts.
+
 `canonry dashboard reset-password` has no MCP tool and no API route to classify. It edits the local `config.yaml` and exists for an operator who cannot sign in; reopening first-run setup is a root action on the host. Do not add a tool or a route for it: agents tell the operator to run the CLI.
 
 `canonry_provider_test` mirrors `settings provider test` and `POST /settings/providers/{name}/test`: explicit operator approval, install administrator authority and `settings.write`. It runs one saved connection's healthcheck against the provider (it spends, usually a few tokens) and returns the result DTO; a failed check is `ok: false`, never a tool error. It accepts no credentials and changes no settings. Read-only and stored-only catalogs and native Aero exclude it.

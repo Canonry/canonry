@@ -2175,6 +2175,7 @@ export async function createServer(opts: {
 
   // Bing connection store — stores connections in ~/.canonry/config.yaml
   const bingConnectionStore = {
+    getSavedApiKey: () => opts.config.bing?.apiKey,
     getConnection: (domain: string) => {
       return opts.config.bing?.connections?.find((c) => c.domain === domain);
     },

@@ -943,6 +943,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
     } satisfies GaSearchLandingRoutesOptions)
     await api.register(trafficRoutes, {
+      dashboardPath: opts.dashboardPath,
       journeyKeySecret: opts.journeyKeySecret,
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,

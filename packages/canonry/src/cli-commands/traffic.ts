@@ -143,7 +143,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'connect', 'cloud-run'],
-    usage: 'canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path> [--service <name>] [--location <region>] [--display-name <name>] [--format json]',
+    usage: 'canonry traffic connect cloud-run <project> --gcp-project <id> [--service-account-key <path>] [--service <name>] [--location <region>] [--display-name <name>] [--format json]',
     options: {
       'gcp-project': stringOption(),
       service: stringOption(),
@@ -156,18 +156,16 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(
         input,
         'traffic.connect.cloud-run',
-        'canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path>',
+        'canonry traffic connect cloud-run <project> --gcp-project <id> [--service-account-key <path>]',
       )
       const gcpProject = getString(input.values, 'gcp-project')
       if (!gcpProject) throw new Error('--gcp-project is required')
-      const serviceAccountKey = getString(input.values, 'service-account-key')
-      if (!serviceAccountKey) throw new Error('--service-account-key is required')
 
       await trafficConnectCloudRun(project, {
         gcpProject,
         service: getString(input.values, 'service'),
         location: getString(input.values, 'location'),
-        serviceAccountKey,
+        serviceAccountKey: getString(input.values, 'service-account-key'),
         displayName: getString(input.values, 'display-name'),
         format: input.format,
       })

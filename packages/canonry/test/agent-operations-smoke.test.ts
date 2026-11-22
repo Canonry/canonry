@@ -63,6 +63,13 @@ async function harness(lifecycle = false) {
     providerSummary: providers,
     providerAdapters: [{ name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true, defaultModel: 'gpt-old', knownModels: [], modelValidationPattern: /^gpt-/, modelValidationHint: 'gpt model' }],
     googleSettingsSummary: { configured: true },
+    bingConnectionStore: {
+      getConnection: () => undefined, upsertConnection: record => record,
+      updateConnection: () => undefined, deleteConnection: () => false,
+    },
+    cloudRunCredentialStore: {
+      getConnection: () => undefined, upsertConnection: record => record, deleteConnection: () => false,
+    },
     onProviderUpdate: providerUpdate,
     onProviderTest: providerTest,
     ...(lifecycle ? { getProviderConnections: () => [connection], onProviderDisconnect: providerDisconnect } : {}),
@@ -90,6 +97,30 @@ async function harness(lifecycle = false) {
 }
 
 describe('agent operations cross-surface smoke', () => {
+  it('preserves connection setup permissions and private credential handoffs over hosted MCP', async () => {
+    const { connect } = await harness()
+    const project = await connect('projectAdmin')
+    const bing = { name: 'canonry_bing_connect', arguments: { project: 'demo' } }
+    const denied = await project.callTool(bing)
+    expect(denied).toMatchObject({
+      isError: true, structuredContent: { error: { details: { httpStatus: 403 } } },
+    })
+    const admin = await connect('root')
+    const missing = await admin.callTool(bing)
+    expect(missing).toMatchObject({
+      isError: true, structuredContent: { error: { message: expect.stringContaining('Canonry Settings'), details: { httpStatus: 400 } } },
+    })
+    const cloud = await project.callTool({
+      name: 'canonry_traffic_connect_cloud_run',
+      arguments: { project: 'demo', request: { gcpProjectId: 'demo-gcp', serviceName: 'web' } },
+    })
+    expect(cloud).toMatchObject({
+      isError: true, structuredContent: { error: { details: {
+        reason: 'cloud-run-credential-required', dashboardPath: expect.stringContaining('/projects/demo/traffic'),
+      } } },
+    })
+  })
+
   it('previews and disconnects through actual CLI and MCP transports with the same impact guard', async () => {
     const { api, connect, providerDisconnect, origin } = await harness(true)
     const out = vi.spyOn(console, 'log').mockImplementation(() => {})

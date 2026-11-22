@@ -16,7 +16,7 @@ import {
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
 import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
-import type { MeasurementOverviewSort, RunPreviewDto } from '@canonry/canonry-contracts'
+import type { CloudRunTrafficTarget, MeasurementOverviewSort, RunPreviewDto } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -1121,6 +1121,7 @@ function ProjectPageContent({
   const projectName = model.project.name
   const hasInitialProjectDashboard = initialDashboard?.dashboard.projects.some(entry => entry.project.name === projectName) ?? false
   const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
+    connectCloudRun?: CloudRunTrafficTarget
     manageQueries?: boolean
     runId?: string
     siteHealthRunId?: string
@@ -2760,11 +2761,12 @@ function ProjectPageContent({
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'traffic' ? (
         <ServerTrafficSection
-          key={model.project.id}
+          key={JSON.stringify([model.project.id, projectSearchParams.connectCloudRun])}
           view="project"
           projectName={projectName}
+          initialCloudRunTarget={projectSearchParams.connectCloudRun}
           sourceId={typeof projectSearchParams.trafficSource === 'string' ? projectSearchParams.trafficSource : undefined}
-          onSelectSource={trafficSource => updateVisibilitySearch({ trafficSource })}
+          onSelectSource={trafficSource => updateVisibilitySearch({ trafficSource, connectCloudRun: undefined })}
         />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />

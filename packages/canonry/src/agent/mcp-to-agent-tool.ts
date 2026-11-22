@@ -1007,6 +1007,16 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
   CanonryMcpToolNames.canonry_provider_settings_update,
   // A connection test spends on the operator's provider account with the saved key.
   CanonryMcpToolNames.canonry_provider_test,
+  // These operations start account authorization, list account-wide sites,
+  // or change the property shared by projects on a domain.
+  CanonryMcpToolNames.canonry_gsc_connect,
+  CanonryMcpToolNames.canonry_gsc_properties,
+  CanonryMcpToolNames.canonry_gsc_set_property,
+  CanonryMcpToolNames.canonry_ga_oauth_start,
+  CanonryMcpToolNames.canonry_ga_connect,
+  CanonryMcpToolNames.canonry_bing_connect,
+  CanonryMcpToolNames.canonry_bing_sites,
+  CanonryMcpToolNames.canonry_bing_set_site,
   // Aero reads stored sentiment. Configuration and backfill submission can
   // start paid classifier work and remain operator actions.
   'canonry_sentiment_configure',

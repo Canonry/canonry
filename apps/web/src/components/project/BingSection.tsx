@@ -263,10 +263,9 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
   }, [refreshNonce])
 
   async function handleConnect() {
-    if (!apiKeyInput.trim()) return
     setError(null)
     try {
-      await apiBingConnect(projectName, apiKeyInput.trim())
+      await apiBingConnect(projectName, apiKeyInput.trim() || undefined)
       setApiKeyInput('')
       await invalidateProjectQueryDomain(queryClient, 'bing')
     } catch (e) {
@@ -343,15 +342,15 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
                     id="bing-api-key"
                     type="password"
                     className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                    placeholder="Bing Webmaster Tools API key"
+                    placeholder="Leave blank to use the key in Settings"
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void handleConnect()
                     }}
                   />
-                  <WriteButton size="sm" disabled={!apiKeyInput.trim()} onClick={asyncHandler(handleConnect)}>
-                    Connect
+                  <WriteButton size="sm" onClick={asyncHandler(handleConnect)}>
+                    {apiKeyInput.trim() ? 'Connect' : 'Connect with saved key'}
                   </WriteButton>
                 </div>
                 <p className="mt-1 text-copy-14 text-secondary">
@@ -410,7 +409,9 @@ export function BingSection({ projectName, refreshNonce }: { projectName: string
             </div>
             <div>
               <p className="text-label-12 normal-case text-muted">Select site</p>
-              {siteList.length > 0 ? (
+              {sites.isError ? (
+                <p className="mt-3 text-copy-13 text-negative">{extractErrorMessage(sites.error)}</p>
+              ) : siteList.length > 0 ? (
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
                   <select
                     aria-label="Bing site"

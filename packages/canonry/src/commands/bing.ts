@@ -1,7 +1,7 @@
 import type { BingSearchComparisonDto, BingTrafficResponseDto, RunDetailDto } from '@canonry/canonry-contracts'
 import { describeError, formatPercent, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
 function getClient() {
@@ -57,14 +57,14 @@ async function waitForRunStatus(
   })
 }
 
-export async function bingConnect(project: string, opts?: { apiKey?: string; format?: string }): Promise<void> {
+export async function bingConnect(project: string, opts?: { apiKey?: string; useSavedKey?: boolean; format?: string }): Promise<void> {
   const apiKey = opts?.apiKey
-
-  if (!apiKey) {
+  if (apiKey && opts?.useSavedKey) throw usageError('Pass only one of --api-key and --use-saved-key.')
+  if (!apiKey && !opts?.useSavedKey) {
     throw new CliError({
       code: 'BING_API_KEY_REQUIRED',
-      message: 'API key is required. Pass --api-key <key>.',
-      displayMessage: 'Error: API key is required. Pass --api-key <key>.',
+      message: 'Pass --api-key <key> or --use-saved-key.',
+      displayMessage: 'Error: Pass --api-key <key> or --use-saved-key.',
       details: {
         project,
       },
@@ -72,11 +72,7 @@ export async function bingConnect(project: string, opts?: { apiKey?: string; for
   }
 
   const client = getClient()
-  const result = await client.bingConnect(project, { apiKey }) as {
-    connected: boolean
-    domain: string
-    availableSites: Array<{ url: string; verified: boolean }>
-  }
+  const result = await client.bingConnect(project, apiKey ? { apiKey } : { useSavedKey: true })
 
   if (isMachineFormat(opts?.format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -111,13 +107,7 @@ export async function bingDisconnect(project: string, format?: string): Promise<
 
 export async function bingStatus(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const result = await client.bingStatus(project) as {
-    connected: boolean
-    domain: string
-    siteUrl: string | null
-    createdAt: string | null
-    updatedAt: string | null
-  }
+  const result = await client.bingStatus(project)
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -138,9 +128,7 @@ export async function bingStatus(project: string, format?: string): Promise<void
 
 export async function bingSites(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const result = await client.bingSites(project) as {
-    sites: Array<{ url: string; verified: boolean }>
-  }
+  const result = await client.bingSites(project)
 
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))

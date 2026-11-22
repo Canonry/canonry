@@ -3676,6 +3676,8 @@ export const getApiV1ProjectsByNameAdsLiveDelivery = <ThrowOnError extends boole
 
 /**
  * Connect Bing Webmaster Tools
+ *
+ * Supply an API key or, as an install administrator, use the Bing key saved in Settings. Returns the sites available for selection.
  */
 export const postApiV1ProjectsByNameBingConnect = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameBingConnectData, ThrowOnError>): RequestResult<PostApiV1ProjectsByNameBingConnectResponses, PostApiV1ProjectsByNameBingConnectErrors, ThrowOnError> => (options.client ?? client).post<PostApiV1ProjectsByNameBingConnectResponses, PostApiV1ProjectsByNameBingConnectErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -3707,6 +3709,8 @@ export const getApiV1ProjectsByNameBingStatus = <ThrowOnError extends boolean = 
 
 /**
  * List Bing sites for the current connection
+ *
+ * Lists sites across the Bing account. Requires install administrator authority.
  */
 export const getApiV1ProjectsByNameBingSites = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameBingSitesData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameBingSitesResponses, GetApiV1ProjectsByNameBingSitesErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameBingSitesResponses, GetApiV1ProjectsByNameBingSitesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -3716,6 +3720,8 @@ export const getApiV1ProjectsByNameBingSites = <ThrowOnError extends boolean = f
 
 /**
  * Set the active Bing site
+ *
+ * Select an HTTP(S) site from the project that owns the connection. A project-scoped writer can select its own domain when no sibling project shares the connection.
  */
 export const postApiV1ProjectsByNameBingSetSite = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameBingSetSiteData, ThrowOnError>): RequestResult<PostApiV1ProjectsByNameBingSetSiteResponses, PostApiV1ProjectsByNameBingSetSiteErrors, ThrowOnError> => (options.client ?? client).post<PostApiV1ProjectsByNameBingSetSiteResponses, PostApiV1ProjectsByNameBingSetSiteErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -4222,7 +4228,7 @@ export const getApiV1ProjectsByNameGaStatus = <ThrowOnError extends boolean = fa
 /**
  * List GA4 properties the connected account can read
  *
- * Lists every GA4 property visible to the project's OAuth connection, so the numeric property id needed by ga/connect can be discovered without leaving canonry. Requires an OAuth GA4 connection; service-account connections already carry their property id.
+ * Lists every GA4 property visible to the connected Google account, with numeric IDs for ga/connect. Requires an instance administrator and a GA4 OAuth connection. Service-account connections already specify a property ID.
  */
 export const getApiV1ProjectsByNameGaProperties = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameGaPropertiesData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameGaPropertiesResponses, GetApiV1ProjectsByNameGaPropertiesErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameGaPropertiesResponses, GetApiV1ProjectsByNameGaPropertiesErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -4799,7 +4805,7 @@ export const getApiV1ProjectsByNameBacklinksSources = <ThrowOnError extends bool
 /**
  * Connect a Cloud Run traffic source
  *
- * Stores the service-account JSON in `~/.canonry/config.yaml` and creates a `traffic_sources` row for the project. Reconnecting updates the existing active source rather than creating a duplicate.
+ * Connects a Cloud Run log source. Omit keyJson to use a service account already saved for this Canonry project, GCP project, service and region. When a credential is needed, the validation error includes the project dashboard path for secure setup. Reconnecting updates the existing source.
  */
 export const postApiV1ProjectsByNameTrafficConnectCloudRun = <ThrowOnError extends boolean = false>(options: Options<PostApiV1ProjectsByNameTrafficConnectCloudRunData, ThrowOnError>): RequestResult<PostApiV1ProjectsByNameTrafficConnectCloudRunResponses, PostApiV1ProjectsByNameTrafficConnectCloudRunErrors, ThrowOnError> => (options.client ?? client).post<PostApiV1ProjectsByNameTrafficConnectCloudRunResponses, PostApiV1ProjectsByNameTrafficConnectCloudRunErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

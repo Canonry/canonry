@@ -465,6 +465,13 @@ export function assertNotProjectScoped(request: FastifyRequest, what: string): v
   }
 }
 
+/** Google returns the account's complete Search Console or GA4 property list. */
+export function requireGooglePropertyDiscovery(request: FastifyRequest): void {
+  assertNotProjectScoped(request, 'listing Google properties')
+  requireAdminSession(request)
+  requirePaidReadScope(request, [], 'Listing Google properties requires full-instance authority to query the connected account.')
+}
+
 /**
  * Hash a raw `cnry_…` bearer token to the value stored in `api_keys.key_hash`.
  * Plain SHA-256 is sufficient here because the tokens are 128-bit random, so a
