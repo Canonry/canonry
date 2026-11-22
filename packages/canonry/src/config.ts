@@ -408,8 +408,8 @@ export interface DashboardConfigEntry {
   requirePassword?: boolean
 
   /**
-   * Whether the dashboard shows footer links and repository guides on Agent
-   * Setup. Defaults to true.
+   * Whether the dashboard shows footer links, repository guides on Agent
+   * Setup, and community invitations in release highlights. Defaults to true.
    */
   showResourceLinks?: boolean
 
@@ -421,7 +421,7 @@ export interface DashboardConfigEntry {
   showLocalAgentSetup?: boolean
 
   /**
-   * Whether the dashboard shows available-version and installed-update notices.
+   * Whether the top bar shows available updates and the What’s new control.
    * Defaults to true. Disable without turning off the underlying update check
    * or CLI update notice.
    */

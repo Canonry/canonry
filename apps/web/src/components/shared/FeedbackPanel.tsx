@@ -55,7 +55,7 @@ export function FeedbackPanel() {
 
   return (
     <Dialog.Root open={open} onOpenChange={changeOpen} modal={false}>
-      <div className="relative">
+      <div className="lg:relative">
         <Dialog.Trigger asChild>
           <Button type="button" variant="ghost" size="sm" aria-label="Feedback" title="Feedback" className="max-sm:px-2">
             <MessageSquare className="size-4" aria-hidden="true" />
@@ -63,7 +63,7 @@ export function FeedbackPanel() {
           </Button>
         </Dialog.Trigger>
         <Dialog.Content
-          className="material-menu fixed right-3 top-16 z-50 max-h-[calc(100dvh-5rem)] w-[min(360px,calc(100vw-24px))] overflow-y-auto p-5 sm:absolute sm:right-0 sm:top-full sm:mt-2"
+          className="material-menu absolute right-3 top-full z-50 mt-1.5 max-h-[70dvh] w-[min(360px,calc(100vw-24px))] overflow-y-auto p-5 lg:right-0"
           aria-describedby={`${id}-privacy`}
           onOpenAutoFocus={event => {
             if (input.current && !input.current.disabled) { event.preventDefault(); input.current.focus() }

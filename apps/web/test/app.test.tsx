@@ -217,7 +217,7 @@ test('the root destination is named Overview in the sidebar, breadcrumb, page ti
   const ownTrail = overview.querySelector('nav[aria-label="Breadcrumb"]')!
   expect(ownTrail.textContent).toBe('Overview')
   expect(ownTrail.querySelector('a')).toBeNull()
-  expect(sidebar.querySelector('.brand-icon-link')?.getAttribute('aria-label')).toBe('Canonry overview')
+  expect(sidebar.querySelector('a[aria-label="Canonry overview"]')?.getAttribute('href')).toBe('/')
 
   const runs = new DOMParser().parseFromString(await renderApp('/runs'), 'text/html')
   const trail = runs.querySelector('nav[aria-label="Breadcrumb"]')!

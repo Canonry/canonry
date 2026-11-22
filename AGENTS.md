@@ -257,7 +257,7 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 **Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry`. Use semver: patch for fixes, minor for features, major for breaking changes.
 
-- For a user-facing release, consider adding a short dashboard highlight to `apps/web/src/lib/release-notes.ts` under its package version. A release can ship without a highlight.
+- For a user-facing major or minor release, consider adding a highlight to `apps/web/src/lib/release-notes.ts` under its stable package version. Put the newest release first. Patch installs carry forward existing highlights without generating another unread indicator.
 
 - **Native-plugin exception:** any change shipped through `plugins/canonry/` or its canonical `skills/canonry/` / `skills/aero/` sources bumps Canonry, the portable manifest, and both client manifests even when the diff is small — clients use the manifest version to discover updates. `pnpm plugin:sync` copies the package version into all three manifests.
 

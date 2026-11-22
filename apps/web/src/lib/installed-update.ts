@@ -1,120 +1,75 @@
-import { compareSemver, isStrictSemver } from '@canonry/canonry-contracts'
-import { latestReleaseNotes } from './release-notes.js'
+import { availableReleaseNotes, compareReleaseBoundaries, validBuildVersion, type ReleaseNotes } from './release-notes.js'
 
 export type InstalledBuild = { version: string; commit?: string }
-export type InstalledUpdate = { from?: InstalledBuild; current: InstalledBuild; includeFromHighlights?: true }
-type StoredUpdate = InstalledUpdate & { pending: boolean }
+type Baseline = { version: string; includeLatest: boolean }
+type ReleaseSelection = { releases: ReleaseNotes[]; unread: boolean }
 
-function readBuild(value: unknown): InstalledBuild | null {
-  if (!value || typeof value !== 'object' || !('version' in value) ||
-      typeof value.version !== 'string' || !isStrictSemver(value.version)) return null
-  const { version } = value
-  if (prerelease(version).some(part => /^0\d+$/.test(part))) return null
-  if ('commit' in value && typeof value.commit === 'string' && /^[0-9a-f]{7,40}$/i.test(value.commit)) {
-    return { version, commit: value.commit }
-  }
-  return { version }
-}
-
-function readState(raw: string | null): StoredUpdate | null {
-  if (!raw) return null
-  let value: unknown
-  try { value = JSON.parse(raw) } catch { return null }
-  if (!value || typeof value !== 'object' || !('current' in value) ||
-      !('pending' in value) || typeof value.pending !== 'boolean') return null
-  const current = readBuild(value.current)
-  if (!current) return null
-  if ('from' in value) {
-    const from = readBuild(value.from)
-    if (!value.pending || !from || compareVersions(from.version, current.version) >= 0) return null
-    const state: StoredUpdate = { current, from, pending: true }
-    if ('includeFromHighlights' in value && value.includeFromHighlights === true) state.includeFromHighlights = true
-    return state
-  }
-  return { current, pending: value.pending }
-}
-
-function prerelease(version: string): string[] {
-  return /^[^-+]+-([^+]+)/.exec(version)?.[1]?.split('.') ?? []
-}
-
-function compareVersions(left: string, right: string): number {
-  const core = compareSemver(left, right)
-  if (core) return core
-  const a = prerelease(left)
-  const b = prerelease(right)
-  if (!a.length || !b.length) return b.length - a.length
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const x = a[i]!
-    const y = b[i]!
-    if (x === y) continue
-    const xNumeric = /^\d+$/.test(x)
-    const yNumeric = /^\d+$/.test(y)
-    if (xNumeric !== yNumeric) return xNumeric ? -1 : 1
-    if (xNumeric && x.length !== y.length) return x.length - y.length
-    return x < y ? -1 : 1
-  }
-  return a.length - b.length
-}
-
-function pendingUpdate(state: StoredUpdate | null, current: InstalledBuild): InstalledUpdate | null {
-  if (!state?.pending || compareVersions(current.version, state.current.version) !== 0) return null
-  const update: InstalledUpdate = { current }
-  if (state.from) update.from = state.from
-  if (state.includeFromHighlights) update.includeFromHighlights = true
-  return update
-}
-
-/** Read a cross-tab notification against the build this tab has actually observed. */
-export function readInstalledUpdate(storage: Storage, key: string, current: InstalledBuild): InstalledUpdate | null {
-  const build = readBuild(current)
-  if (!build) return null
+function baselineForFirstVisit(legacyReceipt: string | null, version: string): Baseline {
+  if (legacyReceipt === null) return { version, includeLatest: true }
   try {
-    return pendingUpdate(readState(storage.getItem(key)), build)
-  } catch {
-    return null
-  }
-}
-
-export function observeInstalledBuild(storage: Storage, key: string, current: InstalledBuild): InstalledUpdate | null {
-  const build = readBuild(current)
-  if (!build) return null
-  try {
-    const raw = storage.getItem(key)
-    const state = readState(raw)
-    let next: StoredUpdate
-    if (!state) {
-      // A corrupt record loses its baseline. Recover quietly, without repeating a first-visit notice.
-      next = { current: build, pending: raw === null && latestReleaseNotes(build.version) !== undefined }
-    } else {
-      const order = compareVersions(build.version, state.current.version)
-      if (order > 0) {
-        next = { from: state.from ?? state.current, current: build, pending: true }
-        // Carry the first visit’s featured release even when its notes predate the starting build.
-        if (state.includeFromHighlights || (state.pending && !state.from)) next.includeFromHighlights = true
-      } else if (order < 0) {
-        // An older tab or rolled-back server must leave the newer tab's receipt intact.
-        return null
-      } else {
-        next = state.current.version !== build.version || state.current.commit !== build.commit
-          ? { ...state, current: build }
-          : state
+    // Old notices tracked the last installed build and, for an unread upgrade, the starting build.
+    const receipt = JSON.parse(legacyReceipt) as {
+      current?: InstalledBuild | null; from?: InstalledBuild | null; pending?: boolean; includeFromHighlights?: boolean
+    } | null
+    if (validBuildVersion(receipt?.current?.version) && typeof receipt.pending === 'boolean') {
+      if (!receipt.pending || receipt.from === undefined) {
+        return { version: receipt.current.version, includeLatest: receipt.pending }
+      }
+      if (validBuildVersion(receipt.from?.version) && compareReleaseBoundaries(receipt.from.version, receipt.current.version) <= 0) {
+        return { version: receipt.from.version, includeLatest: receipt.includeFromHighlights === true }
       }
     }
-    if (state !== next) storage.setItem(key, JSON.stringify(next))
-    return pendingUpdate(next, build)
+  } catch { /* A corrupt legacy baseline cannot establish which earlier releases were unread. */ }
+  return { version, includeLatest: false }
+}
+
+function firstVisit(storage: Storage, scope: string, version: string): Baseline {
+  // Concurrent first loads may establish different baselines. Each writes its own immutable key.
+  // The earliest wins, so neither a delayed old tab nor a rollback can erase another tab’s history.
+  const prefix = scope + ':first:'
+  let earliest: Baseline | undefined
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (!key?.startsWith(prefix)) continue
+    const suffix = key.slice(prefix.length)
+    const [mode, candidate] = suffix.split(':')
+    if ((mode !== 'at' && mode !== 'after') || !validBuildVersion(candidate)) continue
+    const order = earliest ? compareReleaseBoundaries(candidate, earliest.version) : -1
+    if (order < 0 || (order === 0 && mode === 'at')) earliest = { version: candidate, includeLatest: mode === 'at' }
+  }
+  if (earliest) return earliest
+  const baseline = baselineForFirstVisit(storage.getItem(scope), version)
+  storage.setItem(prefix + (baseline.includeLatest ? 'at:' : 'after:') + baseline.version, '1')
+  return baseline
+}
+
+export function observeReleaseNotes(storage: Storage | undefined, scope: string, runningVersion: string, showResourceLinks = true): ReleaseSelection {
+  const available = availableReleaseNotes(runningVersion, showResourceLinks)
+  const quiet = { releases: available.slice(0, 1), unread: false }
+  if (!storage || !validBuildVersion(runningVersion)) return quiet
+
+  try {
+    const baseline = firstVisit(storage, scope, runningVersion)
+    if (compareReleaseBoundaries(runningVersion, baseline.version) < 0) return quiet
+    const firstNote = baseline.includeLatest ? available.find(note => compareReleaseBoundaries(note.version, baseline.version) <= 0) : undefined
+    const unread = available.filter(note =>
+      (note === firstNote || compareReleaseBoundaries(note.version, baseline.version) > 0)
+      && storage.getItem(scope + ':read:' + note.version) === null,
+    )
+    return unread.length ? { releases: unread, unread: true } : quiet
   } catch {
-    // Browsers can disable storage or refuse writes after the initial read.
-    return null
+    // The notes can still be opened when the browser blocks persistent storage.
+    return quiet
   }
 }
 
-export function dismissInstalledBuild(storage: Storage, key: string, version: string): void {
-  if (!version || !isStrictSemver(version)) return
+export function markReleaseRead(storage: Storage, scope: string, version: string): boolean {
+  if (!validBuildVersion(version)) return false
   try {
-    const state = readState(storage.getItem(key))
-    if (state?.pending && compareVersions(version, state.current.version) === 0) {
-      storage.setItem(key, JSON.stringify({ current: state.current, pending: false }))
-    }
-  } catch { /* Storage is optional. */ }
+    // Only the authored release actually opened by this tab is acknowledged.
+    storage.setItem(scope + ':read:' + version, '1')
+    return true
+  } catch {
+    return false
+  }
 }

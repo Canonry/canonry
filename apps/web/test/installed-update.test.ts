@@ -1,135 +1,90 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dismissInstalledBuild, observeInstalledBuild, readInstalledUpdate, type InstalledBuild } from '../src/lib/installed-update.js'
+import { afterEach, expect, it, vi } from 'vitest'
+import { markReleaseRead, observeReleaseNotes } from '../src/lib/installed-update.js'
+import * as catalog from '../src/lib/release-notes.js'
 
-const key = 'installed-update-test'
-const initial = { version: '7.116.0', commit: '0123456' }
-const featured = { version: '7.117.0', commit: '1234567' }
-const later = { version: '7.118.0', commit: '2345678' }
-const observe = (current: InstalledBuild) => observeInstalledBuild(localStorage, key, current)
-const read = (current: InstalledBuild) => readInstalledUpdate(localStorage, key, current)
-const dismiss = (version: string) => dismissInstalledBuild(localStorage, key, version)
+const scope = 'dashboard/user'
+const old = { version: '7.117.0', highlights: [{ text: 'First feature' }] }
+const middle = { version: '7.118.0', highlights: [{ text: 'Second feature' }] }
+const recent = { version: '8.0.0', highlights: [{ text: 'Third feature' }] }
+
+function futureNotes(...notes: catalog.ReleaseNotes[]) {
+  vi.spyOn(catalog, 'availableReleaseNotes').mockReturnValue(notes)
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
-  localStorage.removeItem(key)
-  localStorage.removeItem('another-base-path')
+  localStorage.clear()
 })
 
-describe('installed update notices', () => {
-  it('remembers a dismissal separately for each dashboard', () => {
-    expect(observe(featured)).toEqual({ current: featured })
-    expect(observe(featured)).toEqual({ current: featured })
-    dismiss(featured.version)
-    expect(observe(featured)).toBeNull()
-    expect(observe(later)).toEqual({ from: featured, current: later })
-    expect(observeInstalledBuild(localStorage, 'another-base-path', later)).toEqual({ current: later })
-  })
+it('shows only the latest eligible note on first visit, then carries unread notes across skipped releases', () => {
+  const older = { version: '7.110.0', highlights: [{ text: 'Before the first visit' }] }
+  futureNotes(old, older)
+  expect(observeReleaseNotes(localStorage, scope, '7.117.2')).toEqual({ releases: [old], unread: true })
+  futureNotes(recent, middle, old, older)
+  expect(observeReleaseNotes(localStorage, scope, '8.0.1')).toEqual({ releases: [recent, middle, old], unread: true })
+  for (const note of [recent, middle, old]) markReleaseRead(localStorage, scope, note.version)
+  expect(observeReleaseNotes(localStorage, scope, '8.0.2')).toEqual({ releases: [recent], unread: false })
+})
 
-  it('carries unread first-visit highlights across upgrades and reloads until dismissal', () => {
-    expect(observe(featured)).toEqual({ current: featured })
-    const range = { from: featured, current: later, includeFromHighlights: true }
-    expect(observe(later)).toEqual(range)
-    expect(read(later)).toEqual(range)
-    const next = { version: '7.119.0' }
-    const extended = { ...range, current: next }
-    expect(observe(next)).toEqual(extended)
-    expect(observe(next)).toEqual(extended)
-    dismiss(next.version)
-    expect(read(next)).toBeNull()
-    const afterDismissal = { version: '7.120.0' }
-    expect(observe(afterDismissal)).toEqual({ from: next, current: afterDismissal })
-  })
+it('remembers a first visit before any notes exist and includes every subsequent eligible release', () => {
+  expect(observeReleaseNotes(localStorage, scope, '7.116.0')).toEqual({ releases: [], unread: false })
+  futureNotes(middle, old)
+  expect(observeReleaseNotes(localStorage, scope, '7.118.1')).toEqual({ releases: [middle, old], unread: true })
+})
 
-  it('persists upgrades and preserves the original baseline as pending releases advance', () => {
-    expect(observe(initial)).toBeNull()
-    const pending = { from: initial, current: featured }
-    expect(observe(featured)).toEqual(pending)
-    expect(observe(featured)).toEqual(pending)
-    expect(observe(later)).toEqual({ from: initial, current: later })
-    dismiss(featured.version)
-    expect(observe(later)).toEqual({ from: initial, current: later })
-    dismiss(later.version)
-    const next = { version: '8.0.0' }
-    expect(observe(next)).toEqual({ from: later, current: next })
+it('isolates an older tab’s in-flight acknowledgment from a newer release, account and rollback', () => {
+  futureNotes(old)
+  const opened = observeReleaseNotes(localStorage, scope, '7.117.0').releases
+  const setItem = Storage.prototype.setItem
+  const paused = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(function (this: Storage, key, value) {
+    // A newly loaded tab observes the later release between the old click and its storage write.
+    futureNotes(middle, old)
+    expect(observeReleaseNotes(localStorage, scope, '7.118.0').releases).toContain(middle)
+    setItem.call(this, key, value)
   })
+  for (const note of opened) markReleaseRead(localStorage, scope, note.version)
+  paused.mockRestore()
+  expect(observeReleaseNotes(localStorage, scope, '7.118.1')).toEqual({ releases: [middle], unread: true })
+  futureNotes(old)
+  expect(observeReleaseNotes(localStorage, scope, '7.117.0+rollback')).toEqual({ releases: [old], unread: false })
+  expect(observeReleaseNotes(localStorage, 'dashboard/other-user', '7.117.0')).toEqual({ releases: [old], unread: true })
+})
 
-  it('leaves a newer tab’s pending state alone when an older build is observed', () => {
-    expect(observe(initial)).toBeNull()
-    expect(observe(featured)).toEqual({ from: initial, current: featured })
-    const write = vi.spyOn(Storage.prototype, 'setItem')
-    expect(observe(initial)).toBeNull()
-    expect(observe(featured)).toEqual({ from: initial, current: featured })
-    expect(write).not.toHaveBeenCalled()
-    dismiss(featured.version)
-    write.mockClear()
-    expect(observe(initial)).toBeNull()
-    expect(observe(featured)).toBeNull()
-    expect(write).not.toHaveBeenCalled()
+it('keeps concurrent first visits to different builds from skipping the older tab’s unread notes', () => {
+  const setItem = Storage.prototype.setItem
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(function (this: Storage, key, value) {
+    futureNotes(middle, old)
+    expect(observeReleaseNotes(localStorage, scope, '7.118.1').releases).toEqual([middle])
+    setItem.call(this, key, value)
   })
+  futureNotes(old)
+  expect(observeReleaseNotes(localStorage, scope, '7.117.0').releases).toEqual([old])
+  expect(observeReleaseNotes(localStorage, scope, '7.118.1')).toEqual({ releases: [middle, old], unread: true })
+})
 
-  it('fills a missing commit once and records version metadata without announcing a release', () => {
-    const unstamped = { version: '7.116.0+first' }
-    const stamped = { ...initial, version: '7.116.0+second' }
-    expect(observe(unstamped)).toBeNull()
-    const write = vi.spyOn(Storage.prototype, 'setItem')
-    expect(observe(stamped)).toBeNull()
-    expect(observe(stamped)).toBeNull()
-    expect(write).toHaveBeenCalledTimes(1)
-    expect(observe(featured)).toEqual({ from: stamped, current: featured })
-    dismiss('7.117.0+build')
-    expect(observe(featured)).toBeNull()
-  })
+it.each([
+  [false, undefined, false, [middle]],
+  [true, undefined, false, [middle, old]],
+  [true, { version: '7.117.0' }, false, [middle]],
+  [true, { version: '7.117.0' }, true, [middle, old]],
+] as const)('preserves old receipts with pending=%s, from=%o and includeFromHighlights=%s', (pending, from, includeFromHighlights, expected) => {
+  const current = { version: from ? '7.118.0' : '7.117.2' }
+  localStorage.setItem(scope, JSON.stringify({ current, pending, from, includeFromHighlights }))
+  futureNotes(middle, old)
+  expect(observeReleaseNotes(localStorage, scope, '7.118.2')).toEqual({ releases: expected, unread: true })
+})
 
-  it.each([
-    { version: featured.version, commit: 'abcdef0' },
-    { version: featured.version + '+custom', commit: featured.commit },
-  ])('retargets an existing notice to rebuild %o without announcing it again', rebuilt => {
-    expect(observe(initial)).toBeNull()
-    expect(observe(featured)).toEqual({ from: initial, current: featured })
-    expect(observe(rebuilt)).toEqual({ from: initial, current: rebuilt })
-    const write = vi.spyOn(Storage.prototype, 'setItem')
-    expect(read(featured)).toEqual({ from: initial, current: featured })
-    expect(read(initial)).toBeNull()
-    expect(read(later)).toBeNull()
-    expect(observe(rebuilt)).toEqual({ from: initial, current: rebuilt })
-    expect(write).not.toHaveBeenCalled()
-    dismiss(rebuilt.version)
-    const lastRebuild = { ...rebuilt, commit: 'abc1234' }
-    expect(observe(lastRebuild)).toBeNull()
-    expect(read(featured)).toBeNull()
-    expect(observe(later)).toEqual({ from: lastRebuild, current: later })
-  })
+it('recovers a corrupt old baseline quietly and announces a later authored release', () => {
+  localStorage.setItem(scope, '{')
+  futureNotes(old)
+  expect(observeReleaseNotes(localStorage, scope, '7.117.2')).toEqual({ releases: [old], unread: false })
+  futureNotes(middle, old)
+  expect(observeReleaseNotes(localStorage, scope, '7.118.0')).toEqual({ releases: [middle], unread: true })
+})
 
-  it('reads empty storage and an unknown commit without writing or borrowing another tab’s SHA', () => {
-    const write = vi.spyOn(Storage.prototype, 'setItem')
-    expect(read(featured)).toBeNull()
-    expect(write).not.toHaveBeenCalled()
-    expect(observe(featured)).toEqual({ current: featured })
-    write.mockClear()
-    const unstamped = { version: featured.version }
-    expect(read(unstamped)).toEqual({ current: unstamped })
-    expect(write).not.toHaveBeenCalled()
-  })
-
-  it('compares prereleases numerically and puts the stable release last', () => {
-    expect(observe({ version: '7.117.0-rc.2' })).toBeNull()
-    expect(observe({ version: '7.117.0-rc.10' })?.current.version).toBe('7.117.0-rc.10')
-    expect(observe({ version: '7.117.0-rc.3' })).toBeNull()
-    expect(observe(featured)?.current.version).toBe('7.117.0')
-  })
-
-  it('ignores unavailable versions and quietly recovers a corrupt storage record', () => {
-    expect(observe({ version: 'unknown' })).toBeNull()
-    expect(observe({ version: '7.117.0-rc.01' })).toBeNull()
-    expect(localStorage.getItem(key)).toBeNull()
-    localStorage.setItem(key, '{')
-    expect(observe(featured)).toBeNull()
-    expect(observe(later)).toEqual({ from: featured, current: later })
-  })
-
-  it.each(['getItem', 'setItem'] as const)('suppresses notices if storage.%s throws', method => {
-    vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new Error('storage unavailable') })
-    expect(observe(featured)).toBeNull()
-    expect(() => dismiss(featured.version)).not.toThrow()
-  })
+it('keeps notes manually accessible if the browser denies storage', () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage disabled') })
+  futureNotes(old)
+  expect(observeReleaseNotes(localStorage, scope, '7.117.0')).toEqual({ releases: [old], unread: false })
+  expect(markReleaseRead(localStorage, scope, old.version)).toBe(false)
 })

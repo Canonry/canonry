@@ -141,25 +141,30 @@ Managed instances (`CANONRY_RUNTIME_MODE=cloud`) and the public demo show only
 GitHub. Embedded views omit the footer. Set the runtime mode when provisioning
 the managed engine.
 
-`showResourceLinks: false` hides the footer links and the repository
-documentation links on Agent Setup. On self-hosted dashboards, an installed
-update shows a dismissible notice with release highlights when available. “View
-changes” opens the changes between the two builds on GitHub. On a first visit, the dashboard
-shows the newest applicable highlights at or below the running version. The browser remembers dismissal
-separately for each dashboard base path and signed-in account. The server
-includes its installed version and optional build commit in the dashboard HTML.
-Opening or reloading the dashboard checks that version for release highlights.
-A tab open during a rollout keeps the notes for its loaded build until reloaded.
+`showResourceLinks: false` hides the footer links, repository guides on Agent
+Setup, and release highlights that invite users to an external community.
+
+Self-hosted dashboards show available updates in the top bar. The version
+badge opens the release page. After installation, users can open **What’s new**
+to read highlights. An unread dot marks authored minor and major
+releases. Opening the panel clears the dot across tabs for that dashboard
+and account. Users can reopen it to read the notes again. A patch update
+keeps existing notes available and does not add an unread dot.
+
+The first visit features the latest applicable note at or below the running
+version. Returning users who skipped releases can read their missed
+highlights together. The server includes its installed version in the
+dashboard document, so an open tab keeps the notes for the build it loaded.
 
 Live health views refresh service status every 15 seconds while visible.
 Elsewhere, a stale status used by the dashboard refreshes when you return to the
 tab. Release notes use the build in the document and make no network request.
 
-Managed dashboards run in **What’s new only** mode. Customers see product
+Managed Canonry engine dashboards run in **What’s new only** mode. Customers see product
 highlights after an administrator rolls out a release. Releases without
 applicable highlights are quiet. This mode hides version numbers in the
 navigation, available-version prompts, and package or source links in the
-notice. A release can invite customers to the Canonry Discord. Set
+panel. A release can invite customers to the Canonry Discord. Set
 `dashboard.showResourceLinks: false` to hide that invitation. Public demos
 and embedded views omit release notices.
 
@@ -169,8 +174,8 @@ To use the same presentation on a standalone dashboard, set
 environment takes precedence over YAML on standalone instances.
 `CANONRY_RUNTIME_MODE=cloud` selects this mode automatically.
 
-`showUpdateNotification: false` hides the installed-update notice and the
-available-version badge, including “What’s new” on hosted installations.
+`showUpdateNotification: false` hides the available-update badge and **What’s new**
+on both self-hosted and managed engine dashboards.
 Update checks and CLI notices stay active.
 
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or

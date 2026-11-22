@@ -82,7 +82,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
-import { InstalledUpdateNotice } from './components/layout/InstalledUpdateNotice.js'
+import { AvailableUpdateBadge, ReleaseNotesBadge } from './components/layout/ReleaseNotesBadge.js'
 import { DemoNotice } from './components/layout/DemoNotice.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost, aeroAllowedFor } from './components/shared/AeroBar.js'
@@ -434,6 +434,9 @@ export function RootLayout() {
     }
     setDismissedUpdateVersion(updateAvailable.latest)
   }
+  const availableUpdateBadge = showUpdatePill && updateAvailable
+    ? <AvailableUpdateBadge update={updateAvailable} onDismiss={dismissUpdatePill} />
+    : null
   const toggleSidebar = () => {
     const next = !sidebarHidden
     try {
@@ -623,11 +626,7 @@ export function RootLayout() {
       {!sidebarHidden && (
       <aside id="desktop-sidebar" className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
-          <BrandLockup
-            version={navigationVersion}
-            updateAvailable={showUpdatePill ? updateAvailable : null}
-            onDismissUpdate={dismissUpdatePill}
-          />
+          <BrandLockup version={navigationVersion} />
         </div>
 
         <nav className="sidebar-nav">
@@ -838,6 +837,16 @@ export function RootLayout() {
           </div>
 
           <div className="topbar-actions">
+            {updateNotificationVisible && documentBuild ? (
+              <ReleaseNotesBadge
+                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible])}
+                storageKey={updateNoticeKey}
+                availableUpdate={availableUpdateBadge}
+                build={documentBuild}
+                showResourceLinks={resourceLinksVisible}
+                whatsNewOnly={whatsNewOnly}
+              />
+            ) : availableUpdateBadge}
             <FeedbackPanel />
             <ThemeSelector />
             <TaskCenter />
@@ -1144,17 +1153,7 @@ export function RootLayout() {
       ) : null}
 
       <RunNotificationObserver />
-      <Toaster>
-        {updateNotificationVisible && documentBuild && (
-          <InstalledUpdateNotice
-            key={updateNoticeKey}
-            storageKey={updateNoticeKey}
-            showResourceLinks={resourceLinksVisible}
-            whatsNewOnly={whatsNewOnly}
-            build={documentBuild}
-          />
-        )}
-      </Toaster>
+      <Toaster />
       {agentBarVisible ? <AeroBarHost /> : null}
     </div>
     </Dialog.Root>

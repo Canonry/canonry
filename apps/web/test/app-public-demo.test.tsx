@@ -110,8 +110,11 @@ test.each([true, false])('a hosted dashboard respects showResourceLinks=%s for t
     dashboard: { managedInstance: true, showResourceLinks },
   } }))
   if (showResourceLinks) {
-    const title = await view.findByText('What’s new')
-    const notice = within(title.closest('[role="status"]') as HTMLElement)
+    const trigger = await view.findByRole('button', { name: /What’s new/ })
+    expect(trigger.closest('header')).toBeTruthy()
+    expect(view.queryByRole('dialog', { name: 'What’s new' })).toBeNull()
+    fireEvent.click(trigger)
+    const notice = within(view.getByRole('dialog', { name: 'What’s new' }))
     expect(notice.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['https://discord.gg/8K9yY7GywJ'])
     expect(notice.queryByText(/7\.117|upgrade|npm/i)).toBeNull()
   } else {
@@ -132,15 +135,15 @@ test('release notices follow the loaded document even when health reports anothe
 
   const oldTab = render(await demoAppElement(health, { config: { build: previous } }))
   expect(oldTab.container.querySelector('.brand-version')?.textContent).toBe('v7.116.1')
-  expect(oldTab.queryByText(/What’s new in|Updated to/)).toBeNull()
+  expect(oldTab.queryByRole('button', { name: /What’s new/ })).toBeNull()
   oldTab.unmount()
 
   health.apiStatus = { label: 'API', state: 'error', detail: 'Unavailable' }
   const reloaded = render(await demoAppElement(health, { config: { build: current } }))
-  expect(await reloaded.findByText('Updated to v7.117.0')).toBeTruthy()
-  expect(reloaded.getByRole('link', { name: 'View changes' }).getAttribute('href')).toBe(
-    'https://github.com/Canonry/canonry/compare/1234567...7654321',
-  )
+  fireEvent.click(await reloaded.findByRole('button', { name: /What’s new/ }))
+  const notes = within(reloaded.getByRole('dialog', { name: 'What’s new' }))
+  expect(notes.getByText('v7.117.0')).toBeTruthy()
+  expect(notes.getByRole('link', { name: 'Join our Discord' })).toBeTruthy()
 })
 
 test('a newer available package never invites public-demo visitors to upgrade', async () => {
