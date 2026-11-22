@@ -8,6 +8,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { isManagedCanonryInstall } from "./support-links.js";
 import { SeoRuntime } from "./seo-runtime.js";
 import { isLoopbackBindHost } from "./serve-endpoint.js";
 import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
@@ -2500,8 +2501,12 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const managedInstall = isManagedCanonryInstall();
   const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
+  const dashboardWhatsNewOnly = managedInstall || (
+    parseBooleanEnv(process.env.CANONRY_DASHBOARD_WHATS_NEW_ONLY) ?? opts.config.dashboard?.whatsNewOnly ?? false
+  );
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const dashboardBrandMark = resolveDashboardBrandMark(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
@@ -3975,6 +3980,10 @@ export async function createServer(opts: {
     },
   });
 
+  // Resolve once at startup so the dashboard document and /health describe the same build.
+  const buildCommit = resolveBuildCommit();
+  const build = { version: PKG_VERSION, ...(buildCommit ? { commit: buildCommit } : {}) };
+
   // Try to serve static SPA assets
   const dirname = path.dirname(fileURLToPath(import.meta.url));
   const assetsDir = opts.assetsDir ?? path.join(dirname, "..", "assets");
@@ -3991,11 +4000,14 @@ export async function createServer(opts: {
     ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
-      // Keep the default client config byte-for-byte unchanged. Only inject the
-      // dashboard block when the operator changes dashboard presentation.
+      if (!embed.enabled) clientConfig.build = build;
+      // Only inject the dashboard block when the operator changes dashboard presentation.
       const dashboardConfig: Record<string, boolean | string | string[]> = {};
       if (dashboardOnboardingMode) {
         dashboardConfig.onboardingMode = dashboardOnboardingMode;
+      }
+      if (managedInstall) {
+        dashboardConfig.managedInstance = true;
       }
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
@@ -4005,6 +4017,9 @@ export async function createServer(opts: {
       }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
+      }
+      if (dashboardWhatsNewOnly) {
+        dashboardConfig.whatsNewOnly = true;
       }
       if (dashboardBrandMark === "icon") {
         dashboardConfig.brandMark = "icon";
@@ -4036,8 +4051,6 @@ export async function createServer(opts: {
           viewerDailyRunLimit: researchViewerDailyRunLimit,
         };
       }
-      // Embed block is appended LAST and only when enabled, so the default
-      // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
       // `projectTabs` + `theme` may be overridden PER REQUEST by the
       // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
       // proxy sets per dashboard. The proxy also sets X-Canonry-Embed-Render-Token
@@ -4071,7 +4084,7 @@ export async function createServer(opts: {
       const baseTag = `<base href="${basePath ?? "/"}">`;
       return (dashboardBrandMark === "icon" ? withIconMarkLinks(html) : html)
         .replace("<head>", `<head>${baseTag}`)
-        .replace("</head>", `${configScript}</head>`);
+        .replace("</head>", () => `${configScript}</head>`);
     };
 
     // Single chokepoint for every SPA HTML document (root + deep-link
@@ -4112,9 +4125,8 @@ export async function createServer(opts: {
       // every page load, defeating most of the dashboard's first-paint
       // budget.
       setHeaders: (reply: FastifyReply, path: string) => {
-        // index.html serving is handled separately below; this static
-        // middleware doesn't actually serve it (index:false), but guard
-        // anyway in case fastify-static falls back through here.
+        // Dashboard documents have explicit routes below. Other HTML assets
+        // must also revalidate instead of using the hashed asset policy.
         if (path.endsWith(".html")) {
           reply.header("Cache-Control", "no-cache, must-revalidate");
         } else {
@@ -4143,6 +4155,8 @@ export async function createServer(opts: {
     };
     const rootRouteTrailing = basePath ?? "/";
     app.get(rootRouteTrailing, serveIndex);
+    // index:false disables directory indexes but still allows the literal filename.
+    app.get(rootRouteTrailing + "index.html", serveIndex);
     // Also register the no-trailing-slash variant when base path is set
     // (e.g. '/canonry' in addition to '/canonry/') to avoid a 404 on bare navigation.
     if (basePath) {
@@ -4250,9 +4264,7 @@ export async function createServer(opts: {
   // updateCheck: false in config.
   // `commit` (build-time stamp, else CANONRY_COMMIT) and `instance`
   // (CANONRY_INSTANCE / CANONRY_INSTANCE_ROLE) make a running engine
-  // self-identifying to fleet tooling. Both are fixed for the process lifetime,
-  // so resolve them once here; each is omitted, not nulled, when unknown.
-  const buildCommit = resolveBuildCommit();
+  // self-identifying to fleet tooling. Unknown optional fields are omitted.
   const instance = resolveInstanceIdentity();
   const healthHandler = (request: FastifyRequest) => {
     const storedOnly = request.headers[STORED_ONLY_HEADER] === '1' || request.headers[STORED_ONLY_HEADER] === 'true';
@@ -4260,9 +4272,8 @@ export async function createServer(opts: {
     return {
       status: "ok",
       service: "canonry",
-      version: PKG_VERSION,
+      ...build,
       mcp: getMcpHealth(),
-      ...(buildCommit ? { commit: buildCommit } : {}),
       ...(instance ? { instance } : {}),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
       ...(update ? { updateAvailable: update } : {}),

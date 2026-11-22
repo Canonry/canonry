@@ -95,7 +95,7 @@ function AgentConnectionSetup() {
   const { isAdmin } = useAccount()
   const showLocalAgentSetup = shouldShowDashboardLocalAgentSetup()
   const showResourceLinks = shouldShowDashboardResourceLinks()
-  const health = useHealth(!initial, initial?.health)
+  const health = useHealth(!initial, initial?.health, true)
   const apiStatus = health.data?.apiStatus
   const mcp = apiStatus?.state === 'ok' ? apiStatus.mcp : undefined
   const hosted = mcp?.status === McpTransportStatuses.available && mcp.hosted?.status === HostedMcpStatuses.ready ? mcp.hosted : undefined

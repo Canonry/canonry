@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
-import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import { CANONRY_COMMUNITY_LINKS, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -21,7 +21,7 @@ import {
 import { heyClient } from '../src/api.js'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[]; theme?: Record<string, string>; queries?: { limit: number } }
-type DashboardBlock = { showResourceLinks?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
+type DashboardBlock = { showResourceLinks?: boolean; managedInstance?: boolean; whatsNewOnly?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -201,23 +201,55 @@ test('without embed config the full application chrome renders', async () => {
   expect(html).toContain('class="sidebar"')
   expect(html).toContain('class="footer-links"')
   expect(html).toContain('aria-label="GitHub"')
-  expect(html).toContain('aria-label="Docs"')
-  expect(html).toContain('aria-label="Changelog"')
   expect(html).toContain('class="topbar"')
   expect(html).toContain('class="footer"')
   expect(html).toContain('Open navigation')
   expect(html).not.toContain('app-shell-embed')
 })
 
+test('the standalone dashboard links to the official community channels in its footer', async () => {
+  const page = document.createElement('div')
+  page.innerHTML = await renderAt('/')
+  const community = within(page).getByRole('navigation', { name: 'Canonry community' })
+  expect(within(community).getAllByRole('link')).toHaveLength(3)
+  for (const [name, href] of [
+    ['Discord', CANONRY_COMMUNITY_LINKS.discord],
+    ['X', CANONRY_COMMUNITY_LINKS.x],
+    ['YouTube', CANONRY_COMMUNITY_LINKS.youtube],
+  ] as const) {
+    const link = within(community).getByRole('link', { name })
+    expect(link.getAttribute('href')).toBe(href)
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link.getAttribute('title')).toBe(name)
+    expect(link.textContent).toBe('')
+    expect(link.querySelector('svg[aria-hidden="true"] path')).toBeTruthy()
+  }
+})
+
+test('a managed dashboard can show product resources without community links', async () => {
+  const page = document.createElement('div')
+  page.innerHTML = await renderAt('/', undefined, { showResourceLinks: true, managedInstance: true })
+  expect(within(page).getByRole('link', { name: 'GitHub' })).toBeTruthy()
+  expect(within(page).queryByRole('navigation', { name: 'Canonry community' })).toBeNull()
+})
+
 test('dashboard resource-link opt-out removes the sidebar and footer icon clusters', async () => {
-  const html = await renderAt('/', undefined, { showResourceLinks: false })
+  const html = await renderAt('/', undefined, { showResourceLinks: false, managedInstance: false })
   expect(html).toContain('class="sidebar"')
-  expect(html).toContain('class="footer"')
-  expect(html).toContain('class="footer-brand"')
+  expect(html).not.toContain('class="footer"')
   expect(html).not.toContain('class="footer-links"')
+  expect(html).not.toContain('aria-label="Canonry community"')
   expect(html).not.toContain('aria-label="GitHub"')
-  expect(html).not.toContain('aria-label="Docs"')
-  expect(html).not.toContain('aria-label="Changelog"')
+})
+
+test.each([
+  { managedInstance: true },
+  { managedInstance: true, whatsNewOnly: false },
+  { whatsNewOnly: true },
+])('customer-facing release mode hides version labels and the available-update prompt (%j)', async (dashboard) => {
+  const html = await renderAt('/', undefined, dashboard, true)
+  expect(html).not.toContain('New version v4.139.1 available')
+  expect(html).not.toContain('class="brand-version"')
 })
 
 test('dashboard update-notification opt-out removes the version badge without disabling the static version', async () => {
@@ -242,6 +274,7 @@ test('embed mode renders chromeless: no nav / topbar / footer / toaster, only th
   expect(html).not.toContain('class="topbar"')
   expect(html).not.toContain('class="footer"')
   expect(html).not.toContain('id="mobile-nav"')
+  expect(html).not.toContain('aria-label="Canonry community"')
 })
 
 test('embed view allowlist blocks a non-allowlisted route (settings is not reachable)', async () => {

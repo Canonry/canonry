@@ -28,12 +28,14 @@ export async function fetchHealth(): Promise<HealthSnapshot> {
   return { apiStatus, workerStatus }
 }
 
-export function useHealth(enabled: boolean, initialSnapshot?: HealthSnapshot) {
+/** Only visible service status and launch-readiness views need an interval. */
+export function useHealth(enabled: boolean, initialSnapshot?: HealthSnapshot, live = false) {
   return useQuery({
     queryKey: HEALTH_QUERY_KEY,
     queryFn: fetchHealth,
     enabled,
-    refetchInterval: 15_000,
+    refetchInterval: live ? 15_000 : false,
+    refetchOnWindowFocus: true,
     initialData: initialSnapshot,
   })
 }
