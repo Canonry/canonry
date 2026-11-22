@@ -2501,6 +2501,7 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowFeedback = parseBooleanEnv(process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK) ?? opts.config.dashboard?.showFeedback ?? true;
   const managedInstall = isManagedCanonryInstall();
   const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
@@ -4011,6 +4012,9 @@ export async function createServer(opts: {
       }
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
+      }
+      if (!dashboardShowFeedback) {
+        dashboardConfig.showFeedback = false;
       }
       if (!dashboardShowLocalAgentSetup) {
         dashboardConfig.showLocalAgentSetup = false;

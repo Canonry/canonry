@@ -281,14 +281,14 @@ test('loadConfig accepts a legacy blank showUpdateNotification value', () => {
   expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
 })
 
-test('loadConfig preserves the installed-only update setting and rejects a quoted boolean', () => {
-  for (const whatsNewOnly of [true, false, null]) {
-    const configured = baseConfig({ dashboard: { whatsNewOnly } })
+test.each(['whatsNewOnly', 'showFeedback'] as const)('loadConfig accepts booleans and blank values for dashboard.%s and rejects a quoted boolean', key => {
+  for (const value of [true, false, null]) {
+    const configured = baseConfig({ dashboard: { [key]: value } })
     fs.writeFileSync(getConfigPath(), stringify(configured))
     expect(loadConfig().dashboard).toEqual(configured.dashboard)
   }
-  fs.writeFileSync(getConfigPath(), stringify({ ...baseConfig(), dashboard: { whatsNewOnly: 'false' } }))
-  expect(loadConfig).toThrow(/dashboard\.whatsNewOnly/)
+  fs.writeFileSync(getConfigPath(), stringify({ ...baseConfig(), dashboard: { [key]: 'false' } }))
+  expect(loadConfig).toThrow(`dashboard.${key}`)
 })
 
 test.each([undefined, false, true, null])('managedSweeps=%s leaves nullable legacy dashboard fields untouched', managedSweeps => {

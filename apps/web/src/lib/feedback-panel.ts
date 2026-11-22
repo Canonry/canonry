@@ -1,4 +1,4 @@
-import { isEmbed, isPublicDemo } from '../api.js'
+import { isEmbed, isPublicDemo, shouldShowDashboardFeedback } from '../api.js'
 
 let openRequests = 0
 const listeners = new Set<() => void>()
@@ -20,7 +20,6 @@ export function feedbackPanelOpenRequests(): number {
   return openRequests
 }
 
-/** Whether this dashboard shows the Feedback panel: it needs write access, and never runs in an embed or the public demo. */
 export function feedbackPanelAvailable(canWrite: boolean): boolean {
-  return canWrite && !isEmbed() && !isPublicDemo()
+  return canWrite && shouldShowDashboardFeedback() && !isEmbed() && !isPublicDemo()
 }

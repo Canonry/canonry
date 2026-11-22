@@ -413,6 +413,9 @@ export interface DashboardConfigEntry {
    */
   showResourceLinks?: boolean
 
+  /** Show the product feedback form in the dashboard. Defaults to true. */
+  showFeedback?: boolean | null
+
   /**
    * Whether agent onboarding includes local plugins, CLI, and canonry-mcp
    * instructions. Defaults to true. Presentation only; does not change access
@@ -747,11 +750,14 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
       message: `Invalid config at ${configPath}: dashboard.managedSweeps must be true, false, or left blank.`,
     })
   }
-  if (parsed.dashboard?.whatsNewOnly != null && typeof parsed.dashboard.whatsNewOnly !== 'boolean') {
-    throw new CliError({
-      code: 'CONFIG_INVALID',
-      message: `Invalid config at ${configPath}: dashboard.whatsNewOnly must be true, false, or left blank.`,
-    })
+  for (const key of ['whatsNewOnly', 'showFeedback'] as const) {
+    const value = parsed.dashboard?.[key]
+    if (value != null && typeof value !== 'boolean') {
+      throw new CliError({
+        code: 'CONFIG_INVALID',
+        message: `Invalid config at ${configPath}: dashboard.${key} must be true, false, or left blank.`,
+      })
+    }
   }
   if (!researchAllowViewersSchema.safeParse(parsed.research?.allowViewers).success) {
     throw new CliError({
