@@ -498,6 +498,11 @@ export function shouldSkipAuth(url: string): boolean {
   // signed state verifier in that route may receive an unauthenticated request.
   if (url.endsWith('/google-marketing/callback')) return true
   if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
+  // First-run setup with the one-time token `canonry serve` prints (#1176).
+  // Like `/session/setup` it resolves its own authority in the handler, so
+  // the auth plugin must let the unauthenticated request through. The exact
+  // suffix keeps a future route that merely contains the string authenticated.
+  if (url.endsWith('/session/setup-token')) return true
   // The sign-in surface. It cannot require a credential: the sign-in screen has
   // to be able to ask whether a sign-in is needed, offer the form, and clear a
   // dead session, none of which it can do while holding something it does not
