@@ -15,6 +15,7 @@ import {
   loginWithApiKey,
   loginWithPassword,
   setupDashboardPassword,
+  setupWithToken,
   setOnAuthExpired,
   signInWithAccount,
   chatGptStartUrl,
@@ -77,6 +78,11 @@ export function AuthGate() {
   // A proxied or network-reachable server refuses a keyless first-run setup.
   // The root key then rides that setup request only; it is never stored.
   const [setupNeedsRootKey, setSetupNeedsRootKey] = useState(false)
+  // The one-time token from the setup URL `canonry serve` prints (#1176),
+  // read once: it is spent by the first mint attempt, so a second render
+  // must not retry it.
+  const [setupToken] = useState(() => new URLSearchParams(window.location.search).get('token'))
+  const setupTokenAttemptedRef = useRef(false)
   const [setupRootKey, setSetupRootKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -226,6 +232,14 @@ export function AuthGate() {
           // no key and no account grants the install's full-access default.
           setApiKeyPending(true)
           void hydrateApiKey('api-key-error', true)
+        } else if (session.setupRequired && setupToken && !setupTokenAttemptedRef.current) {
+          // A setup link with a one-time token signs in without the password
+          // form (#1176). The gate stays on "Connecting…" until the mint
+          // answers, then shows the dashboard or the form.
+          setupTokenAttemptedRef.current = true
+          setApiKey(null)
+          setApiKeyPending(false)
+          void trySetupToken(setupToken)
         } else {
           setApiKey(null)
           setApiKeyPending(false)
@@ -293,6 +307,49 @@ export function AuthGate() {
       setOnAuthExpired(null)
     }
   }, [authState, accountsInUse, explicitBrowserApiKey])
+
+  // Mint the session with the first-run setup token from the URL, if one was
+  // printed there (#1176). Success signs in like a completed password setup;
+  // failure falls back to the password form, which stays the way in.
+  const trySetupToken = async (token: string) => {
+     const stripTokenFromUrl = () => {
+       const url = new URL(window.location.href)
+       url.searchParams.delete('token')
+       window.history.replaceState(null, '', url)
+     }
+     try {
+       const session = await setupWithToken(token)
+       if (!session.authenticated) {
+         throw new Error('Setup failed')
+       }
+       stripTokenFromUrl()
+       setSessionExpired(false)
+       setApiKey(null)
+       setApiKeyPending(true)
+       setAuthState('checking')
+       try {
+         const currentApiKey = await fetchCurrentApiKey()
+         setApiKey(currentApiKey)
+         setApiKeyPending(false)
+         setAuthState('ready')
+       } catch (err) {
+         // Stay fail-closed. The existing retry reloads the authenticated
+         // session and verifies access without creating another password.
+         setError(err instanceof Error ? err.message : 'Could not verify API key access')
+         setAuthState('api-key-error')
+       }
+     } catch (err) {
+       // The link is spent, expired, or not usable from here. The password
+       // form is still the way in; say so instead of failing the page.
+       stripTokenFromUrl()
+       setError(err instanceof ApiError && err.statusCode === 401
+         ? 'This setup link has already been used or is no longer valid. Create a dashboard password to continue.'
+         : err instanceof Error ? err.message : 'Setup failed')
+       setApiKey(null)
+       setApiKeyPending(false)
+       setAuthState('setup')
+     }
+   }
 
   const handleSetup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
