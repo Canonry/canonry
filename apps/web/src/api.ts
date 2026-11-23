@@ -4,6 +4,7 @@ import type { SchedulePreviewRequest, SchedulePreviewDto } from '@canonry/canonr
 import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto, ProviderConnectionSettingsDto, ProviderConnectionTestResultDto, ProviderConnectionsUnavailableDto, ProviderSettingsUpdateRequest, ProviderReloadResponseDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
+import type { InstalledBuild } from './lib/installed-update.js'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
 import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, BingSubmitSitemapResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto, TrendSurface, TrendsResponse } from '@canonry/canonry-contracts'
 import {
@@ -201,13 +202,18 @@ declare global {
        * Example: '/canonry/' → API calls go to '/canonry/api/v1/...'
        */
       basePath?: string
+      /** Build that served this dashboard document. Fixed until the next page load. */
+      build?: InstalledBuild
       /** Only the dedicated synthetic demo server sets this disclosure. */
       demo?: { enabled: boolean; readOnly: boolean; sampleData: boolean }
       /** Present only when dashboard chrome differs from its defaults. */
       dashboard?: {
         showResourceLinks?: boolean
+        showFeedback?: boolean
+        managedInstance?: boolean
         showLocalAgentSetup?: boolean
         showUpdateNotification?: boolean
+        whatsNewOnly?: boolean
         managedSweeps?: boolean
         managedRunKinds?: SchedulableRunKind[]
         showAgentBar?: boolean
@@ -327,10 +333,24 @@ export function getEmbedConfig(): EmbedClientConfig | null {
   return embed?.enabled ? embed : null
 }
 
-/** Whether the optional GitHub, documentation, and changelog links render. */
+/** Whether the dashboard shows optional resource links. */
 export function shouldShowDashboardResourceLinks(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showResourceLinks !== false
+}
+
+export function shouldShowDashboardFeedback(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.__CANONRY_CONFIG__?.dashboard?.showFeedback !== false
+}
+
+export function isManagedDashboard(): boolean {
+  return typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.dashboard?.managedInstance === true
+}
+
+/** Whether the full dashboard offers Canonry community links on this deployment. */
+export function shouldShowDashboardCommunityLinks(): boolean {
+  return shouldShowDashboardResourceLinks() && !isManagedDashboard() && !isPublicDemo()
 }
 
 /** Whether local plugin, CLI, and stdio MCP onboarding instructions render. */
@@ -373,7 +393,12 @@ export function isAeroPreview(): boolean {
   return isPublicDemo()
 }
 
-/** Whether the available-version notification renders in the sidebar. */
+/** Hosted dashboards expose product highlights while administrators manage releases. */
+export function dashboardShowsWhatsNewOnly(): boolean {
+  return isManagedDashboard() || (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.dashboard?.whatsNewOnly === true)
+}
+
+/** Master switch for dashboard release notices. */
 export function shouldShowDashboardUpdateNotification(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showUpdateNotification !== false
@@ -1738,12 +1763,12 @@ export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
   )
 }
 
-export function bingConnect(project: string, apiKey: string): Promise<BingConnectResponseDto> {
+export function bingConnect(project: string, apiKey?: string): Promise<BingConnectResponseDto> {
   return invokeWeb<BingConnectResponseDto>(() =>
     postApiV1ProjectsByNameBingConnect({
       client: heyClient,
       path: { name: project },
-      body: { apiKey },
+      body: apiKey ? { apiKey } : { useSavedKey: true },
     }),
   )
 }
@@ -2082,7 +2107,7 @@ export function connectServerTrafficCloudRun(
     postApiV1ProjectsByNameTrafficConnectCloudRun({
       client: heyClient,
       path: { name: project },
-      body: body as never,
+      body,
     }),
   )
 }

@@ -325,7 +325,7 @@ describe('IntelligenceService — regression severity tiering', () => {
       expect(groupedResult, `${scenario.locationCount} locations`).not.toBeNull()
       expect(groupedResult!.regressions, `${scenario.locationCount} locations`).toEqual([{
         query: 'foo query', provider: 'gemini', currentRunId: groupedCurrent, previousRunId,
-        previousCitationUrl: 'sev.example.com', previousPosition: undefined,
+        previousCitationUrl: 'sev.example.com',
       }])
       expect(groupedResult!.insights.filter(i => i.type === 'regression')
         .map(({ query, provider, type, severity }) => ({ query, provider, type, severity })), `${scenario.locationCount} locations`).toEqual([

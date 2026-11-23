@@ -1,4 +1,4 @@
-import { CANONRY_DISCORD_URL } from './support-links.js'
+import { CANONRY_COMMUNITY_LINKS } from '@canonry/canonry-contracts'
 /**
  * Output contract an agent can pick per call:
  *   text  — human-readable, decorated (default). Not a stable parse target.
@@ -121,6 +121,6 @@ export function printCliError(err: unknown, format: CliFormat): void {
   // Usage errors and machine formats never carry the hint.
   const unexpected = !(err instanceof CliError) || err.exitCode === EXIT_SYSTEM_ERROR
   if (unexpected && process.stderr.isTTY) {
-    console.error(`\nNeed help? Run 'canonry support' or ask in the Canonry Discord: ${CANONRY_DISCORD_URL}`)
+    console.error(`\nNeed help? Run 'canonry support' or ask in the Canonry Discord: ${CANONRY_COMMUNITY_LINKS.discord}`)
   }
 }

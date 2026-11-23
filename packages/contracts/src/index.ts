@@ -1,4 +1,5 @@
 export * from './mcp-profile.js'
+export * from './community-links.js'
 export * from './api-keys.js'
 export * from './config-schema.js'
 export * from './config-diff.js'

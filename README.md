@@ -332,6 +332,7 @@ See the [deployment guide](docs/deployment.md) for reverse proxies, daemon mode,
 
 - **Discord:** Join the community on **[Discord](https://discord.gg/8K9yY7GywJ)** for help and questions.
 - **Twitter / X:** Follow **[@canonry_ai](https://x.com/canonry_ai)** for updates.
+- **YouTube:** Watch [Canonry product walkthroughs](https://www.youtube.com/@Canonry_AI).
 - **Feedback &amp; Ideas:** Missing something? [Open an issue](https://github.com/Canonry/canonry/issues).
 - **Show Support:** [Star](https://github.com/Canonry/canonry) this repo to follow along.
 

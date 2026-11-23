@@ -4301,6 +4301,12 @@ export type BacklinksInstallStatusDto = {
     pluginDir: string;
 };
 
+export type BingConnectRequest = {
+    apiKey: string;
+} | {
+    useSavedKey: true;
+};
+
 export type BingConnectResponseDto = {
     connected: boolean;
     domain: string;
@@ -19637,6 +19643,21 @@ export type TrafficSourceDto = {
     updatedAt: string;
 };
 
+export type TrafficConnectCloudRunRequest = {
+    gcpProjectId: string;
+    serviceName?: string;
+    location?: string;
+    displayName?: string;
+    /**
+     * For a new source, collect logs from connection time onward. Existing sources keep their sync position.
+     */
+    startFromNow?: boolean;
+    /**
+     * Omit to reuse this project’s saved service account for the exact GCP project, service and region. Supply a new key only through a secure credential input.
+     */
+    keyJson?: string;
+};
+
 export type TrafficSourceListResponse = {
     sources: Array<{
         id: string;
@@ -30714,6 +30735,10 @@ export type PostApiV1ProjectsByNameGoogleConnectErrors = {
      * Invalid Google connection request.
      */
     400: ErrorEnvelope;
+    /**
+     * Selecting a Search Console or GA4 property or authorizing a shared Google connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameGoogleConnectError = PostApiV1ProjectsByNameGoogleConnectErrors[keyof PostApiV1ProjectsByNameGoogleConnectErrors];
@@ -30749,9 +30774,17 @@ export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Removing a shared Search Console or GA4 connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Search Console sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeError = DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors[keyof DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors];
@@ -30782,6 +30815,10 @@ export type GetApiV1ProjectsByNameGooglePropertiesErrors = {
      * Google OAuth is not configured.
      */
     400: ErrorEnvelope;
+    /**
+     * Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -30823,9 +30860,17 @@ export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Selecting a Search Console or GA4 property on a shared OAuth connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Search Console sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyError = PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors[keyof PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors];
@@ -33794,9 +33839,7 @@ export type GetApiV1ProjectsByNameAdsLiveDeliveryResponses = {
 export type GetApiV1ProjectsByNameAdsLiveDeliveryResponse = GetApiV1ProjectsByNameAdsLiveDeliveryResponses[keyof GetApiV1ProjectsByNameAdsLiveDeliveryResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
-    body: {
-        apiKey: string;
-    };
+    body: BingConnectRequest;
     path: {
         /**
          * Project name.
@@ -33813,9 +33856,17 @@ export type PostApiV1ProjectsByNameBingConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Using the saved Bing key or authorizing a shared Bing connection requires an install administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
+    /**
+     * The project changed during credential verification.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameBingConnectError = PostApiV1ProjectsByNameBingConnectErrors[keyof PostApiV1ProjectsByNameBingConnectErrors];
@@ -33843,9 +33894,17 @@ export type DeleteApiV1ProjectsByNameBingDisconnectData = {
 
 export type DeleteApiV1ProjectsByNameBingDisconnectErrors = {
     /**
+     * Removing a shared Bing connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Bing sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameBingDisconnectError = DeleteApiV1ProjectsByNameBingDisconnectErrors[keyof DeleteApiV1ProjectsByNameBingDisconnectErrors];
@@ -33907,6 +33966,10 @@ export type GetApiV1ProjectsByNameBingSitesErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Listing account sites requires an install administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -33943,9 +34006,17 @@ export type PostApiV1ProjectsByNameBingSetSiteErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The credential cannot change this connection or select this domain.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Bing sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameBingSetSiteError = PostApiV1ProjectsByNameBingSetSiteErrors[keyof PostApiV1ProjectsByNameBingSetSiteErrors];
@@ -35895,7 +35966,7 @@ export type PostApiV1ProjectsByNameGaConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.
+     * Selecting a property on the saved OAuth grant requires an instance administrator. If Google refused the property, details.reason is ga4-permission-missing and details.nextCheckAt gives the next check time.
      */
     403: ErrorEnvelope;
     /**
@@ -35994,6 +36065,10 @@ export type GetApiV1ProjectsByNameGaPropertiesErrors = {
      * No OAuth GA4 connection for this project.
      */
     400: ErrorEnvelope;
+    /**
+     * Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -38001,16 +38076,7 @@ export type GetApiV1ProjectsByNameBacklinksSourcesResponses = {
 export type GetApiV1ProjectsByNameBacklinksSourcesResponse = GetApiV1ProjectsByNameBacklinksSourcesResponses[keyof GetApiV1ProjectsByNameBacklinksSourcesResponses];
 
 export type PostApiV1ProjectsByNameTrafficConnectCloudRunData = {
-    body: {
-        gcpProjectId: string;
-        serviceName?: string;
-        location?: string;
-        displayName?: string;
-        /**
-         * Service-account JSON content.
-         */
-        keyJson: string;
-    };
+    body: TrafficConnectCloudRunRequest;
     path: {
         /**
          * Project name.

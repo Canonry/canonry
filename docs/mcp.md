@@ -658,14 +658,25 @@ Core tier (always loaded):
 - `canonry_agent_webhook_attach`
 - `canonry_feedback` — send a struggle, bug, or improvement about Canonry itself to the Canonry team (canonry.ai); credentials are redacted, and the install id is attached only while telemetry is enabled
 
+For project connections, call `canonry_help({intent:"connect"})`. On a
+write-capable connection, Search Console and GA4 can start Google consent in
+the operator's browser and select a property afterward. Bing uses the key
+saved in Canonry Settings. Cloud Run uses the service account saved for the
+same project and log target, or returns a private setup link in `dashboardUrl`.
+New sources connected this way collect logs from connection time. An approved
+historical import can set `startFromNow: false`. Recheck the saved connection
+after completing any browser step.
+Hosted OAuth grants for read access or research do not include connection
+setup. An administrator can use a write-authorized MCP API key for setup.
+
 Toolkits (loaded on demand):
 
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
 | `monitoring` | sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, the next manual sweep preview (`canonry_run_preview`: planned answers and provider holds, no spending), project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder), Agent Readiness audit scans, scores, pages, findings and link-graph reads (`canonry_agent_readiness_*`) | Investigating regressions, comparing runs, reviewing insights/health, checking Agent Readiness, surfacing content opportunities, generating client-facing reports |
 | `setup` | project export/upsert, first-run setup status (`canonry_project_setup`), sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove plus `canonry_competitors_aliases_set` (curated answer-text names) and the answer-derived auto-alias tools (`canonry_competitors_auto_aliases_detect`, `_apply`, `canonry_competitors_aliases_block`, `_unblock`), schedule get/list/set/delete plus `canonry_schedule_preview` (the next occurrence of proposed timing), answer-engine provider connections (`canonry_provider_settings_get`, `canonry_provider_settings_update`, `canonry_provider_disconnect`, `canonry_provider_test`, `canonry_providers_reload`), notification event names, telemetry status, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing, testing or disconnecting a provider connection, reviewing notification capability, and checking safe setup state |
-| `gsc` | google connections list, GSC performance, per-query totals, inspections, coverage, coverage history, sitemaps, sitemap submission, deindexed | Indexing, coverage, sitemap analysis and submission from Google Search Console |
-| `bing` | `canonry_bing_coverage`: stored index counts and URL inspections for a connected Bing site; no Bing call or sync | Reviewing indexed, not indexed, and unknown URL evidence from Bing Webmaster Tools |
+| `gsc` | `canonry_gsc_connect`, `canonry_gsc_properties`, `canonry_gsc_set_property`, Google connection status, performance, inspections, coverage and sitemaps | Connecting Search Console and reviewing search and indexing evidence |
+| `bing` | `canonry_bing_connect`, `canonry_bing_status`, `canonry_bing_sites`, `canonry_bing_set_site`, coverage and search data | Connecting Bing Webmaster Tools and reviewing evidence for the selected site |
 | `ga` | GA status, native-channel/lead/search-demand measurement analysis (leads also split by AI engine with lead rates), GA4's Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page), traffic (social and creator platforms ranked by conversions per 1,000 sessions), coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
 | `gbp` | Google Business Profile location discovery, selection, and local AEO evidence | Reviewing connected Business Profile locations and local search visibility |
 | `ads` | OpenAI ads connection/live account status, integrity review, geo target search, conversion pixels/event settings, lifecycle-ready snapshots with upstream timestamps, paid rollups, summary, sync, durable receipts, unresolved-receipt listing, provider-state reconciliation, exact-executor activation recovery, image upload, paused create/update/pause operations, and execution of an exact human approval grant. No approval creation, direct activation, or archive. | Planning, reviewing, recovering ambiguous receipts, preparing ChatGPT ads, or executing a separately approved launch |

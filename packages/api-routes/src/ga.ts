@@ -7,7 +7,7 @@ import { GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, c
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
-import { assertNotProjectScoped } from './auth.js'
+import { requireGooglePropertyDiscovery, requireInstanceAdministrator } from './auth.js'
 import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
 import { buildGaOverview, parseGaOverviewWindow } from './ga-overview.js'
@@ -15,7 +15,7 @@ import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
 import { loadSocialPlatformPerformance } from './ga-social-platform-performance.js'
-import { clearGaDataOnPropertyChange, clearGaPropertyData, resolveCurrentGa4PropertyId, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { clearGaDataOnPropertyChange, clearGaPropertyData, resolveCurrentGa4PropertyId, projectsSharingGoogleConnection, readGa4Properties } from './ga-property-data.js'
 import { planGaSyncCoverage, saveGaSyncCoverage, fetchGaSyncRanges } from './ga-sync-coverage.js'
 import { persistSearchLandingFailure, persistSearchLandingSnapshot, searchLandingWindowsToFetch } from './ga-search-landing-pages.js'
 import {
@@ -610,23 +610,20 @@ async function resolveGa4AccessToken(
   const authConfig = opts.getGoogleAuthConfig?.()
   if (!googleStore || !authConfig) {
     throw validationError(
-      'No GA4 credentials found. Run "canonry ga connect <project> --key-file <path>" or ' +
-      '"canonry google connect <project> --type ga4" to authenticate.',
+      'No GA4 credentials found. Connect a service account or authorize Google Analytics in the browser.',
     )
   }
 
   const oauthConn = googleStore.getConnection(canonicalDomain, 'ga4')
   if (!oauthConn?.accessToken || !oauthConn?.refreshToken) {
     throw validationError(
-      'No GA4 credentials found. Run "canonry ga connect <project> --key-file <path>" or ' +
-      '"canonry google connect <project> --type ga4" to authenticate.',
+      'No GA4 credentials found. Connect a service account or authorize Google Analytics in the browser.',
     )
   }
 
   if (!oauthConn.propertyId) {
     throw validationError(
-      'GA4 property ID not set. Run "canonry ga properties <project>" to list the readable properties, ' +
-      'then "canonry ga connect <project> --property-id <id>" to select one.',
+      'GA4 property ID not set. List the properties this Google account can read, then select the numeric ID to connect.',
     )
   }
 
@@ -781,12 +778,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
 
     // --- OAuth path: no key provided, use existing OAuth token ---
+    requireInstanceAdministrator(request)
     const googleStore = opts.googleConnectionStore
     const authConfig = opts.getGoogleAuthConfig?.()
     if (!googleStore || !authConfig) {
       throw validationError(
-        'No service account key provided and OAuth storage is not configured. ' +
-        'Pass --key-file or run "canonry google connect <project> --type ga4" first.',
+        'Google OAuth storage is not configured on this instance. Configure it or connect a GA4 service account.',
       )
     }
 
@@ -794,8 +791,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     if (!oauthConn?.accessToken || !oauthConn?.refreshToken) {
       attempt.failed(undefined, 'NOT_CONNECTED')
       throw validationError(
-        'No GA4 OAuth token found. Run "canonry google connect <project> --type ga4" first, ' +
-        'or pass --key-file to use a service account.',
+        'No GA4 OAuth grant found. Authorize Google Analytics in the browser before selecting a property.',
       )
     }
 
@@ -828,7 +824,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // service-account path, for every project on this domain: they all
     // resolve through this record, and a service-account connection still
     // wins over it, so a project is cleared only when its property changed.
-    const before = readGa4Properties(opts, projectsSharingGa4Connection(app.db, project.canonicalDomain))
+    const before = readGa4Properties(opts, projectsSharingGoogleConnection(app.db, project.canonicalDomain))
     googleStore.updateConnection(project.canonicalDomain, 'ga4', {
       propertyId,
       updatedAt: new Date().toISOString(),
@@ -863,8 +859,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // The other projects on this domain lose the OAuth connection too.
     const others = readGa4Properties(
       opts,
-      projectsSharingGa4Connection(app.db, project.canonicalDomain).filter((other) => other.id !== project.id),
+      projectsSharingGoogleConnection(app.db, project.canonicalDomain).filter((other) => other.id !== project.id),
     )
+    if (oauthConn && others.length > 0) requireInstanceAdministrator(request)
     opts.ga4CredentialStore?.deleteConnection(project.name)
     opts.googleConnectionStore?.deleteConnection(project.canonicalDomain, 'ga4')
 
@@ -892,11 +889,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // requires a propertyId to already be set, which is the exact thing this
   // route exists to discover. Requiring it here would make the numeric id
   // unobtainable from canonry and force the operator into the GA4 UI.
-  app.get<{ Params: { name: string } }>('/projects/:name/ga/properties', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ga/properties', { config: { paidRead: true } }, async (request) => {
     // The Admin API answers for the OAuth PRINCIPAL, not for this project, so
     // the response names every GA account and property the operator can see —
     // other clients included. A key narrowed to one project must not read it.
-    assertNotProjectScoped(request, 'listing GA4 properties')
+    requireGooglePropertyDiscovery(request)
 
     const project = resolveProject(app.db, request.params.name)
 
@@ -904,15 +901,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const authConfig = opts.getGoogleAuthConfig?.()
     if (!googleStore || !authConfig) {
       throw validationError(
-        'Google OAuth is not configured. Run "canonry google connect <project> --type ga4" first.',
+        'Google OAuth is not configured on this instance. Configure it before listing GA4 properties.',
       )
     }
 
     const oauthConn = googleStore.getConnection(project.canonicalDomain, 'ga4')
     if (!oauthConn?.accessToken || !oauthConn?.refreshToken) {
       throw validationError(
-        'No GA4 OAuth connection for this project. Run "canonry google connect <project> --type ga4" first. ' +
-        'Service-account connections already carry their property id and do not need this listing.',
+        'No GA4 OAuth connection for this project. Authorize Google Analytics in the browser to list properties. ' +
+        'Service-account connections already specify a property ID.',
       )
     }
 

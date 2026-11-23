@@ -1,18 +1,21 @@
-import { useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useQueries } from '@tanstack/react-query'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { lazyRouteComponent, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Plus } from 'lucide-react'
 
-import type { TrafficSourceDto } from '@canonry/canonry-contracts'
+import { TrafficSourceStatuses, type CloudRunTrafficSetup, type TrafficSourceDto } from '@canonry/canonry-contracts'
 
-import { heyClient, isEmbed, type ApiTrafficSourceDetail } from '../../api.js'
+import { heyClient, isEmbed, isPublicDemo, type ApiTrafficSourceDetail } from '../../api.js'
 import { getApiV1ProjectsByNameTrafficSourcesByIdOptions } from '@canonry/canonry-api-client/react-query'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { shouldNavigateFromRowClick } from '../../lib/row-navigation.js'
 import { ConnectSourceDrawer } from '../server-traffic/ConnectSourceDrawer.js'
+import { useAccount } from '../../contexts/account-context.js'
 import { toneFromTrafficSourceStatus, useServerTrafficSources } from '../../queries/server-traffic.js'
+
+const TrafficSourceDetail = lazyRouteComponent(() => import('../../pages/TrafficSourceDetailPage.js'), 'TrafficSourceDetail')
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'never'
@@ -32,49 +35,93 @@ function formatCompact(n: number): string {
   return n.toLocaleString()
 }
 
-/** This project's server-log sources: crawler hits, AI fetches, and referral sessions. */
-export function ServerTrafficSection({ projectName, heading = true }: { projectName: string; heading?: boolean }) {
-  const [connectOpen, setConnectOpen] = useState(false)
+type ServerTrafficProps = { projectName: string } & (
+  | { view: 'sources' }
+  | { view: 'project'; sourceId?: string; initialCloudRunTarget?: CloudRunTrafficSetup; onSelectSource: (id: string) => void }
+)
+
+export function ServerTrafficSection(props: ServerTrafficProps) {
+  const { projectName } = props
+  const { canWrite } = useAccount()
+  const canConnect = canWrite && !isEmbed() && !isPublicDemo()
+  const initialCloudRunTarget = props.view === 'project' ? props.initialCloudRunTarget : undefined
+  const [connectOpen, setConnectOpen] = useState<boolean | undefined>(initialCloudRunTarget ? true : undefined)
   const connectOpener = useRef<HTMLButtonElement | null>(null)
   const sourcesQuery = useServerTrafficSources(projectName)
-  const sources = sourcesQuery.data?.sources ?? []
-  const openConnection = (button: HTMLButtonElement) => { connectOpener.current = button; setConnectOpen(true) }
+  const sources = sourcesQuery.data?.sources
+  const needsSetup = props.view === 'project' && canConnect && sourcesQuery.isSuccess && !sourcesQuery.isFetching && sources?.length === 0
+  useEffect(() => {
+    if (needsSetup) setConnectOpen(previous => previous ?? true)
+  }, [needsSetup])
+
+  const connectButton = canConnect && (
+    <Button ref={connectOpener} type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
+      <Plus className="size-3.5" /> Connect a source
+    </Button>
+  )
+  const activeSource = props.view === 'project' && sources
+    ? sources.find(source => source.id === props.sourceId)
+      ?? sources.find(source => source.status === TrafficSourceStatuses.connected)
+      ?? sources[0]
+    : undefined
 
   return (
-    <section aria-labelledby={heading ? 'server-traffic-heading' : undefined} aria-label={heading ? undefined : 'Server traffic'}>
-      <div className="section-head section-head-inline">
-        <div>
-          {heading ? (
-            <>
-              <h2 id="server-traffic-heading" className="text-heading-20 text-heading">Server traffic</h2>
-              <p className="page-subtitle">AI crawler hits and referral sessions from your server logs.</p>
-            </>
-          ) : null}
+    <section aria-label="Server traffic">
+      {props.view === 'sources' && canConnect && <div className="mb-3 flex justify-end">{connectButton}</div>}
+      {sourcesQuery.isError && !sources?.length ? (
+        <div role="alert" className="flex items-center gap-3">
+          <p className="text-copy-14 text-negative">Could not load traffic sources.</p>
+          <Button variant="outline" size="sm" onClick={() => { void sourcesQuery.refetch() }}>Retry</Button>
         </div>
-        {!isEmbed() && (
-          <Button type="button" variant="outline" size="sm" onClick={event => openConnection(event.currentTarget)}>
-            <Plus className="size-3.5" />
-            Connect a source
-          </Button>
-        )}
-      </div>
-
-      {sourcesQuery.isLoading ? (
-        <Card className="p-6 text-center text-label-14 text-muted">Loading sources…</Card>
+      ) : !sources || (props.view === 'project' && !sources.length && sourcesQuery.isFetching && connectOpen === undefined) ? (
+        <p role="status" className="text-copy-14 text-secondary">Loading sources…</p>
       ) : sources.length === 0 ? (
-        <Card className="p-8 text-center">
+        <Card className="flex flex-col items-center gap-3 p-8 text-center">
           <p className="text-copy-14 text-neutral">No traffic sources connected for {projectName}.</p>
-          {!isEmbed() && <p className="mt-1 text-copy-14 text-secondary">Connect a source to start collecting traffic.</p>}
+          {props.view === 'project' && connectButton}
         </Card>
+      ) : props.view === 'project' && activeSource ? (
+        <>
+          <div className="page-header">
+            <div className="page-header-left">
+              {sources.length > 1 ? (
+                <label className="flex flex-wrap items-center gap-2 text-label-14-strong text-secondary">
+                  Source
+                  <select
+                    className="h-8 max-w-full rounded-md border border-base bg-bg px-2 text-label-14 text-heading"
+                    value={activeSource.id}
+                    onChange={event => props.onSelectSource(event.target.value)}
+                  >
+                    {sources.map(source => <option key={source.id} value={source.id}>{source.displayName}</option>)}
+                  </select>
+                </label>
+              ) : <h2 className="text-heading-20 text-heading">{activeSource.displayName}</h2>}
+              <p className="page-subtitle">{activeSource.lastSyncedAt ? `Last synced ${relativeTime(activeSource.lastSyncedAt)}` : 'Never synced'}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <ToneBadge tone={toneFromTrafficSourceStatus(activeSource.status)}>{activeSource.status}</ToneBadge>
+              {connectButton}
+            </div>
+          </div>
+          <Suspense fallback={<p role="status" className="text-copy-14 text-secondary">Loading source…</p>}>
+            <TrafficSourceDetail key={activeSource.id} projectName={projectName} sourceId={activeSource.id} />
+          </Suspense>
+        </>
       ) : (
         <SourcesTable projectName={projectName} sources={sources} />
       )}
 
-      {!isEmbed() && (
+      {canConnect && (
         <ConnectSourceDrawer
-          open={connectOpen}
-          onOpenChange={setConnectOpen}
-          onClosed={() => { if (connectOpener.current?.isConnected) connectOpener.current.focus() }}
+          initialCloudRunTarget={initialCloudRunTarget}
+          open={connectOpen === true}
+          onOpenChange={open => {
+            setConnectOpen(open)
+            // CLI-based setup can add the first source outside this browser.
+            if (!open && props.view === 'project' && sources?.length === 0 && !sourcesQuery.isFetching) void sourcesQuery.refetch()
+          }}
+          onClosed={() => connectOpener.current?.focus()}
+          onSourceConnected={props.view === 'project' ? props.onSelectSource : undefined}
           projectName={projectName}
         />
       )}

@@ -40,6 +40,14 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### Server traffic
+
+The project tab opens the selected source's traffic report in place. The
+`trafficSource` search parameter selects a source from this project. Without
+a valid selection, show the newest connected source, falling back to the
+newest configured source. A confirmed empty project opens the setup drawer
+for writers. The global Traffic sources page remains the source list.
+
 ### Journeys
 
 Journeys is a project tab (`/projects/$projectName/journeys`, `JourneysSection`)
@@ -1001,7 +1009,8 @@ The schedule editor defaults a new schedule to the browser timezone, displays th
 - Project sections use `ProjectSubnav`'s underline tab row in `projectSectionTabs()` order (AI Visibility, Queries, then the rest, in sentence case), with the remaining sections in More. On Agent Readiness the project row hides Run AI Visibility check, because that tab has its own Run scan. The open section is always a visible tab with `aria-current="page"`: an open More section shows as a tab before More, and narrow panels move other sections into More, never the open one. Operators reach Settings through the sidebar's Project settings link, which carries the dashboard URL state like the tabs (minus `onboarding`); only embeds get a Settings tab. Row links use `activeOptions={{ exact: true }}`: AI Visibility is the project root, so the router's default prefix match would also mark it current on every other section.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.
-- The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. Doc links sit in the sidebar footer.
+- The sidebar Resources section sits at the bottom, with the `Rocket` icon for Setup. The self-hosted sidebar and mobile footer link to GitHub, Discord, X, and YouTube.
+- Record user-facing major and minor release highlights in `src/lib/release-notes.ts`. The top-bar **What’s new** control opens on request. Opening it marks the displayed releases as read per dashboard and account. Keep other tabs’ unread releases intact. First visits surface the latest applicable note for the loaded HTML build. Carry missed releases through upgrades, including patches. Hosted engine dashboards omit versions and upgrade actions. Keep Feedback, theme controls, and navigation reachable at narrow widths.
 - The Canonry mark beside the wordmark (sidebar, compact topbar, `AuthGate`) is `BrandMarkImage` in `components/shared/BrandLockup.tsx`: the mascot, or the plugin icon with `.brand-icon-tile` when the server injects `dashboard.brandMark: 'icon'`. The server swaps the document's tab icons itself.
 - `AgentSetupPage.tsx` owns `/agent-setup`, shared by desktop/mobile navigation and onboarding. When `mcp.hosted.plugin` is present (operator `mcpGateway` config), the page leads with the Canonry plugin steps for that instance's own workspace (marketplace install, the workspace to enter, sign-in) and moves direct connection into a closed "Connect directly" disclosure; never show plugin steps without it. Otherwise hosted setup leads with the canonical URL from `mcp.hosted` health, then client OAuth sign-in/consent and a stored-read verification prompt. Never infer hosted readiness or its URL from browser origin or transport availability. Readiness describes server prerequisites, not public reachability or a client connection; missing metadata stays unconfirmed. The explicit `dashboard.showLocalAgentSetup` setting (default true) controls local plugin, CLI, and stdio MCP instructions independently of readiness or account role. When false, omit the local disclosure, local-install CTA on `/setup`, and administrator CLI recovery instructions; use contact-administrator guidance. When true, a dashboard open on the computer running Canonry (a loopback host) without ready hosted setup leads with local setup, open: the README's first-time setup request (shared with `/setup` through `lib/agent-setup-request.ts`, plus a line naming this dashboard's address), then the README's Claude Code and Codex plugin commands (a test keeps them equal), other MCP clients, and a local verification prompt; hosted clients follow with their status badge. Every other dashboard leads with hosted setup, ready or needing attention, and keeps local setup collapsed with a connect prompt for this instance and the same commands. Local prompts target the browser instance and base path. `showResourceLinks` also hides optional GitHub guides from visible links and copied prompts; client help articles remain available. Preserve existing credentials and scopes, and do not offer connection controls in public demos or embeds.
 
@@ -1179,4 +1188,4 @@ the existing UI event limits and consent path; a lost final checkpoint undercoun
 
 ### Product feedback
 
-`components/shared/FeedbackPanel.tsx` is the shared topbar feedback entry point. It uses the existing generated feedback mutation, a non-modal anchored panel, and an in-memory draft that survives dismissal and route changes. It is hidden for embeds, public demos, and credentials without general write authority. Only confirmed delivery clears the draft and records `feedback.submit`; message text never enters usage telemetry. Feedback includes a route pattern, never a concrete path or project name. No automatic retries or browser-storage drafts.
+`components/shared/FeedbackPanel.tsx` is the shared topbar feedback entry point. It uses the existing generated feedback mutation, a non-modal anchored panel, and an in-memory draft that survives dismissal and route changes. Set `dashboard.showFeedback` to `false` to hide the form and its Settings entry point. Both are also hidden for embeds, public demos, and credentials without general write authority. Only confirmed delivery clears the draft and records `feedback.submit`; message text never enters usage telemetry. Feedback includes a route pattern, never a concrete path or project name. No automatic retries or browser-storage drafts.

@@ -462,6 +462,10 @@ function ReadySetupPage({
       ?? (hasExistingSuccessfulBaseline ? null : latestPersistedRun?.id ?? null),
   )
   const triggerRunMutation = useTriggerRun()
+  // The first health read selects the resume step. Once selected, only the
+  // system check and the live launch gate need to poll that shared result.
+  const showHealth = step === 0 || (step === 4 && !runTriggered && !hasExistingSuccessfulBaseline && !isDashboardManagedSweeps())
+  useHealth(enableLiveStatus && showHealth, initialHealth, true)
   const runPreview = useRunPreview(createdProjectName, step === 4 && !isDashboardManagedSweeps())
   const firstCheckUsesAccount = previewUsesProviderAccount(runPreview.data)
   // The provider requests the server previewed for the check launched here:

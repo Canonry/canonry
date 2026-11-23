@@ -79,12 +79,13 @@ test('the skip link is the first stop for a keyboard, ahead of the demo banner',
   expect(focusable[0]!.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
-test.each([false, true])('agent setup navigation is available only outside the public demo (demo=%s)', async (demo) => {
+test.each([false, true])('agent setup and community navigation are available only outside the public demo (demo=%s)', async (demo) => {
   const config = demo ? { demo: DEMO } : {}
   const document = await renderDemoApp(undefined, { config })
   const sidebarLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.sidebar-link'))
     .filter(link => link.textContent?.trim() === 'Agent setup')
   expect(sidebarLinks).toHaveLength(demo ? 0 : 1)
+  expect(document.querySelectorAll('aside footer nav[aria-label="Canonry community"]')).toHaveLength(demo ? 0 : 1)
   if (!demo) expect(sidebarLinks[0]!.getAttribute('href')).toBe('/agent-setup')
 
   // The mobile navigation is a dialog, so its links exist only once it is open.
@@ -92,11 +93,67 @@ test.each([false, true])('agent setup navigation is available only outside the p
   const view = render(await demoAppElement(undefined, { config }))
   fireEvent.click(view.getByRole('button', { name: 'Open navigation' }))
   const navigation = await view.findByRole('dialog', { name: 'Navigation' })
-  expect(within(navigation).getByRole('link', { name: 'Canonry' })).toBeTruthy()
-  expect(within(navigation).getByRole('link', { name: 'Docs' })).toBeTruthy()
+  expect(within(navigation).getByRole('link', { name: 'GitHub' })).toBeTruthy()
+  expect(within(navigation).queryAllByRole('navigation', { name: 'Canonry community' })).toHaveLength(demo ? 0 : 1)
   const mobileLinks = within(navigation).queryAllByRole('link', { name: 'Agent setup' })
   expect(mobileLinks).toHaveLength(demo ? 0 : 1)
   if (!demo) expect(mobileLinks[0]!.getAttribute('href')).toBe('/agent-setup')
+})
+
+test.each([true, false])('a hosted dashboard respects showResourceLinks=%s for the release invitation', async showResourceLinks => {
+  onTestFinished(cleanup)
+  const key = 'canonry:installed-update:["",null]'
+  window.localStorage.removeItem(key)
+  onTestFinished(() => window.localStorage.removeItem(key))
+  const view = render(await demoAppElement(undefined, { config: {
+    build: { version: '7.117.0' },
+    dashboard: { managedInstance: true, showResourceLinks },
+  } }))
+  if (showResourceLinks) {
+    const trigger = await view.findByRole('button', { name: /What’s new/ })
+    expect(trigger.closest('header')).toBeTruthy()
+    expect(view.queryByRole('dialog', { name: 'What’s new' })).toBeNull()
+    fireEvent.click(trigger)
+    const notice = within(view.getByRole('dialog', { name: 'What’s new' }))
+    expect(notice.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['https://discord.gg/8K9yY7GywJ'])
+    expect(notice.queryByText(/7\.117|upgrade|npm/i)).toBeNull()
+  } else {
+    expect(view.queryByText('What’s new')).toBeNull()
+  }
+  expect(view.queryByRole('navigation', { name: 'Canonry community' })).toBeNull()
+})
+
+test('release notices follow the loaded document even when health reports another build or is unavailable', async () => {
+  onTestFinished(cleanup)
+  const key = 'canonry:installed-update:["",null]'
+  window.localStorage.removeItem(key)
+  onTestFinished(() => window.localStorage.removeItem(key))
+  const previous = { version: '7.116.1', commit: '1234567' }
+  const current = { version: '7.117.0', commit: '7654321' }
+  const health = createDashboardFixture().health
+  health.apiStatus = { label: 'API', state: 'ok', detail: 'Ready', version: current.version }
+
+  const oldTab = render(await demoAppElement(health, { config: { build: previous } }))
+  expect(oldTab.container.querySelector('.brand-version')?.textContent).toBe('v7.116.1')
+  expect(oldTab.queryByRole('button', { name: /What’s new/ })).toBeNull()
+  oldTab.unmount()
+
+  health.apiStatus = { label: 'API', state: 'error', detail: 'Unavailable' }
+  const reloaded = render(await demoAppElement(health, { config: { build: current } }))
+  fireEvent.click(await reloaded.findByRole('button', { name: /What’s new/ }))
+  const notes = within(reloaded.getByRole('dialog', { name: 'What’s new' }))
+  expect(notes.getByText('v7.117.0')).toBeTruthy()
+  expect(notes.getByRole('link', { name: 'Join our Discord' })).toBeTruthy()
+})
+
+test('a newer available package never invites public-demo visitors to upgrade', async () => {
+  const health = await demoHealth()
+  health.apiStatus.updateAvailable = {
+    current: '1.0.0', latest: '1.1.0',
+    url: 'https://www.npmjs.com/package/@canonry/canonry', upgradeCommand: 'npm update',
+  }
+  const doc = await renderDemoApp(health)
+  expect(doc.querySelector('.brand-update-bubble')).toBeNull()
 })
 
 test('the shell does not show API or worker status pills', async () => {
@@ -121,8 +178,7 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
   expect(area.classList.contains('main-area-agent-bar')).toBe(true)
   expect(area.querySelector('footer')).toBeNull()
   const footer = document.querySelector('aside footer')!
-  expect(footer.querySelector('a[href="https://canonry.ai"]')?.textContent).toBe('Canonry')
-  expect(footer.querySelector('a[aria-label="Docs"]')).toBeTruthy()
+  expect(footer.querySelector('a[aria-label="GitHub"]')?.getAttribute('href')).toBe('https://github.com/Canonry/canonry')
   const rules = parseCompiledCss(await compileAppStyles([...area.classList]))
   expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('calc(7rem + env(safe-area-inset-bottom))')
   expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('calc(7rem + env(safe-area-inset-bottom))')

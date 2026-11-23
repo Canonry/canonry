@@ -116,6 +116,14 @@ export const bingSitesResponseDtoSchema = z.object({
 })
 export type BingSitesResponseDto = z.infer<typeof bingSitesResponseDtoSchema>
 
+export const bingConnectRequestSchema = z.union([
+  z.strictObject({ apiKey: z.string().min(1) }),
+  z.strictObject({ useSavedKey: z.literal(true) }),
+])
+export type BingConnectRequest = z.infer<typeof bingConnectRequestSchema>
+
+export { searchSiteUrlSchema as bingSiteUrlSchema, searchSiteUrl as bingProjectSiteUrl } from './url-normalize.js'
+
 /**
  * Response shape for `GET /projects/:name/bing/status`. Carries
  * connection state for the dashboard's Bing settings card.

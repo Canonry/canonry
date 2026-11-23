@@ -497,6 +497,7 @@ export async function trafficConnectCloudRun(project: string, opts: {
   service?: string
   location?: string
   serviceAccountKey?: string
+  startFromNow?: boolean
   displayName?: string
   format?: string
 }): Promise<void> {
@@ -508,28 +509,20 @@ export async function trafficConnectCloudRun(project: string, opts: {
       details: { project },
     })
   }
-  if (!opts.serviceAccountKey) {
-    throw new CliError({
-      code: 'TRAFFIC_KEY_FILE_REQUIRED',
-      message: '--service-account-key is required for v1 (OAuth-mode Cloud Run is not yet supported).',
-      displayMessage: 'Error: --service-account-key <path-to-json> is required',
-      details: { project },
-    })
-  }
-
-  const fs = await import('node:fs')
-  let keyJson: string
-  try {
-    keyJson = fs.readFileSync(opts.serviceAccountKey, 'utf-8')
-    JSON.parse(keyJson)
-  } catch (e) {
-    const msg = describeError(e)
-    throw new CliError({
-      code: 'TRAFFIC_KEY_FILE_READ_ERROR',
-      message: `Failed to read service-account key: ${msg}`,
-      displayMessage: `Error: failed to read --service-account-key "${opts.serviceAccountKey}": ${msg}`,
-      details: { project, keyFile: opts.serviceAccountKey },
-    })
+  let keyJson: string | undefined
+  if (opts.serviceAccountKey) {
+    const fs = await import('node:fs')
+    try {
+      keyJson = fs.readFileSync(opts.serviceAccountKey, 'utf-8')
+      JSON.parse(keyJson)
+    } catch {
+      throw new CliError({
+        code: 'TRAFFIC_KEY_FILE_READ_ERROR',
+        message: 'Failed to read service-account key as JSON',
+        displayMessage: `Error: failed to read --service-account-key "${opts.serviceAccountKey}" as JSON`,
+        details: { project, keyFile: opts.serviceAccountKey },
+      })
+    }
   }
 
   const client = getClient()
@@ -537,6 +530,7 @@ export async function trafficConnectCloudRun(project: string, opts: {
     gcpProjectId: opts.gcpProject,
     serviceName: opts.service,
     location: opts.location,
+    startFromNow: opts.startFromNow,
     displayName: opts.displayName,
     keyJson,
   })

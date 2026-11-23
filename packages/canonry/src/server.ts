@@ -8,6 +8,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { isManagedCanonryInstall } from "./support-links.js";
 import { SeoRuntime } from "./seo-runtime.js";
 import { isLoopbackBindHost } from "./serve-endpoint.js";
 import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
@@ -101,6 +102,7 @@ import {
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
+  CloudRunConnectionConfigEntry,
   ProviderConfigEntry,
   CloudflareTrafficConnectionConfigEntry,
 } from "./config.js";
@@ -2172,8 +2174,24 @@ export async function createServer(opts: {
     ),
   };
 
+  // Keep the previous site live if its config write fails and the evidence
+  // transaction rolls back. A retry must still see the previous site.
+  function saveSearchConnection<K extends "bing" | "google", T>(
+    section: K,
+    change: (draft: CanonryConfig) => T,
+  ): T {
+    const draft = { ...opts.config, [section]: structuredClone(opts.config[section]) };
+    const result = change(draft);
+    if (result) {
+      persistConfigPatch({ [section]: draft[section] });
+      opts.config[section] = draft[section];
+    }
+    return result;
+  }
+
   // Bing connection store — stores connections in ~/.canonry/config.yaml
   const bingConnectionStore = {
+    getSavedApiKey: () => opts.config.bing?.apiKey,
     getConnection: (domain: string) => {
       return opts.config.bing?.connections?.find((c) => c.domain === domain);
     },
@@ -2184,10 +2202,10 @@ export async function createServer(opts: {
       createdByProjectId?: string | null;
       createdAt: string;
       updatedAt: string;
-    }) => {
-      if (!opts.config.bing) opts.config.bing = {};
-      if (!opts.config.bing.connections) opts.config.bing.connections = [];
-      const idx = opts.config.bing.connections.findIndex(
+    }) => saveSearchConnection("bing", (draft) => {
+      if (!draft.bing) draft.bing = {};
+      if (!draft.bing.connections) draft.bing.connections = [];
+      const idx = draft.bing.connections.findIndex(
         (c) => c.domain === connection.domain,
       );
       const normalized = {
@@ -2195,13 +2213,12 @@ export async function createServer(opts: {
         createdByProjectId: connection.createdByProjectId ?? null,
       };
       if (idx >= 0) {
-        opts.config.bing.connections[idx] = normalized;
+        draft.bing.connections[idx] = normalized;
       } else {
-        opts.config.bing.connections.push(normalized);
+        draft.bing.connections.push(normalized);
       }
-      persistConfigPatch(opts.config);
       return normalized;
-    },
+    }),
     updateConnection: (
       domain: string,
       patch: Partial<{
@@ -2209,25 +2226,23 @@ export async function createServer(opts: {
         siteUrl: string | null;
         updatedAt: string;
       }>,
-    ) => {
-      const conn = opts.config.bing?.connections?.find(
+    ) => saveSearchConnection("bing", (draft) => {
+      const conn = draft.bing?.connections?.find(
         (c) => c.domain === domain,
       );
       if (!conn) return undefined;
       Object.assign(conn, patch);
-      persistConfigPatch(opts.config);
       return conn;
-    },
-    deleteConnection: (domain: string) => {
-      if (!opts.config.bing?.connections) return false;
-      const idx = opts.config.bing.connections.findIndex(
+    }),
+    deleteConnection: (domain: string) => saveSearchConnection("bing", (draft) => {
+      if (!draft.bing?.connections) return false;
+      const idx = draft.bing.connections.findIndex(
         (c) => c.domain === domain,
       );
       if (idx < 0) return false;
-      opts.config.bing.connections.splice(idx, 1);
-      persistConfigPatch(opts.config);
+      draft.bing.connections.splice(idx, 1);
       return true;
-    },
+    }),
   } as const;
 
   // GA4 credential store — stores service account keys in ~/.canonry/config.yaml
@@ -2259,28 +2274,11 @@ export async function createServer(opts: {
     getConnection: (projectName: string) => {
       return getCloudRunConnection(opts.config, projectName);
     },
-    upsertConnection: (record: {
-      projectName: string;
-      gcpProjectId: string;
-      serviceName?: string;
-      location?: string;
-      authMode: "oauth" | "service-account";
-      clientEmail?: string;
-      privateKey?: string;
-      refreshToken?: string;
-      tokenExpiresAt?: string;
-      scopes?: string[];
-      createdAt: string;
-      updatedAt: string;
-    }) => {
-      const updated = upsertCloudRunConnection(opts.config, record);
-      persistConfigPatch(opts.config);
-      return updated;
+    upsertConnection: (record: CloudRunConnectionConfigEntry) => {
+      return upsertCloudRunConnection(opts.config, record, persistConfigPatch);
     },
     deleteConnection: (projectName: string) => {
-      const removed = removeCloudRunConnection(opts.config, projectName);
-      if (removed) persistConfigPatch(opts.config);
-      return removed;
+      return removeCloudRunConnection(opts.config, projectName, persistConfigPatch);
     },
   } as const;
 
@@ -2389,11 +2387,7 @@ export async function createServer(opts: {
       createdByProjectId?: string | null;
       createdAt: string;
       updatedAt: string;
-    }) => {
-      const updated = upsertGoogleConnection(opts.config, connection);
-      persistConfigPatch(opts.config);
-      return updated;
-    },
+    }) => saveSearchConnection("google", draft => upsertGoogleConnection(draft, connection)),
     updateConnection: (
       domain: string,
       connectionType: "gsc" | "ga4" | "gbp",
@@ -2406,28 +2400,11 @@ export async function createServer(opts: {
         scopes?: string[];
         updatedAt: string;
       }>,
-    ) => {
-      const updated = patchGoogleConnection(
-        opts.config,
-        domain,
-        connectionType,
-        patch,
-      );
-      if (updated) persistConfigPatch(opts.config);
-      return updated;
-    },
+    ) => saveSearchConnection("google", draft => patchGoogleConnection(draft, domain, connectionType, patch)),
     deleteConnection: (
       domain: string,
       connectionType: "gsc" | "ga4" | "gbp",
-    ) => {
-      const removed = removeGoogleConnection(
-        opts.config,
-        domain,
-        connectionType,
-      );
-      if (removed) persistConfigPatch(opts.config);
-      return removed;
-    },
+    ) => saveSearchConnection("google", draft => removeGoogleConnection(draft, domain, connectionType)),
   } as const;
 
   const wordpressConnectionStore = {
@@ -2500,8 +2477,13 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowFeedback = parseBooleanEnv(process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK) ?? opts.config.dashboard?.showFeedback ?? true;
+  const managedInstall = isManagedCanonryInstall();
   const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
+  const dashboardWhatsNewOnly = managedInstall || (
+    parseBooleanEnv(process.env.CANONRY_DASHBOARD_WHATS_NEW_ONLY) ?? opts.config.dashboard?.whatsNewOnly ?? false
+  );
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const dashboardBrandMark = resolveDashboardBrandMark(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
@@ -3975,6 +3957,10 @@ export async function createServer(opts: {
     },
   });
 
+  // Resolve once at startup so the dashboard document and /health describe the same build.
+  const buildCommit = resolveBuildCommit();
+  const build = { version: PKG_VERSION, ...(buildCommit ? { commit: buildCommit } : {}) };
+
   // Try to serve static SPA assets
   const dirname = path.dirname(fileURLToPath(import.meta.url));
   const assetsDir = opts.assetsDir ?? path.join(dirname, "..", "assets");
@@ -3991,20 +3977,29 @@ export async function createServer(opts: {
     ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
-      // Keep the default client config byte-for-byte unchanged. Only inject the
-      // dashboard block when the operator changes dashboard presentation.
+      if (!embed.enabled) clientConfig.build = build;
+      // Only inject the dashboard block when the operator changes dashboard presentation.
       const dashboardConfig: Record<string, boolean | string | string[]> = {};
       if (dashboardOnboardingMode) {
         dashboardConfig.onboardingMode = dashboardOnboardingMode;
       }
+      if (managedInstall) {
+        dashboardConfig.managedInstance = true;
+      }
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
+      }
+      if (!dashboardShowFeedback) {
+        dashboardConfig.showFeedback = false;
       }
       if (!dashboardShowLocalAgentSetup) {
         dashboardConfig.showLocalAgentSetup = false;
       }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
+      }
+      if (dashboardWhatsNewOnly) {
+        dashboardConfig.whatsNewOnly = true;
       }
       if (dashboardBrandMark === "icon") {
         dashboardConfig.brandMark = "icon";
@@ -4036,8 +4031,6 @@ export async function createServer(opts: {
           viewerDailyRunLimit: researchViewerDailyRunLimit,
         };
       }
-      // Embed block is appended LAST and only when enabled, so the default
-      // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
       // `projectTabs` + `theme` may be overridden PER REQUEST by the
       // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
       // proxy sets per dashboard. The proxy also sets X-Canonry-Embed-Render-Token
@@ -4071,7 +4064,7 @@ export async function createServer(opts: {
       const baseTag = `<base href="${basePath ?? "/"}">`;
       return (dashboardBrandMark === "icon" ? withIconMarkLinks(html) : html)
         .replace("<head>", `<head>${baseTag}`)
-        .replace("</head>", `${configScript}</head>`);
+        .replace("</head>", () => `${configScript}</head>`);
     };
 
     // Single chokepoint for every SPA HTML document (root + deep-link
@@ -4112,9 +4105,8 @@ export async function createServer(opts: {
       // every page load, defeating most of the dashboard's first-paint
       // budget.
       setHeaders: (reply: FastifyReply, path: string) => {
-        // index.html serving is handled separately below; this static
-        // middleware doesn't actually serve it (index:false), but guard
-        // anyway in case fastify-static falls back through here.
+        // Dashboard documents have explicit routes below. Other HTML assets
+        // must also revalidate instead of using the hashed asset policy.
         if (path.endsWith(".html")) {
           reply.header("Cache-Control", "no-cache, must-revalidate");
         } else {
@@ -4143,6 +4135,8 @@ export async function createServer(opts: {
     };
     const rootRouteTrailing = basePath ?? "/";
     app.get(rootRouteTrailing, serveIndex);
+    // index:false disables directory indexes but still allows the literal filename.
+    app.get(rootRouteTrailing + "index.html", serveIndex);
     // Also register the no-trailing-slash variant when base path is set
     // (e.g. '/canonry' in addition to '/canonry/') to avoid a 404 on bare navigation.
     if (basePath) {
@@ -4250,9 +4244,7 @@ export async function createServer(opts: {
   // updateCheck: false in config.
   // `commit` (build-time stamp, else CANONRY_COMMIT) and `instance`
   // (CANONRY_INSTANCE / CANONRY_INSTANCE_ROLE) make a running engine
-  // self-identifying to fleet tooling. Both are fixed for the process lifetime,
-  // so resolve them once here; each is omitted, not nulled, when unknown.
-  const buildCommit = resolveBuildCommit();
+  // self-identifying to fleet tooling. Unknown optional fields are omitted.
   const instance = resolveInstanceIdentity();
   const healthHandler = (request: FastifyRequest) => {
     const storedOnly = request.headers[STORED_ONLY_HEADER] === '1' || request.headers[STORED_ONLY_HEADER] === 'true';
@@ -4260,9 +4252,8 @@ export async function createServer(opts: {
     return {
       status: "ok",
       service: "canonry",
-      version: PKG_VERSION,
+      ...build,
       mcp: getMcpHealth(),
-      ...(buildCommit ? { commit: buildCommit } : {}),
       ...(instance ? { instance } : {}),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
       ...(update ? { updateAvailable: update } : {}),

@@ -83,8 +83,13 @@ The bulk `--all-unindexed` flag uses stored inspection results on the project do
 ## Bing Webmaster Tools
 
 ### One-time setup
+
+An administrator can use `canonry_bing_connect` with the Bing key saved in
+Canonry Settings, then `canonry_bing_set_site` with the approved site URL.
+From the CLI, run these commands.
+
 ```bash
-cnry bing connect <project> --api-key <key>
+cnry bing connect <project> --use-saved-key
 cnry bing set-site <project> https://example.com/
 ```
 

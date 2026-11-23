@@ -12,7 +12,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { extractErrorMessage } from '../../lib/extract-error-message.js'
 import { addToast } from '../../lib/toast-store.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { shellQuote } from '@canonry/canonry-contracts'
+import { shellQuote, type CloudRunTrafficSetup } from '@canonry/canonry-contracts'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
@@ -28,25 +28,45 @@ export function ConnectSourceDrawer({
   open,
   onOpenChange,
   onClosed,
+  onSourceConnected,
+  initialCloudRunTarget,
   projectName,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onClosed?: () => void
+  onSourceConnected?: (sourceId: string) => void
+  initialCloudRunTarget?: CloudRunTrafficSetup
   projectName: string
 }) {
-  const [step, setStep] = useState<Step>('pick')
-
-  // Always restart the wizard at the source picker when it reopens.
+  const navigate = useNavigate()
+  const [handoffTarget, setHandoffTarget] = useState(initialCloudRunTarget)
+  const [cloudRunBackfill, setCloudRunBackfill] = useState(!initialCloudRunTarget || initialCloudRunTarget.startFromNow === false)
+  const firstStep = handoffTarget ? 'cloud-run' : 'pick'
+  const [step, setStep] = useState<Step>(firstStep)
   useEffect(() => {
-    if (open) setStep('pick')
-  }, [open])
+    if (open) setStep(firstStep)
+  }, [open, firstStep])
 
-  // Every close path resets the step synchronously so a reopened drawer never
-  // flashes the previously-selected form before the reopen effect above runs.
+  // Drop form credentials on close. Reopening a handoff restores its target.
   const handleClose = () => {
     onOpenChange(false)
-    setStep('pick')
+    setStep(firstStep)
+  }
+
+  const formProps = {
+    projectName,
+    onBack: () => {
+      setHandoffTarget(undefined)
+      if (initialCloudRunTarget) setCloudRunBackfill(false)
+      setStep('pick')
+    },
+    onClose: handleClose,
+    onSourceConnected: (sourceId: string) => {
+      handleClose()
+      if (onSourceConnected) onSourceConnected(sourceId)
+      else void navigate({ to: '/traffic/$projectName/$sourceId', params: { projectName, sourceId } })
+    },
   }
 
   return (
@@ -63,23 +83,11 @@ export function ConnectSourceDrawer({
         ) : step === 'cloudflare' ? (
           <CloudflareGuide projectName={projectName} onBack={() => setStep('pick')} onClose={handleClose} />
         ) : step === 'wordpress' ? (
-          <WordpressSourceForm
-            projectName={projectName}
-            onBack={() => setStep('pick')}
-            onClose={handleClose}
-          />
+          <WordpressSourceForm {...formProps} />
         ) : step === 'vercel' ? (
-          <VercelSourceForm
-            projectName={projectName}
-            onBack={() => setStep('pick')}
-            onClose={handleClose}
-          />
+          <VercelSourceForm {...formProps} />
         ) : (
-          <CloudRunSourceForm
-            projectName={projectName}
-            onBack={() => setStep('pick')}
-            onClose={handleClose}
-          />
+          <CloudRunSourceForm {...formProps} initialTarget={handoffTarget} backfill={cloudRunBackfill} onBackfillChange={setCloudRunBackfill} />
         )}
       </SheetContent>
     </Sheet>
@@ -180,33 +188,11 @@ function WizardHeader({
   )
 }
 
-/**
- * After a source connects, hand off to its detail page. Adapters with a safe
- * initial history window can kick off a backfill before navigation; adapters
- * with retention-limited history capture forward traffic and leave history as
- * an explicit operator action.
- *
- * Rejects if a requested backfill kickoff fails. A failed kickoff creates no run
- * row, so the caller keeps the drawer open and shows the error instead of
- * routing to a detail page with nothing on it. `afterConnected` runs only
- * once the optional kickoff has succeeded.
- */
-function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
-  const navigate = useNavigate()
-  return async (
-    sourceId: string,
-    options: { startInitialBackfill: boolean; afterConnected?: () => void },
-  ) => {
-    if (options.startInitialBackfill) {
-      await triggerServerTrafficBackfill(projectName, sourceId)
-    }
-    options.afterConnected?.()
-    onClose()
-    void navigate({
-      to: '/traffic/$projectName/$sourceId',
-      params: { projectName, sourceId },
-    })
-  }
+interface SourceFormProps {
+  projectName: string
+  onBack: () => void
+  onClose: () => void
+  onSourceConnected: (sourceId: string) => void
 }
 
 /**
@@ -215,9 +201,8 @@ function useConnectedSourceHandoff(projectName: string, onClose: () => void) {
  * off to the new source's detail page. Each form supplies only the
  * type-specific steps.
  */
-function useConnectFlow(projectName: string, onClose: () => void) {
+function useConnectFlow(projectName: string, onSourceConnected: (sourceId: string) => void) {
   const [error, setError] = useState<string | null>(null)
-  const handoff = useConnectedSourceHandoff(projectName, onClose)
 
   const runConnect = async (steps: {
     /** Return a message when the form is invalid, or null when it is ready. */
@@ -244,17 +229,17 @@ function useConnectFlow(projectName: string, onClose: () => void) {
       return
     }
 
-    // The source row exists now. Start history only for adapters that can do
-    // so safely, then route to its detail page. A requested backfill kickoff
-    // failure creates no run row, so keep the drawer open and surface it.
+    // Keep the form open if the initial backfill failed to create a run.
     try {
-      await handoff(source.id, {
-        startInitialBackfill: steps.startInitialBackfill ?? true,
-        afterConnected: steps.onConnected,
-      })
+      if (steps.startInitialBackfill !== false) {
+        await triggerServerTrafficBackfill(projectName, source.id)
+      }
     } catch (e) {
       setError(`Source connected, but starting the initial backfill failed: ${extractErrorMessage(e)}`)
+      return
     }
+    steps.onConnected?.()
+    onSourceConnected(source.id)
   }
 
   return { error, runConnect }
@@ -298,7 +283,7 @@ function ConnectSourceFormShell({
           form is taller than a laptop screen. */}
       <div className="-mr-1 mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="flex flex-col gap-5">
-        <AgentHandoff request={guide.agentRequest} docsUrl={guide.docsUrl} />
+        <AgentHandoff guide={guide} />
         <SetupSteps steps={guide.steps} />
       </div>
 
@@ -335,22 +320,14 @@ function ConnectSourceFormShell({
   )
 }
 
-function WordpressSourceForm({
-  projectName,
-  onBack,
-  onClose,
-}: {
-  projectName: string
-  onBack: () => void
-  onClose: () => void
-}) {
+function WordpressSourceForm({ projectName, onBack, onClose, onSourceConnected }: SourceFormProps) {
   const [baseUrl, setBaseUrl] = useState('')
   const [username, setUsername] = useState('')
   const [applicationPassword, setApplicationPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
 
   const connect = useConnectServerTrafficWordpress(projectName || null)
-  const { error, runConnect } = useConnectFlow(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onSourceConnected)
 
   const handleSubmit = () =>
     runConnect({
@@ -452,29 +429,24 @@ function WordpressSourceForm({
   )
 }
 
-function CloudRunSourceForm({
-  projectName,
-  onBack,
-  onClose,
-}: {
-  projectName: string
-  onBack: () => void
-  onClose: () => void
+function CloudRunSourceForm({ projectName, onBack, onClose, onSourceConnected, initialTarget, backfill, onBackfillChange }: SourceFormProps & {
+  initialTarget?: CloudRunTrafficSetup
+  backfill: boolean
+  onBackfillChange: (value: boolean) => void
 }) {
-  const [gcpProjectId, setGcpProjectId] = useState('')
-  const [serviceName, setServiceName] = useState('')
-  const [location, setLocation] = useState('')
-  const [displayName, setDisplayName] = useState('')
+  const [gcpProjectId, setGcpProjectId] = useState(initialTarget?.gcpProjectId ?? '')
+  const [serviceName, setServiceName] = useState(initialTarget?.serviceName ?? '')
+  const [location, setLocation] = useState(initialTarget?.location ?? '')
+  const [displayName, setDisplayName] = useState(initialTarget?.displayName ?? '')
   const [keyJson, setKeyJson] = useState('')
 
   const connect = useConnectServerTrafficCloudRun(projectName || null)
-  const { error, runConnect } = useConnectFlow(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onSourceConnected)
 
   const handleSubmit = () =>
     runConnect({
       validate: () => {
         if (!gcpProjectId.trim()) return 'GCP project ID is required.'
-        if (!keyJson.trim()) return 'Service-account JSON content is required.'
         return null
       },
       mutate: () =>
@@ -483,8 +455,10 @@ function CloudRunSourceForm({
           serviceName: serviceName.trim() || undefined,
           location: location.trim() || undefined,
           displayName: displayName.trim() || undefined,
-          keyJson: keyJson.trim(),
+          keyJson: keyJson.trim() || undefined,
+          ...(!backfill && { startFromNow: true }),
         }),
+      startInitialBackfill: backfill,
       // Don't keep the private-key payload around in memory after submit.
       onConnected: () => setKeyJson(''),
     })
@@ -504,7 +478,7 @@ function CloudRunSourceForm({
           <InfoTooltip text={storageNote('service-account private key')} />
         </span>
       }
-      guide={cloudRunGuide(projectName, gcpProjectId)}
+      guide={cloudRunGuide(projectName, gcpProjectId, serviceName, location, displayName)}
       projectName={projectName}
       onBack={onBack}
       onClose={onClose}
@@ -520,6 +494,7 @@ function CloudRunSourceForm({
         <input
           type="text"
           value={gcpProjectId}
+          readOnly={Boolean(initialTarget)}
           onChange={(e) => setGcpProjectId(e.target.value)}
           required
           autoComplete="off"
@@ -529,8 +504,7 @@ function CloudRunSourceForm({
 
       <Field
         label="Service-account JSON"
-        description="Paste the contents of the SA key (JSON). The SA needs roles/logging.viewer (or any role granting logging.logEntries.list)."
-        required
+        description="Upload a Logs Viewer key for this target, or leave empty to reuse its saved key. The GCP project, service and region must match."
       >
         <textarea
           value={keyJson}
@@ -540,20 +514,19 @@ function CloudRunSourceForm({
           autoComplete="off"
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-copy-14-mono text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
           placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
-          required
         />
         <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-label-14 text-secondary hover:text-strong">
           <input
             type="file"
             accept="application/json,.json"
-            className="hidden"
+            className="peer sr-only"
             onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
           />
-          <span className="rounded-md border border-base px-2 py-1">Or upload a key file</span>
+          <span className="rounded-md border border-base px-2 py-1 peer-focus-visible:ring-2 peer-focus-visible:ring-mono-400">Or upload a key file</span>
         </label>
       </Field>
 
-      <OptionalFields>
+      <OptionalFields initiallyOpen={Boolean(initialTarget)}>
       <Field
         label="Service name (optional)"
         description="Restrict log pulls to a specific Cloud Run service. Omit to pull all services in the project."
@@ -561,6 +534,7 @@ function CloudRunSourceForm({
         <input
           type="text"
           value={serviceName}
+          readOnly={Boolean(initialTarget)}
           onChange={(e) => setServiceName(e.target.value)}
           autoComplete="off"
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
@@ -574,6 +548,7 @@ function CloudRunSourceForm({
         <input
           type="text"
           value={location}
+          readOnly={Boolean(initialTarget)}
           onChange={(e) => setLocation(e.target.value)}
           autoComplete="off"
           className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
@@ -594,19 +569,15 @@ function CloudRunSourceForm({
       </Field>
 
       </OptionalFields>
+      <label className="flex items-center gap-2 text-label-14 text-secondary">
+        <input type="checkbox" checked={backfill} onChange={event => onBackfillChange(event.target.checked)} />
+        Import the last 30 days of available logs
+      </label>
     </ConnectSourceFormShell>
   )
 }
 
-function VercelSourceForm({
-  projectName,
-  onBack,
-  onClose,
-}: {
-  projectName: string
-  onBack: () => void
-  onClose: () => void
-}) {
+function VercelSourceForm({ projectName, onBack, onClose, onSourceConnected }: SourceFormProps) {
   const [projectId, setProjectId] = useState('')
   const [teamId, setTeamId] = useState('')
   const [token, setToken] = useState('')
@@ -614,7 +585,7 @@ function VercelSourceForm({
   const [displayName, setDisplayName] = useState('')
 
   const connect = useConnectServerTrafficVercel(projectName || null)
-  const { error, runConnect } = useConnectFlow(projectName, onClose)
+  const { error, runConnect } = useConnectFlow(projectName, onSourceConnected)
 
   const handleSubmit = () =>
     runConnect({
@@ -786,6 +757,7 @@ export interface SetupStep {
 export interface SourceGuide {
   steps: SetupStep[]
   agentRequest: string
+  agentClient?: string
   docsUrl: string
 }
 
@@ -879,12 +851,14 @@ ${SECRET_RULE}`,
   }
 }
 
-export function cloudRunGuide(projectName: string, gcpProjectId: string): SourceGuide {
+export function cloudRunGuide(projectName: string, gcpProjectId: string, serviceName = '', location = '', displayName = ''): SourceGuide {
   const project = shellQuote(projectName)
   const gcpProject = gcpProjectId.trim()
+  const target = { gcpProjectId: gcpProject, serviceName: serviceName.trim() || undefined, location: location.trim() || undefined, displayName: displayName.trim() || undefined }
   const serviceAccountsUrl = `https://console.cloud.google.com/iam-admin/serviceaccounts${gcpProject ? `?project=${encodeURIComponent(gcpProject)}` : ''}`
   return {
     docsUrl: `${TRAFFIC_DOCS}#connecting-a-cloud-run-source`,
+    agentClient: 'an agent connected to Canonry MCP',
     steps: [
       {
         title: 'Create a service account in the Google Cloud project',
@@ -900,12 +874,12 @@ export function cloudRunGuide(projectName: string, gcpProjectId: string): Source
 
 Follow the Cloud Run section of the Canonry docs: ${TRAFFIC_DOCS}#connecting-a-cloud-run-source
 
-1. Ask me for the Google Cloud project ID and, if there is more than one, the Cloud Run service name and region.
-2. If gcloud is installed and signed in, propose the exact commands to create a service account with only roles/logging.viewer and download a JSON key, and run them after I approve. Otherwise walk me through it in the Cloud Console.
-3. Connect with: cnry traffic connect cloud-run ${project} --gcp-project <project-id> --service-account-key <path/to/key.json> (add --service and --location to narrow it).
-4. Confirm with cnry doctor --project ${project} --check 'traffic.source.*' --format json and tell me in plain words whether logs are readable.
+1. Confirm the GCP project ID, Cloud Run service and region with me. The current form selection is ${JSON.stringify({ project: projectName, request: target })}.
+2. Call canonry_traffic_connect_cloud_run for the approved target. Omit keyJson to reuse its saved Logs Viewer key.
+3. If it returns cloud-run-credential-required, give me the dashboardUrl to open. If only dashboardPath is available, resolve it against the known Canonry dashboard address. I will upload the key there and connect the source myself. Never ask me to paste a password, token, or key into this chat.
+4. Confirm the source with canonry_traffic_sources_list. Report its last sync separately. Start a backfill only if I request one.
 
-${SECRET_RULE}`,
+If I explicitly request a CLI setup, use cnry traffic connect cloud-run ${project} --gcp-project <project-id> with the approved service and region.`,
   }
 }
 
@@ -943,12 +917,12 @@ ${SECRET_RULE}`,
   }
 }
 
-function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }) {
+function AgentHandoff({ guide }: { guide: SourceGuide }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
       // `navigator.clipboard` is absent outside a secure context.
-      await navigator.clipboard.writeText(request)
+      await navigator.clipboard.writeText(guide.agentRequest)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch {
@@ -972,8 +946,8 @@ function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }
         </Button>
       </div>
       <p className="mt-1.5 text-copy-13 text-secondary">
-        Paste it into Claude Code, Codex, or any agent with a terminal. It follows the{' '}
-        <a href={docsUrl} target="_blank" rel="noreferrer" className="text-link underline-offset-4 hover:underline">
+        Paste it into {guide.agentClient ?? 'Claude Code, Codex, or any agent with a terminal'}. It follows the{' '}
+        <a href={guide.docsUrl} target="_blank" rel="noreferrer" className="text-link underline-offset-4 hover:underline">
           setup guide
           <ExternalLink className="ml-0.5 inline size-3" aria-hidden="true" />
         </a>{' '}
@@ -1023,9 +997,9 @@ function SetupSteps({ steps, heading = 'Or do it yourself' }: { steps: SetupStep
 }
 
 /** Fields most operators never need, kept out of the way until asked for. */
-function OptionalFields({ children }: { children: ReactNode }) {
+function OptionalFields({ children, initiallyOpen }: { children: ReactNode; initiallyOpen?: boolean }) {
   return (
-    <details className="group">
+    <details className="group" open={initiallyOpen}>
       <summary className="cursor-pointer list-none text-label-14-strong text-secondary hover:text-heading">
         <span className="group-open:hidden">Show more options</span>
         <span className="hidden group-open:inline">Hide more options</span>
@@ -1063,7 +1037,7 @@ function CloudflareGuide({
       />
       <div className="-mr-1 mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
         <div className="flex flex-col gap-5">
-          <AgentHandoff request={guide.agentRequest} docsUrl={guide.docsUrl} />
+          <AgentHandoff guide={guide} />
           <SetupSteps steps={guide.steps} />
         </div>
         <div className="mt-6 flex items-center justify-end gap-2 border-t border-default pt-4">

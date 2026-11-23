@@ -424,40 +424,13 @@
     @apply mt-0.5 text-muted text-label-12-mono;
   }
 
-  /* ── Update bubble ── */
-  /*
-   * A version notification replaces the static label when a newer Canonry
-   * version is available. It spans the sidebar lockup so long version strings
-   * can wrap without escaping the sidebar; click opens npm, × dismisses
-   * (per-version, persisted to localStorage). The bird plays a one-shot chirp
-   * animation when the notification appears.
-   */
-  .brand-lockup-wrapper {
-    @apply grid w-full max-w-full grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3;
-  }
-
-  .brand-icon-link {
-    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-caution-400/60 rounded-full;
-  }
-
-  .brand-lockup-wrapper .brand-icon-link {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .brand-lockup-wrapper .brand-copy {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
+  /* The update offer shares the topbar slot with installed release notes. */
   .brand-update-bubble {
-    @apply relative col-span-2 mt-2 flex w-full min-w-0 items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 text-caution-100 transition text-label-12-mono;
+    @apply relative flex max-w-56 min-w-0 items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 text-caution-100 transition text-label-12-mono;
     box-shadow:
       0 8px 20px -10px var(--color-caution-glow),
       inset 0 0 0 1px var(--color-caution-glow-inset);
     transform-origin: 0 50%;
-    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp.
-       An exponential ease-out that settles at full size without overshooting. */
     animation: brand-bubble-pop 420ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both;
   }
 
@@ -471,10 +444,6 @@
 
   .brand-update-bubble-link:focus-visible {
     @apply ring-2 ring-caution-400/60;
-  }
-
-  .brand-update-bubble-closing {
-    animation: brand-bubble-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
   }
 
   .brand-update-bubble-from,
@@ -509,14 +478,6 @@
     @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-caution-300;
   }
 
-  /* Bird chirps just before the bubble appears. Origin near the bird's
-   * feet so the rotation reads as a head tilt rather than a spin. The
-   * plugin icon's tile stays still: tilting it would rock the whole tile. */
-  .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon:not(.brand-icon-tile) {
-    animation: brand-bird-talk 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) 0ms both;
-    transform-origin: 50% 80%;
-  }
-
   @keyframes brand-bubble-pop {
     0% {
       opacity: 0;
@@ -528,26 +489,8 @@
     }
   }
 
-  @keyframes brand-bird-talk {
-    0%   { transform: translateY(0) rotate(0deg); }
-    12%  { transform: translateY(-2px) rotate(-6deg) scale(1.04); }
-    24%  { transform: translateY(1px) rotate(3deg) scale(0.98); }
-    38%  { transform: translateY(-1px) rotate(-3deg); }
-    52%  { transform: translateY(0) rotate(2deg); }
-    68%  { transform: translateY(-1px) rotate(-1deg); }
-    100% { transform: translateY(0) rotate(0deg); }
-  }
-
-  @keyframes brand-bubble-out {
-    0%   { opacity: 1; transform: scale(1); }
-    100% { opacity: 0; transform: scale(0.6) translateY(-4px); }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .brand-update-bubble {
-      animation: none;
-    }
-    .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon:not(.brand-icon-tile) {
       animation: none;
     }
   }
@@ -656,6 +599,28 @@
     @apply ml-auto flex shrink-0 items-center gap-2;
   }
 
+  @media (width < 40rem) {
+    .topbar:has([data-dashboard-release-control]) {
+      @apply gap-x-1 gap-y-1 px-2;
+    }
+
+    .topbar:has([data-dashboard-release-control]) .topbar-actions {
+      @apply min-w-0 max-w-full flex-wrap justify-end gap-1;
+    }
+
+    .topbar:has([data-dashboard-release-control]) .topbar-brand-mobile .brand-copy {
+      @apply sr-only;
+    }
+
+    .brand-update-bubble {
+      @apply max-w-32;
+    }
+
+    .brand-update-bubble-from, .brand-update-bubble-arrow {
+      @apply hidden;
+    }
+  }
+
   .task-center {
     @apply relative;
   }
@@ -711,8 +676,13 @@
   }
 
   @media (max-width: 639px) {
+    /* Anchor below the complete sticky header, including a wrapped row of controls. */
+    .task-center, .task-center-details {
+      @apply static;
+    }
+
     .task-center-panel {
-      @apply material-menu fixed left-4 right-4 top-12 w-auto;
+      @apply left-3 right-3 top-full mt-1.5 w-auto;
     }
   }
 
@@ -3259,11 +3229,7 @@
   /* ── Footer ── */
 
   .footer {
-    @apply flex shrink-0 flex-col gap-2 border-t border-subtle px-4 py-3 text-label-14;
-  }
-
-  .footer-brand {
-    @apply flex items-center gap-2 text-muted;
+    @apply flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-subtle px-4 py-3 text-label-14;
   }
 
   .footer-version {
@@ -3275,7 +3241,7 @@
   }
 
   .footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-secondary transition hover:bg-surface-inset-hover hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-current pointer-coarse:size-11;
   }
 
   /* ── Drawer ── */

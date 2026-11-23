@@ -16,7 +16,7 @@ import { readOnboardingDraft, writeOnboardingDraft } from '../../lib/onboarding-
 import { markOnboardingRunLaunched, onboardingErrorReason } from '../../lib/onboarding-telemetry.js'
 import { useTriggerRun } from '../../queries/mutations.js'
 import { useHealth } from '../../queries/use-health.js'
-import type { HealthSnapshot, SettingsVm } from '../../view-models.js'
+import type { SettingsVm } from '../../view-models.js'
 import { useRunPreview } from '../project/RunAdmissionNotice.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Button } from '../ui/button.js'
@@ -59,7 +59,7 @@ function PanelStepLine({ current, done, hasBaseline }: { current: SetupPanelStep
 
 /**
  * The panel's own reads: the project, from the project list the app shell
- * keeps fresh, an administrator's provider settings, and service health.
+ * keeps fresh, and an administrator's provider settings.
  * Saved queries, provider readiness and the run preview are read by the steps
  * that show them. An injected dashboard (tests, server rendering) stands in
  * for the project and settings reads, as it does on every page.
@@ -70,7 +70,6 @@ function usePanelReads(projectName: string) {
   const projectsQuery = useQuery({ ...getApiV1ProjectsOptions({ client: heyClient }), enabled: !injected })
   // Instance settings carry provider credentials, so only an administrator reads them.
   const settingsQuery = useQuery({ ...getApiV1SettingsOptions({ client: heyClient }), enabled: !injected && isAdmin })
-  const healthQuery = useHealth(!injected, injected?.health)
   const readSettings = useMemo(() => buildSettingsVm(settingsQuery.data ?? null), [settingsQuery.data])
   const { refetch: refetchProjects } = projectsQuery
   const { refetch: refetchSettings } = settingsQuery
@@ -79,7 +78,6 @@ function usePanelReads(projectName: string) {
       ? injected.dashboard.projects.find(entry => entry.project.name === projectName)?.project ?? null
       : projectsQuery.data?.find(project => project.name === projectName) ?? null,
     settings: injected?.dashboard.settings ?? readSettings,
-    health: healthQuery.data ?? injected?.health ?? CHECKING_HEALTH_SNAPSHOT,
     loading: !injected && (projectsQuery.isPending || (isAdmin && settingsQuery.isPending)),
     failed: !injected && projectsQuery.isError,
     /** Reads the project and provider settings again: after a save, and on Refresh connections. */
@@ -123,7 +121,6 @@ export function AiVisibilitySetupPanel({ projectName, initialStep, hasBaseline =
       key={projectName}
       project={reads.project}
       settings={reads.settings}
-      health={reads.health}
       refresh={reads.refresh}
       initialStep={initialStep}
       hasBaseline={hasBaseline}
@@ -133,10 +130,9 @@ export function AiVisibilitySetupPanel({ projectName, initialStep, hasBaseline =
   )
 }
 
-function PanelSteps({ project, settings, health, refresh, initialStep, hasBaseline, onClose, onLaunched }: {
+function PanelSteps({ project, settings, refresh, initialStep, hasBaseline, onClose, onLaunched }: {
   project: ApiProject
   settings: SettingsVm
-  health: HealthSnapshot
   refresh: () => Promise<void>
   initialStep: SetupPanelStep
   hasBaseline: boolean
@@ -233,7 +229,11 @@ function PanelSteps({ project, settings, health, refresh, initialStep, hasBaseli
   })
 
   const managedSweeps = isDashboardManagedSweeps()
-  const runPreview = useRunPreview(projectName, step === 'first-check' && !managedSweeps)
+  const reviewFirstCheck = step === 'first-check' && !managedSweeps
+  const initial = useInitialDashboard()
+  const healthQuery = useHealth(!initial && reviewFirstCheck, initial?.health, true)
+  const health = healthQuery.data ?? initial?.health ?? CHECKING_HEALTH_SNAPSHOT
+  const runPreview = useRunPreview(projectName, reviewFirstCheck)
   const firstCheckUsesAccount = previewUsesProviderAccount(runPreview.data)
   const { systemBlockReason, blockedReason: readinessBlockedReason } = firstCheckReadiness(health, settings, engines)
   // Counted once the saved queries load; the server's preview gates the check meanwhile.

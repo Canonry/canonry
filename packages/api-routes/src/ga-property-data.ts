@@ -87,12 +87,10 @@ export function clearGaPropertyData(tx: Transaction, projectId: string): number 
 }
 
 /**
- * The projects that resolve their GA4 property through `canonicalDomain`'s
- * OAuth `ga4` connection, unless their own service account names one. The
- * store keys that connection by the exact domain, so a write to it reaches
- * every project with this canonical domain.
+ * Google OAuth connections use the exact canonical domain as their store key.
+ * A change can affect every project on that domain.
  */
-export function projectsSharingGa4Connection(db: Database, canonicalDomain: string): Ga4Project[] {
+export function projectsSharingGoogleConnection(db: Database, canonicalDomain: string): Ga4Project[] {
   return db.select({ id: projects.id, name: projects.name, canonicalDomain: projects.canonicalDomain })
     .from(projects)
     .where(eq(projects.canonicalDomain, canonicalDomain))

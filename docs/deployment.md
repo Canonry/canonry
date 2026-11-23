@@ -128,19 +128,62 @@ bindings also requires a new sign-in.
 > proxy. Never expose an engine with `requirePassword: false` directly to the
 > internet.
 
-To remove optional dashboard chrome, set either option to false:
+Set any of these options to `false` to hide the corresponding dashboard controls.
 
 ```yaml
 dashboard:
+  showFeedback: false
   showResourceLinks: false
   showUpdateNotification: false
 ```
 
-`showResourceLinks` removes the GitHub, documentation, and changelog icons
-from the sidebar and page footer, plus repository documentation links on Agent
-Setup. `showUpdateNotification` removes the
-available-version badge from the sidebar but keeps update checks and CLI
-notices active.
+`canonry serve --hide-feedback` and `canonry start --hide-feedback` hide the
+Feedback button in the top bar and the Feedback section in Settings. For a
+persistent setting, use `dashboard.showFeedback: false` in YAML or
+`CANONRY_DASHBOARD_SHOW_FEEDBACK=0` in the environment and restart the server.
+The command-line flag takes precedence over the environment, which overrides YAML.
+
+The self-hosted navigation footer links to GitHub, Discord, X, and YouTube.
+Managed instances (`CANONRY_RUNTIME_MODE=cloud`) and the public demo show only
+GitHub. Embedded views omit the footer. Set the runtime mode when provisioning
+the managed engine.
+
+`showResourceLinks: false` hides the footer links, repository guides on Agent
+Setup, and release highlights that invite users to an external community.
+
+Self-hosted dashboards show available updates in the top bar. The version
+badge opens the release page. After installation, users can open **What’s new**
+to read highlights. An unread dot marks authored minor and major
+releases. Opening the panel clears the dot across tabs for that dashboard
+and account. Users can reopen it to read the notes again. A patch update
+keeps existing notes available and does not add an unread dot.
+
+The first visit features the latest applicable note at or below the running
+version. Returning users who skipped releases can read their missed
+highlights together. The server includes its installed version in the
+dashboard document, so an open tab keeps the notes for the build it loaded.
+
+Live health views refresh service status every 15 seconds while visible.
+Elsewhere, a stale status used by the dashboard refreshes when you return to the
+tab. Release notes use the build in the document and make no network request.
+
+Managed Canonry engine dashboards run in **What’s new only** mode. Customers see product
+highlights after an administrator rolls out a release. Releases without
+applicable highlights are quiet. This mode hides version numbers in the
+navigation, available-version prompts, and package or source links in the
+panel. A release can invite customers to the Canonry Discord. Set
+`dashboard.showResourceLinks: false` to hide that invitation. Public demos
+and embedded views omit release notices.
+
+To use the same presentation on a standalone dashboard, set
+`dashboard.whatsNewOnly: true` in the YAML config or
+`CANONRY_DASHBOARD_WHATS_NEW_ONLY=1` in the container environment. The
+environment takes precedence over YAML on standalone instances.
+`CANONRY_RUNTIME_MODE=cloud` selects this mode automatically.
+
+`showUpdateNotification: false` hides the available-update badge and **What’s new**
+on both self-hosted and managed engine dashboards.
+Update checks and CLI notices stay active.
 
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.

@@ -353,7 +353,7 @@ describe('IntelligenceService', () => {
 
       expect(result!.regressions).toEqual([{
         query: 'roof repair phoenix', provider: 'gemini', currentRunId: run2, previousRunId: run1,
-        previousCitationUrl: 'example.com', previousPosition: undefined,
+        previousCitationUrl: 'example.com',
       }])
       // The regression is real (project lost its own citation), and its target
       // must be the project's page — never the co-cited competitor.
@@ -362,6 +362,11 @@ describe('IntelligenceService', () => {
       const regressionInsight = db.select().from(insights).all()
         .find(i => i.type === 'regression')
       expect(regressionInsight?.recommendation?.target).toBe('example.com')
+      // Stored snapshots carry no citation position, so the reason must not
+      // promise one ("cited at position unknown").
+      expect(regressionInsight?.recommendation?.reason).toBe(
+        'gemini cited example.com for "roof repair phoenix" in the previous run but not in this one. Run agent-readiness to check for content or schema issues.',
+      )
       expect(regressionInsight).toMatchObject({
         projectId, runId: run2, query: 'roof repair phoenix', provider: 'gemini', type: 'regression',
       })
@@ -385,6 +390,10 @@ describe('IntelligenceService', () => {
 
       const gain = result!.gains.find(g => g.query === 'roof repair phoenix')
       expect(gain?.citationUrl).toBe('example.com')
+      const gainInsight = db.select().from(insights).all().find(i => i.type === 'gain')
+      expect(gainInsight?.recommendation?.reason).toBe(
+        'gemini now cites example.com for "roof repair phoenix"; the previous run did not. Monitor to confirm the citation persists.',
+      )
     })
 
     it('leaves citationUrl undefined when the project was cited via grounding only', () => {
@@ -1169,7 +1178,7 @@ describe('IntelligenceService', () => {
       const loc1 = service.analyzeAndPersist(day2[1]!, projectId)
       expect(loc1!.regressions).toEqual([{
         query: 'roof repair', provider: 'gemini', currentRunId: day2[1], previousRunId: before[1],
-        previousCitationUrl: 'example.com', previousPosition: undefined,
+        previousCitationUrl: 'example.com',
       }])
       const loc2 = service.analyzeAndPersist(day2[2]!, projectId)
       expect(loc2!.regressions).toEqual([])

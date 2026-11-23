@@ -46,12 +46,12 @@ vi.mock('../src/server.js', async importOriginal => {
 import { runCli } from '../src/cli.js'
 
 const ENV_KEYS = [
-  'CANONRY_PORT', 'CANONRY_HOST', 'CANONRY_BASE_PATH',
+  'CANONRY_PORT', 'CANONRY_HOST', 'CANONRY_BASE_PATH', 'CANONRY_RUNTIME_MODE',
   'CANONRY_EMBED', 'CANONRY_EMBED_ORIGINS', 'CANONRY_EMBED_VIEWS', 'CANONRY_EMBED_PROJECT_TABS',
   'CANONRY_TRUST_PROXY', 'CANONRY_EXTERNAL_MCP', 'CANONRY_OPERATOR_KEY_IDS',
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD', 'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
-  'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP',
-  'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION', 'CANONRY_DASHBOARD_MANAGED_SWEEPS',
+  'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP', 'CANONRY_DASHBOARD_SHOW_FEEDBACK',
+  'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION', 'CANONRY_DASHBOARD_WHATS_NEW_ONLY', 'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_DASHBOARD_MANAGED_RUN_KINDS', 'CANONRY_ONBOARDING_MODE', 'CANONRY_DASHBOARD_BRAND_MARK',
   'CANONRY_RESEARCH_ALLOW_VIEWERS', 'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
 ] as const
@@ -72,12 +72,14 @@ interface SettingsRow {
   host?: string
   url?: string
   prefix?: string
+  hideFeedback?: boolean
   embed?: typeof ON | typeof LIMITED | typeof TABBED
   csp?: string
   expectedEnv?: Record<string, string>
 }
 const SETTINGS: SettingsRow[] = [
   { id: 'default-json', port: 4100 },
+  { id: 'hide-feedback-overrides-env', args: ['--hide-feedback'], env: { CANONRY_DASHBOARD_SHOW_FEEDBACK: '1' }, port: 4100, hideFeedback: true },
   { id: 'default-jsonl', args: ['--format', 'jsonl'], port: 4100 },
   { id: 'inherited-port', env: { CANONRY_PORT: '4101' }, port: 4101, expectedEnv: { CANONRY_PORT: '4101' } },
   { id: 'env-before-config-port', env: { CANONRY_PORT: '4101' }, config: { port: 5000 }, port: 4101, expectedEnv: { CANONRY_PORT: '4101' } },
@@ -233,6 +235,8 @@ it.each(SETTINGS)('CLI serve resolves settings: $id', async row => {
   expect(script).toBeDefined()
   if (script === undefined) throw new Error('Expected native client configuration')
   const browserConfig: unknown = JSON.parse(script)
+  if (row.hideFeedback) expect(browserConfig).toHaveProperty('dashboard.showFeedback', false)
+  else expect(browserConfig).not.toHaveProperty('dashboard.showFeedback')
   if (row.prefix) expect(browserConfig).toHaveProperty('basePath', `${row.prefix}/`)
   else expect(browserConfig).not.toHaveProperty('basePath')
   if (row.embed) expect(browserConfig).toHaveProperty('embed', row.embed)

@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { runs, projects, bingUrlInspections, bingCoverageSnapshots } from '@canonry/canonry-db'
-import { RunStatuses, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomePhases, OutcomeOperationKinds, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
+import { RunStatuses, defaultSearchSitemapUrl, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomePhases, OutcomeOperationKinds, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
 import { BingApiError, getUrlInfo, getCrawlIssues, isBlockingCrawlIssue, parseBingDate } from '@canonry/canonry-integration-bing'
 import type { CanonryConfig } from './config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
@@ -81,7 +81,8 @@ export async function executeBingInspectSitemap(
       )
     }
 
-    const sitemapUrl = opts.sitemapUrl ?? `https://${project.canonicalDomain}/sitemap.xml`
+    const sitemapUrl = opts.sitemapUrl ?? defaultSearchSitemapUrl(conn.siteUrl, project.canonicalDomain)
+    if (!sitemapUrl) throw withOutcomeReason(new Error('Cannot determine a sitemap URL for this Bing site'), OutcomeReasonCodes.VALIDATION)
     log.info('sitemap.fetch', { runId, projectId, sitemapUrl })
 
     phase = OutcomePhases.crawl

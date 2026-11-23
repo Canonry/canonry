@@ -274,6 +274,11 @@ import type {
   HealthSnapshotDto,
   CitationVisibilityResponse,
   CitationUrlsResponse,
+  BingConnectRequest,
+  BingConnectResponseDto,
+  BingStatusDto,
+  BingSitesResponseDto,
+  BingSetSiteResponseDto,
   BingCoverageSummaryDto,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
@@ -3824,8 +3829,8 @@ export class ApiClient {
 
   // ── Bing Webmaster Tools ───────────────────────────────────────────────
 
-  async bingConnect(project: string, body: { apiKey: string }): Promise<object> {
-    return this.invoke<object>(() =>
+  async bingConnect(project: string, body: BingConnectRequest): Promise<BingConnectResponseDto> {
+    return this.invoke<BingConnectResponseDto>(() =>
       postApiV1ProjectsByNameBingConnect({ client: this.heyClient, path: { name: project }, body }),
     )
   }
@@ -3836,20 +3841,20 @@ export class ApiClient {
     )
   }
 
-  async bingStatus(project: string): Promise<object> {
-    return this.invoke<object>(() =>
+  async bingStatus(project: string): Promise<BingStatusDto> {
+    return this.invoke<BingStatusDto>(() =>
       getApiV1ProjectsByNameBingStatus({ client: this.heyClient, path: { name: project } }),
     )
   }
 
-  async bingSites(project: string): Promise<object> {
-    return this.invoke<object>(() =>
+  async bingSites(project: string): Promise<BingSitesResponseDto> {
+    return this.invoke<BingSitesResponseDto>(() =>
       getApiV1ProjectsByNameBingSites({ client: this.heyClient, path: { name: project } }),
     )
   }
 
-  async bingSetSite(project: string, siteUrl: string): Promise<object> {
-    return this.invoke<object>(() =>
+  async bingSetSite(project: string, siteUrl: string): Promise<BingSetSiteResponseDto> {
+    return this.invoke<BingSetSiteResponseDto>(() =>
       postApiV1ProjectsByNameBingSetSite({
         client: this.heyClient,
         path: { name: project },
@@ -4221,7 +4226,7 @@ export class ApiClient {
       postApiV1ProjectsByNameTrafficConnectCloudRun({
         client: this.heyClient,
         path: { name: project },
-        body: body as never,
+        body,
       }),
     )
   }

@@ -50,7 +50,7 @@ export function TrafficPage() {
         {!activeProject ? (
           <Card className="p-6 text-center text-label-14 text-muted">No projects yet.</Card>
         ) : (
-          <ServerTrafficSection projectName={activeProject} heading={false} />
+          <ServerTrafficSection key={activeProject} projectName={activeProject} view="sources" />
         )}
       </section>
     </div>

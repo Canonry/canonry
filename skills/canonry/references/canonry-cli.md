@@ -1092,7 +1092,8 @@ After probing, the configured classifier labels recurring cited domains. Gemini 
 ## Bing Webmaster Tools
 
 ```bash
-cnry bing connect <project> --api-key <key>   # connect Bing WMT
+cnry bing connect <project> --use-saved-key   # administrator, using the Bing key in Canonry Settings
+cnry bing connect <project> --api-key <key>   # supply a Bing Webmaster Tools key for this project
 cnry bing disconnect <project>                # disconnect
 cnry bing status <project>                    # connection status
 cnry bing sites <project>                     # list verified sites
@@ -1164,6 +1165,16 @@ cnry wordpress onboard <project> --url <url> --user <user>  # full onboarding wo
 **Onboard** runs: connect → audit → set-meta → schema deploy → Google submit → Bing submit. Use `--skip-schema` or `--skip-submit` to skip steps. `--profile <file>` provides business data and page-to-schema mapping for schema deployment.
 
 ## Server-Side Traffic
+
+To collect new Cloud Run logs as they arrive, connect with:
+
+```bash
+cnry traffic connect cloud-run <project> --gcp-project <id> --start-from-now
+```
+
+Include `--service` and `--location` to narrow the target. The server can
+reuse a service account saved for that exact target. On first setup, pass
+`--service-account-key <path>` with the private JSON file.
 
 Cloudflare supports direct push and Queue pull. Run Cloudflare connect only from
 the local host that owns the Canonry configuration and Wrangler profile. This

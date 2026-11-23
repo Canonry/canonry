@@ -1,8 +1,20 @@
 # Google Analytics 4 Setup
 
-Canonry integrates with Google Analytics 4 (GA4) via a **service account** — no OAuth redirect flow required. You grant a service account read-only access to your GA4 property once, and canonry handles the rest.
+Canonry can read a Google Analytics 4 property through Google OAuth or a service account.
 
-You can complete the setup via the **web dashboard** or the **CLI** — both are documented below.
+## Connect with MCP and Google OAuth
+
+Use a write-capable MCP connection to an instance with Google OAuth configured.
+
+1. Call `canonry_ga_oauth_start` with the project name. Open the returned
+   `authUrl` in your browser and grant access.
+2. With an instance administrator credential, call `canonry_ga_properties`
+   to list the GA4 properties your Google account can access.
+3. Pass the selected numeric `propertyId` to `canonry_ga_connect`. It verifies
+   access with Google. Read `canonry_ga_status` to confirm the effective
+   property. A project with a service account uses that account first.
+
+The steps below cover service-account setup in the web dashboard and CLI.
 
 ---
 

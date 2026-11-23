@@ -322,17 +322,28 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/--gcp-project/)
   })
 
-  it('rejects traffic connect cloud-run without --service-account-key', async () => {
-    const result = await invokeCli([
-      'traffic',
-      'connect',
-      'cloud-run',
-      'test-proj',
-      '--gcp-project',
-      'openclaw-nyc',
-    ])
-    expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toMatch(/--service-account-key/)
+  it('connects Cloud Run without a key file when the server has a key for the requested target', async () => {
+    const args = [
+      'traffic', 'connect', 'cloud-run', 'test-proj', '--gcp-project', 'hosting-project',
+      '--service', 'web', '--location', 'us-east1', '--display-name', 'Website logs', '--start-from-now', '--format', 'json',
+    ]
+    const missing = await invokeCli(args)
+    expect(missing.exitCode).toBe(1)
+    const failure = parseJsonOutput(missing.stderr) as { error: { details: { dashboardPath: string } } }
+    expect(failure).toMatchObject({
+      error: { code: 'VALIDATION_ERROR', details: { reason: 'cloud-run-credential-required' } },
+    })
+    const handoff = new URL(failure.error.details.dashboardPath, 'https://dashboard.example')
+    expect(JSON.parse(handoff.searchParams.get('connectCloudRun')!)).toMatchObject({ displayName: 'Website logs', startFromNow: true })
+
+    const source = await client.trafficConnectCloudRun('test-proj', {
+      gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1',
+      keyJson: JSON.stringify({ client_email: 'logging@example.test', private_key: 'host-fixture-key' }),
+    })
+    const connected = await invokeCli(args)
+    expect(connected.exitCode, connected.stderr).toBeUndefined()
+    expect(parseJsonOutput(connected.stdout)).toMatchObject({ id: source.id, displayName: 'Website logs', status: 'connected' })
+    expect((await client.trafficListSources('test-proj')).sources).toMatchObject([{ id: source.id, displayName: 'Website logs' }])
   })
 
   it('reports a clear error when the key file cannot be read', async () => {
@@ -483,9 +494,10 @@ describe('traffic CLI commands', () => {
 
     // Credentials persisted to ~/.canonry/config.yaml (CANONRY_CONFIG_DIR points at tmpDir)
     const yaml = parse(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf-8')) as {
-      cloudRun?: { connections?: Array<{ projectName: string; clientEmail: string }> }
+      cloudRun?: { connections?: Array<{ projectName: string; projectId?: string; clientEmail: string }> }
     }
     expect(yaml.cloudRun?.connections?.[0]?.projectName).toBe('test-proj')
+    expect(yaml.cloudRun?.connections?.[0]?.projectId).toBe(rows[0].projectId)
     expect(yaml.cloudRun?.connections?.[0]?.clientEmail).toBe('sa@openclaw-nyc.iam.gserviceaccount.com')
   })
 

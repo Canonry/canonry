@@ -260,6 +260,8 @@ async function buildHarness(
   app.register(apiRoutes, {
     db,
     skipAuth: true,
+    dashboardPath: '/canonry/',
+    publicUrl: 'https://dashboard.example/public-canonry',
     cloudRunCredentialStore,
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
@@ -993,14 +995,171 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(JSON.parse(res.payload).error.message).toMatch(/gcpProjectId/)
   })
 
-  it('rejects requests without keyJson', async () => {
+  it('directs a project without a saved key to its private setup form', async () => {
+    const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1', displayName: 'Customer logs', startFromNow: false }
     const res = await h.app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'openclaw-nyc' },
+      headers: { host: 'untrusted.example' },
+      payload: target,
     })
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.payload).error.message).toMatch(/keyJson/)
+    const details = res.json().error.details
+    expect(details.reason).toBe('cloud-run-credential-required')
+    const form = new URL(details.dashboardPath, 'https://example.test')
+    expect(form.pathname).toBe('/canonry/projects/test-project/traffic')
+    expect(JSON.parse(form.searchParams.get('connectCloudRun')!)).toEqual(target)
+    const publicForm = new URL(details.dashboardUrl)
+    expect(publicForm.origin).toBe('https://dashboard.example')
+    expect(publicForm.pathname).toBe('/public-canonry/projects/test-project/traffic')
+    expect(publicForm.search).toBe(form.search)
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+  })
+
+  it('uses a preconfigured service account only within its Canonry project, GCP project, service and region', async () => {
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const saved = {
+      ...target, projectName: 'test-project', authMode: TrafficSourceAuthModes['service-account'],
+      projectId: h.db.select().from(projects).get()!.id,
+      clientEmail: 'logging@example.test', privateKey: 'host-only-test-key',
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    }
+    h.credentials.set(saved.projectName, saved)
+    const connect = (projectName: string, payload: Partial<typeof target>) => h.app.inject({
+      method: 'POST', url: `/api/v1/projects/${projectName}/traffic/connect/cloud-run`, payload,
+    })
+    const foreign = await h.app.inject({
+      method: 'PUT', url: '/api/v1/projects/other',
+      payload: { displayName: 'Other', canonicalDomain: 'other.example', country: 'US', language: 'en' },
+    })
+    expect(foreign.statusCode).toBeLessThan(300)
+    for (const res of [
+      await connect('other', target),
+      await connect(saved.projectName, { ...target, gcpProjectId: 'different' }),
+      await connect(saved.projectName, { gcpProjectId: target.gcpProjectId, location: target.location }),
+      await connect(saved.projectName, { gcpProjectId: target.gcpProjectId, serviceName: target.serviceName }),
+    ]) {
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.details.reason).toBe('cloud-run-credential-required')
+      expect(res.body).not.toContain(saved.privateKey)
+    }
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+
+    const connected = await connect(saved.projectName, target)
+    expect(connected.statusCode).toBe(200)
+    expect(connected.json()).toMatchObject({ status: TrafficSourceStatuses.connected, config: target })
+    expect(connected.body).not.toContain(saved.privateKey)
+    expect(h.credentials.get(saved.projectName)).toEqual(saved)
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(1)
+  })
+
+  it('requires a new key after deleting and recreating a project with the same name', async () => {
+    const url = '/api/v1/projects/test-project'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const connect = (keyJson?: string) => h.app.inject({
+      method: 'POST', url: `${url}/traffic/connect/cloud-run`, payload: { ...target, keyJson },
+    })
+    const original = await connect(SA_KEY)
+    expect(original.statusCode).toBe(200)
+    const saved = h.credentials.get('test-project')!
+    expect((await h.app.inject({ method: 'DELETE', url })).statusCode).toBe(204)
+    const recreated = await h.app.inject({
+      method: 'PUT', url, payload: { displayName: 'Replacement', canonicalDomain: 'replacement.example', country: 'US', language: 'en' },
+    })
+    expect(recreated.statusCode).toBe(201)
+    expect(recreated.json().id).not.toBe(original.json().projectId)
+
+    // Upgrades can encounter an orphaned legacy key as well as a bound one.
+    for (const projectId of [original.json().projectId, undefined]) {
+      h.credentials.set('test-project', { ...saved, projectId })
+      const refused = await connect()
+      expect(refused.statusCode).toBe(400)
+      expect(refused.json().error.details.reason).toBe('cloud-run-credential-required')
+      expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+    }
+    const replacement = await connect(JSON.stringify({ client_email: 'new@example.test', private_key: 'new-test-key' }))
+    expect(replacement.statusCode).toBe(200)
+    expect(h.credentials.get('test-project')).toMatchObject({ projectId: recreated.json().id, privateKey: 'new-test-key' })
+
+    // A stale host configuration must not be used by an existing source either.
+    h.credentials.set('test-project', { ...saved, projectId: original.json().projectId })
+    expect((await connect()).statusCode).toBe(400)
+    for (const operation of ['activate', 'sync', 'backfill']) {
+      const result = await h.app.inject({
+        method: 'POST', url: `${url}/traffic/sources/${replacement.json().id}/${operation}`, payload: {},
+      })
+      expect(result.statusCode, operation).toBe(400)
+      expect(result.json().error.message).toMatch(/credential/)
+    }
+    const doctor = await h.app.inject({ method: 'GET', url: `${url}/doctor?check=traffic.source.credentials` })
+    expect(doctor.json().checks).toContainEqual(expect.objectContaining({ code: 'traffic.credentials.failed' }))
+    expect(h.getPullCount()).toBe(0)
+    expect(h.db.select().from(runs).all()).toHaveLength(0)
+  })
+
+  it('binds a legacy key only when the existing source proves its target and owner', async () => {
+    const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web' }
+    const source = await h.app.inject({ method: 'POST', url, payload: { ...target, keyJson: SA_KEY } })
+    expect(source.statusCode).toBe(200)
+    const legacy = { ...h.credentials.get('test-project')!, projectId: undefined }
+    h.credentials.set('test-project', { ...legacy, serviceName: 'other' })
+    const mismatch = await h.app.inject({ method: 'POST', url, payload: { ...target, serviceName: 'other' } })
+    expect(mismatch.statusCode).toBe(400)
+    expect(mismatch.json().error.details.reason).toBe('cloud-run-credential-required')
+
+    h.credentials.set('test-project', legacy)
+    const reused = await h.app.inject({ method: 'POST', url, payload: target })
+    expect(reused.statusCode).toBe(200)
+    expect(reused.json().id).toBe(source.json().id)
+    expect(h.credentials.get('test-project')).toMatchObject({ projectId: source.json().projectId, privateKey: legacy.privateKey })
+  })
+
+  it('keeps the source generation, label and error when a keyless retry arrives during a pull', async () => {
+    const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+    const target = { gcpProjectId: 'production', serviceName: 'web' }
+    let confirmedSource: unknown
+    await h.close()
+    h = await buildHarness([], {
+      onCloudRunPull: async () => {
+        const confirmed = await h.app.inject({ method: 'POST', url, payload: target })
+        confirmedSource = confirmed.json()
+      },
+    })
+    const connected = await h.app.inject({ method: 'POST', url, payload: { ...target, displayName: 'Primary logs', keyJson: SA_KEY } })
+    expect(connected.statusCode).toBe(200)
+    const sourceId = connected.json().id
+    h.db.update(trafficSources).set({
+      status: TrafficSourceStatuses.error, lastError: 'previous pull failed', updatedAt: '2026-01-01T00:00:00.000Z',
+    }).where(eq(trafficSources.id, sourceId)).run()
+    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    expect(synced.statusCode).toBe(200)
+    expect(confirmedSource).toMatchObject({
+      displayName: 'Primary logs', status: TrafficSourceStatuses.error, lastError: 'previous pull failed',
+    })
+    expect(h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).get()?.status).toBe(RunStatuses.completed)
+  })
+
+  it('starts the first Cloud Run pull at connect time when history is disabled', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-05T12:00:00Z'))
+      const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+      const payload = { gcpProjectId: 'hosting', startFromNow: true }
+      const connected = await h.app.inject({ method: 'POST', url, payload: { ...payload, keyJson: SA_KEY } })
+      expect(connected.statusCode).toBe(200)
+      expect(connected.json().lastSyncedAt).toBeNull()
+      vi.setSystemTime(new Date('2026-10-05T12:10:00Z'))
+      // Repeating setup must not advance the new source past its first ten minutes.
+      expect((await h.app.inject({ method: 'POST', url, payload })).statusCode).toBe(200)
+      vi.setSystemTime(new Date('2026-10-05T12:15:00Z'))
+      const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${connected.json().id}/sync`, payload: {} })
+      expect(sync.statusCode).toBe(200)
+      expect(h.getObservedWindows()).toEqual([{ startTime: '2026-10-05T12:00:00.000Z', endTime: '2026-10-05T12:15:00.000Z' }])
+      expect(h.getObservedFirstSync()).toEqual([false])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects malformed keyJson', async () => {
@@ -1043,25 +1202,40 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(sourceRows[0].status).toBe(TrafficSourceStatuses.connected)
   })
 
-  it('reuses the existing source row on reconnect rather than creating a duplicate', async () => {
-    await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'old-project', keyJson: SA_KEY },
-    })
+  it.each([
+    { change: { gcpProjectId: 'other-project' }, staged: false },
+    { change: { serviceName: 'new-service' }, staged: true },
+    { change: { location: 'us-west1' }, staged: false },
+  ])('keeps prior Cloud Run evidence on its original target after $change (staged=$staged)', async ({ change, staged }) => {
+    await h.close()
+    h = await buildHarness([buildEvent({ observedAt: new Date(Date.now() - 60_000).toISOString(), remoteIp: GPTBOT_IP })])
+    const traffic = '/api/v1/projects/test-project/traffic'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const connect = (payload: object) => h.app.inject({ method: 'POST', url: traffic + '/connect/cloud-run', payload })
+    const activate = (id: string) => h.app.inject({ method: 'POST', url: `${traffic}/sources/${id}/activate`, payload: {} })
+    const detail = async (id: string) => (await h.app.inject({ method: 'GET', url: `${traffic}/sources/${id}` })).json()
+    const original = (await connect({ ...target, keyJson: SA_KEY })).json()
+    expect((await activate(original.id)).statusCode).toBe(200)
+    const sync = await h.app.inject({ method: 'POST', url: `${traffic}/sources/${original.id}/sync`, payload: {} })
+    expect(sync.json()).toMatchObject({ crawlerHits: 1 })
+    const rotated = await connect({ ...target, keyJson: JSON.stringify({ client_email: 'rotated@example.test', private_key: 'rotated-key' }) })
+    expect(rotated.json()).toMatchObject({ id: original.id, lastSyncedAt: sync.json().windowEnd })
+    if (staged) {
+      const push = await h.app.inject({ method: 'POST', url: traffic + '/connect/cloudflare', payload: {} })
+      expect((await activate(push.json().sourceId)).statusCode).toBe(200)
+    }
 
-    const second = await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'new-project', serviceName: 'new-svc', keyJson: SA_KEY },
+    const replacement = (await connect({ ...target, ...change, keyJson: SA_KEY, startFromNow: true })).json()
+    expect(replacement.id).not.toBe(original.id)
+    expect(await detail(original.id)).toMatchObject({
+      status: TrafficSourceStatuses.archived, config: target, lastSyncedAt: sync.json().windowEnd, totals24h: { crawlerHits: 1 },
     })
-
-    expect(second.statusCode).toBe(200)
-    const sources = h.db.select().from(trafficSources).all()
-    expect(sources.length).toBe(1)
-    const config = sources[0].configJson
-    expect(config.gcpProjectId).toBe('new-project')
-    expect(config.serviceName).toBe('new-svc')
+    expect(await detail(replacement.id)).toMatchObject({
+      status: staged ? TrafficSourceStatuses.paused : TrafficSourceStatuses.connected,
+      config: { ...target, ...change, startFromNow: true }, lastSyncedAt: null, latestRun: null, totals24h: { crawlerHits: 0 },
+    })
+    const schedule = h.db.select().from(schedules).where(eq(schedules.kind, SchedulableRunKinds['traffic-sync'])).get()
+    expect(schedule?.sourceId).toBe(staged ? undefined : replacement.id)
   })
 })
 

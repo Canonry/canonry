@@ -249,13 +249,21 @@ export const trafficSourceDtoSchema = z.object({
 })
 export type TrafficSourceDto = z.infer<typeof trafficSourceDtoSchema>
 
-export const trafficConnectCloudRunRequestSchema = z.object({
+export const cloudRunTrafficTargetSchema = z.object({
   gcpProjectId: z.string().min(1),
   serviceName: z.string().min(1).optional(),
   location: z.string().min(1).optional(),
+})
+export type CloudRunTrafficTarget = z.infer<typeof cloudRunTrafficTargetSchema>
+
+export const cloudRunTrafficSetupSchema = cloudRunTrafficTargetSchema.extend({
   displayName: z.string().min(1).optional(),
-  /** Service-account JSON content (string). When omitted, defaults to OAuth via `canonry google connect <project> --type ga4` flow. */
-  keyJson: z.string().optional(),
+  startFromNow: z.boolean().optional().describe('For a new source, collect logs from connection time onward. Existing sources keep their sync position.'),
+})
+export type CloudRunTrafficSetup = z.infer<typeof cloudRunTrafficSetupSchema>
+
+export const trafficConnectCloudRunRequestSchema = cloudRunTrafficSetupSchema.extend({
+  keyJson: z.string().min(1).optional().describe('Omit to reuse this project’s saved service account for the exact GCP project, service and region. Supply a new key only through a secure credential input.'),
 })
 export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRunRequestSchema>
 

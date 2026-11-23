@@ -115,6 +115,7 @@ import type { BacklinksRoutesOptions } from './backlinks.js'
 import {
   trafficRoutes,
   defaultResolveAccessToken,
+  hasCloudRunCredentialForSource,
   hashCloudflareBearerToken,
 } from './traffic.js'
 import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js'
@@ -943,6 +944,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
     } satisfies GaSearchLandingRoutesOptions)
     await api.register(trafficRoutes, {
+      dashboardPath: opts.dashboardPath,
+      publicUrl: opts.publicUrl,
       journeyKeySecret: opts.journeyKeySecret,
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
@@ -1198,11 +1201,11 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
     validators['cloud-run'] = {
       validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
         const record = store.getConnection(source.projectName)
-        if (!record) {
+        if (!hasCloudRunCredentialForSource(record, source.projectName, source)) {
           return {
             status: CheckStatuses.fail,
             code: 'traffic.credentials.missing',
-            summary: `No Cloud Run credential found in ~/.canonry/config.yaml for project "${source.projectName}".`,
+            summary: `No matching Cloud Run credential found in ~/.canonry/config.yaml for source "${source.displayName}".`,
             remediation: 'Re-run `canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path>`.',
           }
         }

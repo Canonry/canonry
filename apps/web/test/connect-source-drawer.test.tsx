@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { TrafficPage } from '../src/pages/TrafficPage.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
+import type { CloudRunTrafficSetup } from '@canonry/canonry-contracts'
 
 import {
   ConnectSourceDrawer,
@@ -46,7 +47,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderDrawer() {
+function renderDrawer(initialCloudRunTarget?: CloudRunTrafficSetup) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -58,7 +59,7 @@ function renderDrawer() {
         <button type="button" onClick={() => setOpen(true)}>
           reopen-drawer
         </button>
-        <ConnectSourceDrawer open={open} onOpenChange={setOpen} projectName="test-project" />
+        <ConnectSourceDrawer open={open} onOpenChange={setOpen} projectName="test-project" initialCloudRunTarget={initialCloudRunTarget} />
       </QueryClientProvider>
     )
   }
@@ -218,6 +219,43 @@ test('connecting a Cloud Run source closes the drawer and kicks off a backfill',
   })
 })
 
+test('the Cloud Run handoff opens the requested target and connects without starting a backfill', async () => {
+  const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1', displayName: 'Hosting logs' }
+  connectCloudRunMock.mockResolvedValue({ id: 'src_cr_1' })
+  renderDrawer(target)
+  const connect = screen.getByRole('button', { name: 'Connect' })
+  fireEvent.click(within(connect.parentElement!).getByRole('button', { name: 'Close' }))
+  fireEvent.click(screen.getByText('reopen-drawer'))
+  for (const value of [target.gcpProjectId, target.serviceName, target.location]) {
+    expect((screen.getByDisplayValue(value) as HTMLInputElement).readOnly).toBe(true)
+  }
+  expect(screen.getByDisplayValue(target.displayName)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+  await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({
+    to: '/traffic/$projectName/$sourceId', params: { projectName: 'test-project', sourceId: 'src_cr_1' },
+  }))
+  expect(connectCloudRunMock).toHaveBeenCalledWith('test-project', { ...target, keyJson: undefined, startFromNow: true })
+  expect(backfillMock).not.toHaveBeenCalled()
+})
+
+test('choosing a new Cloud Run target discards the handoff target and its history approval', async () => {
+  const target = { gcpProjectId: 'old-project', displayName: 'Original logs', startFromNow: false }
+  connectCloudRunMock.mockResolvedValue({ id: 'new-source' })
+  renderDrawer(target)
+  expect((screen.getByRole('checkbox', { name: /Import the last 30 days/ }) as HTMLInputElement).checked).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Choose a different source' }))
+  fireEvent.click(screen.getByRole('button', { name: /Google Cloud Run/ }))
+  expect(screen.queryByDisplayValue('old-project')).toBeNull()
+  const project = screen.getByLabelText(/^GCP project ID/i) as HTMLInputElement
+  expect(project.readOnly).toBe(false)
+  fireEvent.change(project, { target: { value: 'new-project' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+  await waitFor(() => expect(connectCloudRunMock).toHaveBeenCalledWith('test-project', expect.objectContaining({
+    gcpProjectId: 'new-project', displayName: undefined, startFromNow: true,
+  })))
+  expect(backfillMock).not.toHaveBeenCalled()
+})
+
 test('a failed connect keeps the drawer open and surfaces the error', async () => {
   connectVercelMock.mockRejectedValue(new Error('bad token'))
 
@@ -356,17 +394,21 @@ test('every source hands the whole setup to an agent, with the real command and 
   expect(guides.vercel.agentRequest).toContain('--token-file')
 })
 
-test('the agent request can be copied from a source form', async () => {
+test('copying a Cloud Run setup request carries the selected target and a private credential handoff', async () => {
   const writeText = vi.fn(async () => {})
   const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   try {
-    renderDrawer()
-    fireEvent.click(screen.getByText('Vercel'))
+    const target = { gcpProjectId: 'cloud-hosting', serviceName: 'site', location: 'us-east1' }
+    renderDrawer(target)
+    fireEvent.change(screen.getByLabelText(/^Service-account JSON/i), { target: { value: 'private-fixture' } })
     fireEvent.click(screen.getByRole('button', { name: 'Copy setup request' }))
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(vercelGuide('test-project').agentRequest)
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify({ project: 'test-project', request: target })))
     })
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('canonry_traffic_connect_cloud_run'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('dashboardUrl'))
+    expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('private-fixture'))
     expect(await screen.findByText('Copied')).toBeTruthy()
   } finally {
     if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)

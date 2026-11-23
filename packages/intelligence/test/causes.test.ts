@@ -7,7 +7,6 @@ function makeRegression(overrides?: Partial<Regression>): Regression {
     query: 'roof repair phoenix',
     provider: 'chatgpt',
     previousCitationUrl: 'https://example.com/roof',
-    previousPosition: 2,
     currentRunId: 'run_002',
     previousRunId: 'run_001',
     ...overrides,
