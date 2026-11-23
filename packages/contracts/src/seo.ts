@@ -673,6 +673,12 @@ export interface SeoAdapter {
   /** Stable non-secret funding identity shared by aliases of the same account. */
   readonly accountKey: string
   readonly capabilities: readonly SeoCapability[]
+  /**
+   * How long the runner lets one `execute` run before it aborts it, in milliseconds. Leave it
+   * unset for the runner's default (90 seconds). A provider that can finish and charge a request
+   * later than that sets its own limit, so the runner does not abort a search it will pay for.
+   */
+  readonly requestTimeoutMs?: number
   estimate(request: SeoAdapterRequest): SeoAdapterEstimate
   execute(request: SeoAdapterRequest, options?: { signal?: AbortSignal }): Promise<SeoAdapterResult>
 }

@@ -93,7 +93,8 @@ describe('cloro market rankings', () => {
     const expected = {
       searchText: 'best apartments in Dallas', locationLabel: 'Dallas, Texas, United States', target: domain, searchStatus: 'completed',
       // Position 5 hides its address behind a redirect: the site comes from the displayed link, the page from /goto.
-      rankOrganic: 5, rankAbsolute: 5, url: page, depth: 20,
+      // cloro gives the organic position only, so the absolute rank stays empty.
+      rankOrganic: 5, rankAbsolute: null, url: page, depth: 20,
       provenance: { provider: 'cloro', dataset: 'cloro-serp/google/market-rankings', engine: 'google', locationCode: 1026339, languageCode: 'en', device: 'mobile', sourceUpdatedAt: null },
     }
     expect(result.results.marketRankings).toMatchObject([
@@ -106,9 +107,29 @@ describe('cloro market rankings', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer(organic.filter(item => item.position !== 5))))
     const ranked = await createCloroSeoAdapter(credentials).execute(request)
     expect(ranked.results.marketRankings[0]).toMatchObject({ rankOrganic: 12, url: 'https://blog.example.com/best-dallas' })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer(organic.slice(0, 3))))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer(organic.filter(item => !item.displayedLink.includes('example.com')))))
     const absent = await createCloroSeoAdapter(credentials).execute(request)
+    expect(absent.outcome).toBe(SeoAdapterOutcomes.completed)
     expect(absent.results.marketRankings[0]).toMatchObject({ searchStatus: 'completed', rankOrganic: null, rankAbsolute: null, url: null, depth: 20 })
+  })
+
+  it('marks a search partial, with the depth it reached, when cloro returns fewer pages than asked', async () => {
+    // A depth-20 search that came back with page 1 only: results 1 to 5 were checked, 6 to 20 were not.
+    const firstPage = organic.filter(item => item.page === 1)
+    vi.stubGlobal('fetch', cloro(() => answer(firstPage)))
+    const found = await createCloroSeoAdapter(credentials).execute(request)
+    expect(found).toMatchObject({ outcome: SeoAdapterOutcomes.partial, error: 'Some SEO provider results could not be collected.', tasks: [{ costMicros: 5_600 }, { costMicros: 0 }] })
+    expect(found.results.marketRankings.map(row => [row.searchStatus, row.rankOrganic, row.depth])).toEqual([['partial', 5, 5], ['partial', 5, 5]])
+    // Without the site on page 1, the row is not a top-20 miss: it checked 3 results only.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer(firstPage.filter(item => item.position !== 5))))
+    const missing = await createCloroSeoAdapter(credentials).execute(request)
+    expect(missing.outcome).toBe(SeoAdapterOutcomes.partial)
+    expect(missing.results.marketRankings[0]).toMatchObject({ searchStatus: 'partial', rankOrganic: null, url: null, depth: 3 })
+  })
+
+  it('gives the runner a deadline that covers a whole cloro search', () => {
+    // Two 6-minute requests (the search and one redirect lookup) and two 30-second waits before retries.
+    expect(createCloroSeoAdapter(credentials).requestTimeoutMs).toBe(780_000)
   })
 
   it('keeps the ranking when the redirect does not resolve, with the lookup on the receipts', async () => {

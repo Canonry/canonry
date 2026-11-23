@@ -287,13 +287,9 @@ describe('cloro SEO connection', () => {
     expect(refused.json().error.message).toMatch(/does not support every requested capability/)
   })
 
-  it('refreshes market rankings through cloro and spends the credits it reports', async () => {
+  /** A market-rankings refresh of two tracked queries at depth 10 through a cloro connection (5 credits at 800 microUSD a search). */
+  async function cloroRefresh(fetch: (url: string, init?: RequestInit) => Promise<Response>) {
     const config: SeoInstallConfig = { enabled: true, fundingMode: 'hosted', policy: { maxRunCostMicros: 100_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }, connections: { rankings: { provider: 'cloro', label: 'Search rankings', enabled: true, apiKey: 'test-secret', creditMicros: 800 } } }
-    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { query: string }
-      const rank = body.query === 'solar installer' ? 4 : 7
-      return Response.json({ success: true, result: { organicResults: [{ position: rank, link: 'https://www.alpha.com/solar', displayedLink: 'https://www.alpha.com' }] } }, { headers: { 'X-Credits-Charged': '5', 'X-Request-ID': `request-${body.query}` } })
-    })
     vi.stubGlobal('fetch', fetch)
     const h = createSeoHarness({ getSeoRuntime: () => runtime.getRuntime(), onSeoRunRequested: () => runtime.wake() })
     const runtime = new SeoRuntime(h.db, () => config)
@@ -309,14 +305,55 @@ describe('cloro SEO connection', () => {
     const intent = (await h.app.inject({ method: 'POST', url: `${base}/refresh-intents`, payload: { profileId: 'markets' } })).json()
     const accepted = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'cloro-rankings' } })
     expect(accepted.statusCode, accepted.body).toBe(202)
-    runtime.start()
-    await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, accepted.json().id)).get()?.status).toBe('completed'), { timeout: 5000 })
+    const id = accepted.json().id as string
+    return {
+      ...h, runtime,
+      status: () => h.db.select().from(seoJobs).where(eq(seoJobs.id, id)).get()?.status,
+      holds: () => h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros]),
+      rows: async () => (await h.app.inject({ url: `${base}/market-rankings?profileId=markets` })).json().items as SeoMarketRanking[],
+    }
+  }
+  /** A cloro answer that ranks alpha.com at 4 for "solar installer" and at 7 for any other query, charged 5 credits. */
+  const cloroAnswer = (init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as { query: string }
+    const rank = body.query === 'solar installer' ? 4 : 7
+    return Response.json({ success: true, result: { organicResults: [{ position: rank, link: 'https://www.alpha.com/solar', displayedLink: 'https://www.alpha.com' }] } }, { headers: { 'X-Credits-Charged': '5', 'X-Request-ID': `request-${body.query}` } })
+  }
+
+  it('refreshes market rankings through cloro and spends the credits it reports', async () => {
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => cloroAnswer(init))
+    const h = await cloroRefresh(fetch)
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.status()).toBe('completed'), { timeout: 5000 })
     // The project-wide market searches the profile's country code (2840) as the United States.
     expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>).map(body => [body.query, body.country, body.location]).sort())
       .toEqual([['home battery', 'US', undefined], ['solar installer', 'US', undefined]])
-    const rows = (await h.app.inject({ url: `${base}/market-rankings?profileId=markets` })).json().items as SeoMarketRanking[]
-    expect(rows.map(row => [row.searchText, row.searchStatus, row.rankOrganic, row.depth, row.provenance?.provider])).toEqual([['home battery', 'completed', 7, 10, 'cloro'], ['solar installer', 'completed', 4, 10, 'cloro']])
+    // cloro gives the organic position only, so the absolute rank stays empty.
+    expect((await h.rows()).map(row => [row.searchText, row.searchStatus, row.rankOrganic, row.rankAbsolute, row.depth, row.provenance?.provider]))
+      .toEqual([['home battery', 'completed', 7, null, 10, 'cloro'], ['solar installer', 'completed', 4, null, 10, 'cloro']])
     // Each search reserved and spent 5 credits at 800 microUSD.
-    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 8000], [0, 8000], [0, 8000]])
+    expect(h.holds()).toEqual([[0, 8000], [0, 8000], [0, 8000]])
+  })
+
+  it('waits for a cloro search that ends after 90 seconds, saves its result and charge once, and runs the next search', async () => {
+    let finish = () => {}
+    const fetch = vi.fn((_url: string, init?: RequestInit) => fetch.mock.calls.length === 1
+      // The first search answers only when the test releases it; the second answers at once.
+      ? new Promise<Response>(resolve => { finish = () => resolve(cloroAnswer(init)) })
+      : Promise.resolve(cloroAnswer(init)))
+    const h = await cloroRefresh(fetch)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    h.runtime.start()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    // Past the 90 seconds other providers get: the search is still running, not aborted.
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetch.mock.calls[0]![1]?.signal?.aborted).toBe(false)
+    expect([h.status(), fetch.mock.calls.length]).toEqual(['running', 1])
+    finish()
+    vi.useRealTimers()
+    await vi.waitFor(() => expect(h.status()).toBe('completed'), { timeout: 5000 })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect((await h.rows()).map(row => [row.searchText, row.searchStatus, row.rankOrganic])).toEqual([['home battery', 'completed', 7], ['solar installer', 'completed', 4]])
+    expect(h.holds()).toEqual([[0, 8000], [0, 8000], [0, 8000]])
   })
 })

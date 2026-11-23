@@ -16,6 +16,9 @@ interface PendingSettlement {
   heartbeat: ReturnType<typeof setInterval>
 }
 
+/** How long one adapter request may run when the adapter sets no limit of its own. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000
+
 /** One bounded dispatch loop; every claim is persisted before a paid POST. */
 export class SeoRuntime {
   private started = false
@@ -120,7 +123,10 @@ export class SeoRuntime {
   private async execute(adapter: SeoAdapter, request: SeoAdapterRequest): Promise<SeoAdapterResult> {
     const controller = new AbortController()
     this.activeRequest = controller
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)])
+    // A timer that aborts the same controller as shutdown does. Each adapter can set its own limit.
+    const deadline = setTimeout(() => controller.abort(), adapter.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
+    deadline.unref?.()
+    const signal = controller.signal
     const unknown = (): SeoAdapterResult => ({ outcome: SeoAdapterOutcomes.unknown, tasks: [], results: emptySeoResults(), error: null, fetchedAt: new Date().toISOString() })
     let timeout: ReturnType<typeof setTimeout> | undefined
     let onAbort: () => void = () => {}
@@ -133,6 +139,7 @@ export class SeoRuntime {
     try { return await Promise.race([adapter.execute(request, { signal }), aborted]) }
     catch { return unknown() }
     finally {
+      clearTimeout(deadline)
       signal.removeEventListener('abort', onAbort)
       if (timeout) clearTimeout(timeout)
       this.activeRequest = null

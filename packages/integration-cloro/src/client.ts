@@ -31,6 +31,18 @@ export class CloroTransportError extends Error {
  */
 const TIMEOUT_MS = 360_000
 
+/** The longest wait before a retry when cloro sends no `Retry-After`. */
+const MAX_RETRY_DELAY_MS = 30_000
+const MAX_RETRIES = 2
+
+/**
+ * How long one search can take from start to end: the search request, the waits before its
+ * retries, and one redirect lookup. The runner must not abort it sooner, because cloro can
+ * still finish the search and charge it. A longer `Retry-After` wait is cut short, which is safe:
+ * the wait follows a refusal, and a refusal costs nothing.
+ */
+export const REQUEST_DEADLINE_MS = 2 * TIMEOUT_MS + MAX_RETRIES * MAX_RETRY_DELAY_MS
+
 function credits(value: string | null): number | null {
   if (value === null || !/^\d+$/.test(value.trim())) return null
   const parsed = Number(value.trim())
@@ -66,7 +78,7 @@ export async function cloroFetch(credentials: CloroCredentials, path: string, bo
     if (signal?.aborted) throw refusal ?? new Error('SEO request was cancelled.')
     return fetchOnce(credentials, path, body, signal)
   }, {
-    maxRetries: 2, baseDelayMs: 2000, maxDelayMs: 30_000,
+    maxRetries: MAX_RETRIES, baseDelayMs: 2000, maxDelayMs: MAX_RETRY_DELAY_MS,
     isRetryable: error => !signal?.aborted && error instanceof CloroTransportError && error.throttle && isRetryableHttpError(error),
     computeDelayMs: (_attempt, error, defaultMs) => retryAfterDelayMs(error) ?? defaultMs,
     onRetry: ({ err }) => { if (err instanceof CloroTransportError) refusal = err },

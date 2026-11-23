@@ -5,7 +5,7 @@ import {
   compareText, emptySeoResults, normalizeHostname, registrableDomain, seoDeviceSchema, seoRankingSettingsSchema, validationError,
   type SeoAdapter, type SeoAdapterEstimate, type SeoAdapterReceipt, type SeoAdapterRequest, type SeoAdapterResult, type SeoMarketRanking, type SeoTarget,
 } from '@canonry/canonry-contracts'
-import { cloroFetch, CloroTransportError, type CloroCredentials } from './client.js'
+import { cloroFetch, CloroTransportError, REQUEST_DEADLINE_MS, type CloroCredentials } from './client.js'
 import { countryOfCriterion, countryOfName } from './countries.js'
 
 /** cloro accepts a Google query of up to 10,000 characters. */
@@ -76,6 +76,8 @@ function searchPayload(request: SeoAdapterRequest): Record<string, unknown> {
 // Only the fields the rankings read. Other result blocks (ads, maps, AI Overview) are ignored.
 const organicSchema = z.object({
   position: z.number().int().positive(),
+  /** The results page the result came from, 1 for the first page. */
+  page: z.number().int().positive().nullish(),
   link: z.string().nullish(),
   /** The address Google shows above the title, such as `https://www.example.com`. */
   displayedLink: z.string().nullish(),
@@ -116,7 +118,7 @@ function resultSite(item: z.infer<typeof organicSchema>): { host: string | null;
   return { host: shown && /^https?:$/.test(shown.protocol) ? normalizeHostname(shown.hostname) : null, url: null, redirect: redirect?.href ?? null }
 }
 
-type OrganicSite = ReturnType<typeof resultSite> & { rank: number }
+type OrganicSite = ReturnType<typeof resultSite> & { rank: number; page: number }
 
 /** The organic results of one answer, each with its site. Throws when the answer checked nothing. */
 function organicSites(body: unknown): OrganicSite[] {
@@ -127,7 +129,8 @@ function organicSites(body: unknown): OrganicSite[] {
     return parsed.success ? [parsed.data] : []
   })
   if (organic.length === 0) throw new Error('SEO provider returned no organic results.')
-  const sites = organic.map(item => ({ rank: item.position, ...resultSite(item) }))
+  // A result without a page number is placed on the page its position falls on.
+  const sites = organic.map(item => ({ rank: item.position, page: item.page ?? Math.ceil(item.position / RESULTS_PER_PAGE), ...resultSite(item) }))
   if (!sites.some(site => site.host)) throw new Error('SEO provider returned no organic result with a known site.')
   return sites
 }
@@ -146,6 +149,18 @@ function hostBelongsTo(host: string, target: SeoTarget): boolean {
 }
 
 /**
+ * How deep the results reach. A search that returned results from every requested page checked
+ * the requested depth. When the last pages are missing, the search is partial: it checked only
+ * as deep as its deepest organic result, so a site that is not in them is not a top-N miss.
+ */
+function checkedDepth(sites: OrganicSite[], request: SeoAdapterRequest): { depth: number; partial: boolean } {
+  const depth = request.search!.depth
+  const lastPage = Math.max(...sites.map(site => site.page))
+  if (lastPage >= depth / RESULTS_PER_PAGE) return { depth, partial: false }
+  return { depth: Math.min(depth, Math.max(...sites.map(site => site.rank))), partial: true }
+}
+
+/**
  * One results set into one ranking row per market the search answers. `position` counts organic
  * results across all pages. A set with no organic result, or none that names its site, checked
  * nothing, so it is a failed search and never reads as "not in the top N".
@@ -154,6 +169,7 @@ function marketRankings(sites: OrganicSite[], request: SeoAdapterRequest, collec
   const search = request.search!
   const target = request.target!
   const searchText = request.keywords[0]!
+  const { depth, partial } = checkedDepth(sites, request)
   const best = targetResult(sites, request)
   const bestUrl = best?.url ?? resolvedUrl
   const competitorRanks = new Map<string, number>()
@@ -175,10 +191,10 @@ function marketRankings(sites: OrganicSite[], request: SeoAdapterRequest, collec
     const tracked = new Set(market.competitors)
     return {
       ...market.context, searchText, locationLabel: search.locationLabel, target,
-      searchStatus: SeoMarketRankingSearchStatuses.completed,
-      // cloro numbers organic results only, so the organic and absolute ranks are the same.
-      rankOrganic: best?.rank ?? null, rankAbsolute: best?.rank ?? null, url: bestUrl,
-      depth: search.depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance,
+      searchStatus: partial ? SeoMarketRankingSearchStatuses.partial : SeoMarketRankingSearchStatuses.completed,
+      // cloro gives the organic position only, not a position among all the page's results.
+      rankOrganic: best?.rank ?? null, rankAbsolute: null, url: bestUrl,
+      depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance,
     }
   })
 }
@@ -213,6 +229,7 @@ export function createCloroSeoAdapter(credentials: CloroCredentials): SeoAdapter
     provider: SeoProviders.cloro,
     accountKey,
     capabilities: [SeoCapabilities['market-rankings']],
+    requestTimeoutMs: REQUEST_DEADLINE_MS,
     estimate(request): SeoAdapterEstimate {
       searchPayload(request)
       return { maxCostMicros: (searchCredits(request.search!.depth) + REDIRECT_CREDITS) * auth.creditMicros, catalogRevision: 'cloro-google-sync-2026-11-18' }
@@ -236,6 +253,9 @@ export function createCloroSeoAdapter(credentials: CloroCredentials): SeoAdapter
         const resolved = best && !best.url && best.redirect ? await resolveRedirect(auth, best.redirect, options?.signal) : null
         if (resolved) tasks.push(resolved.task)
         results.marketRankings.push(...marketRankings(sites, request, fetchedAt, resolved?.url ?? null))
+        if (checkedDepth(sites, request).partial) {
+          return { outcome: SeoAdapterOutcomes.partial, tasks, results, fetchedAt, error: 'Some SEO provider results could not be collected.' }
+        }
         return { outcome: SeoAdapterOutcomes.completed, tasks, results, fetchedAt, error: null }
       } catch (error) {
         // A refusal is never charged. A lost or unread response may have been, so it needs reconciliation.
