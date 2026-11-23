@@ -183,9 +183,55 @@ describe('AuthGate', () => {
       expect(submit.disabled).toBe(false)
       expect(confirmation.getAttribute('aria-invalid')).toBe('false')
 
-      fireEvent.click(screen.getByLabelText('Show passwords'))
+            fireEvent.click(screen.getByLabelText('Show passwords'))
       expect(password.type).toBe('text')
       expect(confirmation.type).toBe('text')
+    })
+
+    test('signs in with the first-run setup token from the URL', async () => {
+      const token = '0123456789abcdef'.repeat(4)
+      let tokenRequests = 0
+      window.history.pushState({}, '', `/setup?project=acme&token=${token}&onboarding=first-run`)
+      onTestFinished(() => { window.history.pushState({}, '', '/') })
+      mockFetch((url, init) => {
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session/setup-token') && init?.method === 'POST') {
+          tokenRequests += 1
+          expect(JSON.parse(String(init?.body)).token).toBe(token)
+          return jsonResponse({ authenticated: true })
+        }
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: false, setupRequired: true })
+        return dashboardFallback(url)
+      })
+
+      render(<AuthGate />)
+      await screen.findByRole('heading', { name: 'Overview' })
+      expect(tokenRequests).toBe(1)
+      // The token is spent: only it is stripped, the other params stay.
+      expect(window.location.search).toBe('?project=acme&onboarding=first-run')
+      expect(screen.queryByText('Create a dashboard password')).toBeNull()
+    })
+
+    test('falls back to the password form when the setup token is refused', async () => {
+      const token = '0123456789abcdef'.repeat(4)
+      let tokenRequests = 0
+      window.history.pushState({}, '', `/setup?token=${token}`)
+      onTestFinished(() => { window.history.pushState({}, '', '/') })
+      mockFetch((url, init) => {
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session/setup-token') && init?.method === 'POST') {
+          tokenRequests += 1
+          return jsonResponse({ error: { code: 'AUTH_INVALID', message: 'Invalid or expired setup token' } }, 401)
+        }
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: false, setupRequired: true })
+        return dashboardFallback(url)
+      })
+
+      render(<AuthGate />)
+      expect(await screen.findByText('Create a dashboard password')).toBeTruthy()
+      expect(screen.getByText('This setup link has already been used or is no longer valid. Create a dashboard password to continue.')).toBeTruthy()
+      expect(tokenRequests).toBe(1)
+      expect(window.location.search).toBe('')
     })
 
     test('recovers failed access verification without creating the dashboard password twice', async () => {
