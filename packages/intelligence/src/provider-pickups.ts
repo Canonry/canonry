@@ -37,7 +37,6 @@ export function detectProviderPickups(currentRun: RunData, previousRun: RunData)
       query: snap.query,
       provider: snap.provider,
       citationUrl: snap.citationUrl,
-      position: snap.position,
       runId: currentRun.runId,
     })
   }

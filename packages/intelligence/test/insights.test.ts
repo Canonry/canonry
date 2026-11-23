@@ -34,8 +34,7 @@ describe('generateInsights', () => {
       {
         query: 'roof repair',
         provider: 'chatgpt',
-        previousCitationUrl: 'https://example.com/roof',
-        previousPosition: 2,
+        previousCitationUrl: 'example.com',
         currentRunId: 'run_002',
         previousRunId: 'run_001',
       },
@@ -50,8 +49,8 @@ describe('generateInsights', () => {
     expect(ins.query).toBe('roof repair')
     expect(ins.provider).toBe('chatgpt')
     expect(ins.recommendation?.action).toBe('audit')
-    expect(ins.recommendation?.target).toBe('https://example.com/roof')
-    expect(ins.recommendation?.reason).toContain('position 2')
+    expect(ins.recommendation?.target).toBe('example.com')
+    expect(ins.recommendation?.reason).toBe('chatgpt cited example.com for "roof repair" in the previous run but not in this one. Run agent-readiness to check for content or schema issues.')
     expect(ins.id).toMatch(/^ins_/)
   })
 
@@ -60,8 +59,7 @@ describe('generateInsights', () => {
       {
         query: 'roof coating',
         provider: 'gemini',
-        citationUrl: 'https://example.com/coating',
-        position: 1,
+        citationUrl: 'example.com',
         runId: 'run_002',
       },
     ]
@@ -73,6 +71,20 @@ describe('generateInsights', () => {
     expect(ins.type).toBe('gain')
     expect(ins.severity).toBe('low')
     expect(ins.recommendation?.action).toBe('monitor')
+    expect(ins.recommendation?.reason).toBe('gemini now cites example.com for "roof coating"; the previous run did not. Monitor to confirm the citation persists.')
+  })
+
+  // Cited through a grounding source only: no project domain is in the
+  // stored source list, so the reason names no host it cannot back.
+  it('names no host in regression and gain reasons when the cited domain is unknown', () => {
+    const insights = generateInsights(makeInput({
+      regressions: [{ query: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' }],
+      gains: [{ query: 'k2', provider: 'gemini', runId: 'r2' }],
+    }))
+    expect(insights.map(ins => ins.recommendation?.reason)).toEqual([
+      'chatgpt cited your domain for "k1" in the previous run but not in this one. Run agent-readiness to check for content or schema issues.',
+      'gemini now cites your domain for "k2"; the previous run did not. Monitor to confirm the citation persists.',
+    ])
   })
 
   it('attaches cause analysis to regression insights', () => {

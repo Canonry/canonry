@@ -22,7 +22,7 @@ describe('detectGains', () => {
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { query: 'roof coating', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/coating', position: 3, snippet: 'Great coating...' },
+        { query: 'roof coating', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/coating', snippet: 'Great coating...' },
       ],
     })
 
@@ -32,7 +32,6 @@ describe('detectGains', () => {
       query: 'roof coating',
       provider: 'chatgpt',
       citationUrl: 'https://a.com/coating',
-      position: 3,
       snippet: 'Great coating...',
       runId: 'run_002',
     })
@@ -159,13 +158,12 @@ describe('detectGains', () => {
     })
     const curr = makeRun({
       runId: 'run_002',
-      snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }], // no url/position/snippet
+      snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }], // no url/snippet
     })
 
     const result = detectGains(curr, prev)
     expect(result).toHaveLength(1)
     expect(result[0].citationUrl).toBeUndefined()
-    expect(result[0].position).toBeUndefined()
     expect(result[0].snippet).toBeUndefined()
   })
 
