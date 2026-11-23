@@ -3,7 +3,7 @@ import { and, asc, eq, ne } from 'drizzle-orm'
 import { getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
 import { resolveJourneyKeySecret } from '../journey-secret.js'
 import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
-import { allowsKeylessFirstRunSetup, createServer, waitForServerRuntimeStartup } from '../server.js'
+import { allowsKeylessFirstRunSetup, createServer, getFirstRunSetupToken, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
@@ -80,13 +80,20 @@ function buildServeOpenLine(input: {
   projectCount: number
   firstProjectName?: string
   hasSiteAudit: boolean
+  setupToken?: string
 }): string {
+  // A first-run setup token turns the setup URL into a one-click sign-in
+  // (#1176). The token is hex, so it needs no encoding; without one the URL
+  // opens the password form as before.
+  const withToken = (url: string) => input.setupToken
+    ? `${url}${url.includes('?') ? '&' : '?'}token=${input.setupToken}`
+    : url
   if (input.projectCount === 0) {
-    return `Open ${input.url}/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.`
+    return `Open ${withToken(`${input.url}/setup`)} to set up your first project: a free Agent Readiness audit scan, then AI Visibility.`
   }
   if (!input.hasSiteAudit && input.firstProjectName) {
     const firstRun = input.projectCount === 1 ? '&onboarding=first-run' : ''
-    return `Open ${input.url}/setup?project=${encodeURIComponent(input.firstProjectName)}${firstRun} to run its first Agent Readiness audit scan.`
+    return `Open ${withToken(`${input.url}/setup?project=${encodeURIComponent(input.firstProjectName)}${firstRun}`)} to run its first Agent Readiness audit scan.`
   }
   return `Open ${input.url}`
 }
@@ -199,7 +206,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     const url = operatorHttpUrl(host, port)
     if (!isMachineFormat(format)) {
       console.log(`\nCanonry server running at ${url}`)
-      console.log(buildServeOpenLine({ url, ...readServeOpenState(db) }))
+      console.log(buildServeOpenLine({ url, ...readServeOpenState(db), setupToken: getFirstRunSetupToken(app) ?? undefined }))
       // First-run password setup needs the root API key on every non-loopback
       // bind, and on a loopback bind whose config names another way in.
       if (!allowsKeylessFirstRunSetup(app)) {
