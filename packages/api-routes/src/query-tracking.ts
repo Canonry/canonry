@@ -55,6 +55,7 @@ import {
   normalizeIdentityText as normalizeText,
   type ProviderRouteFamily,
   EMBED_QUERIES_WRITE_SCOPE,
+  FULL_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import {
   discoveryProbes,
@@ -2062,7 +2063,7 @@ function writeAdvancedCandidate(
 }
 
 export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrackingRoutesOptions = {}) {
-  app.get<{ Params: { name: string } }>('/projects/:name/query-tracking', async request => {
+  app.get<{ Params: { name: string } }>('/projects/:name/query-tracking', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     return workspaceDto(app.db, readWorkspace(app.db, project), opts)
   })
