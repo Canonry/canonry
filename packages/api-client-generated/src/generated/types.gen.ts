@@ -19075,6 +19075,7 @@ export type TrafficEventsResponse = {
         coverageStart: string | null;
         aiReferralCountingChangedAt?: string | null;
         aiUserFetchCountingChangedAt?: string | null;
+        recordedThrough?: string | null;
         partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {

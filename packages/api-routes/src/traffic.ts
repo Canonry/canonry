@@ -6,6 +6,7 @@ import { and, desc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from 'drizzle
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
+import { trafficRecordedThrough } from './traffic-recording.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
   DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS,
@@ -5610,6 +5611,23 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         for (const pt of points) {
           pt.measured = coverageKey === null ? false : seriesBucketOf(pt.bucket, granularity) >= coverageKey
         }
+        // The other end. A source whose syncs keep failing holds its watermark
+        // still, so every day after it read as a measured zero: an expired
+        // token looked like crawlers had stopped visiting. A bucket that begins
+        // after every selected source's watermark was not measured; one that
+        // ends after the oldest watermark holds only part of the traffic (a
+        // source stopped inside it, or stopped while another kept reporting).
+        const recorded = trafficRecordedThrough(app.db, project.id, sourceIdParam)
+        const stoppedBuckets = new Set<string>()
+        for (const pt of points) {
+          if (!pt.measured) continue
+          const startMs = bucketStartMs(pt.bucket)
+          if (recorded.anyThroughMs !== null && startMs >= recorded.anyThroughMs) {
+            pt.measured = false
+          } else if (recorded.allThroughMs !== null && nextSeriesBucketStartMs(startMs, granularity) > recorded.allThroughMs) {
+            stoppedBuckets.add(pt.bucket)
+          }
+        }
         // The FIRST measured bucket is itself partial whenever recording or the
         // requested range began INSIDE it rather than on its boundary.
         // `measured` compares at bucket granularity, so that first bucket
@@ -5634,16 +5652,21 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           coverageStart,
           aiReferralCountingChangedAt: referralCountingChangedAt,
           aiUserFetchCountingChangedAt: userFetchCountingChangedAt,
-          // The same two edges the fits leave out, named for a chart to draw as partial.
-          partialBuckets: [
-            ...(firstMeasuredIdx >= 0 && leadingBucketIsPartial ? [points[firstMeasuredIdx]!.bucket] : []),
-            ...(trailingBucketIsPartial && lastBucket !== null && !(points.length - 1 === firstMeasuredIdx && leadingBucketIsPartial) ? [lastBucket] : []),
-          ],
+          recordedThrough: recorded.anyThroughMs === null ? null : new Date(recorded.anyThroughMs).toISOString(),
+          // The buckets the fits leave out as partial, in bucket order, named for
+          // a chart to draw as partial. An unmeasured bucket is never partial.
+          partialBuckets: points.filter((pt, i) => pt.measured && (
+            (i === firstMeasuredIdx && leadingBucketIsPartial)
+            || stoppedBuckets.has(pt.bucket)
+            || (i === points.length - 1 && trailingBucketIsPartial)
+          )).map((pt) => pt.bucket),
           // Two edges are excluded from the fit, both for the same reason: a
           // bucket that is not a full reading must not be treated as one.
           //
-          // Leading: unmeasured buckets predate recording, so they are the
-          // ABSENCE of a reading, not a reading of zero. The first MEASURED
+          // Leading: unmeasured buckets predate recording (or follow every
+          // source's last sync), so they are the ABSENCE of a reading, not a
+          // reading of zero. Buckets a source stopped reporting inside or before
+          // go too, for the same reason. The first MEASURED
           // bucket goes too when recording or the range began inside it, since
           // a fraction of a bucket read as a whole slopes the fit up out of nothing.
           //
@@ -5666,6 +5689,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             const usable = (pt: TrafficSeriesPoint, i: number) =>
               pt.measured
               && !(i === firstMeasuredIdx && leadingBucketIsPartial)
+              && !stoppedBuckets.has(pt.bucket)
               && !(i === points.length - 1 && trailingBucketIsPartial)
             const countedByCurrentRule = (pt: TrafficSeriesPoint) =>
               referralCountingChangedMs === null || bucketStartMs(pt.bucket) >= referralCountingChangedMs

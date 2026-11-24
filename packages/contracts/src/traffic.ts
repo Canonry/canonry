@@ -780,11 +780,13 @@ export const trafficSeriesPointSchema = z.object({
    */
   crawlerContentHits: z.number().int().nonnegative(),
   /**
-   * False for a bucket that predates any observation for this project, i.e.
-   * before `series.coverageStart`. Such a bucket reads 0 because nothing was
-   * being recorded, NOT because nothing happened, and a chart must not draw
-   * those as a measured zero. Derived here rather than in a component so the
-   * CLI draws the same distinction.
+   * False for a bucket nothing was recording: one before `series.coverageStart`
+   * (no observation yet), or one that begins at or after
+   * `series.recordedThrough` (no selected source has synced that far, e.g. its
+   * syncs keep failing). Such a bucket reads 0 because nothing was being
+   * recorded, NOT because nothing happened, and a chart must not draw those as
+   * a measured zero. Derived here rather than in a component so the CLI draws
+   * the same distinction.
    */
   measured: z.boolean(),
 })
@@ -900,10 +902,26 @@ export const trafficEventsResponseSchema = z.object({
      */
     aiUserFetchCountingChangedAt: z.string().nullable().optional(),
     /**
-     * Buckets holding only part of their period: the one recording began
-     * inside, and the newest while it is still running. Trend fits leave them
-     * out; a chart should not draw them as full readings. Optional so a newer
-     * client reads an older API.
+     * The newest sync watermark among the selected sources: every request
+     * before it has been pulled, and none after it has. Buckets that begin at
+     * or after it are `measured: false`. A source whose syncs keep failing
+     * holds it still, which is how its silent days are told apart from a quiet
+     * site. Null when unbounded or unknown: a direct-push Cloudflare source can
+     * report at any moment, and a source that never synced has no watermark.
+     * Project-wide it reads active sources only (not paused or archived); a
+     * `sourceId` view reads that source in any status. A span skipped and not
+     * yet backfilled inside the history is not reflected here (the
+     * `traffic.source.sync-lag` doctor check reports it). Not window-bound.
+     * Optional so a newer client reads an older API.
+     */
+    recordedThrough: z.string().nullable().optional(),
+    /**
+     * Measured buckets holding only part of their period: the one recording
+     * began inside, the newest while it is still running, and any that ends
+     * after a selected source's watermark while another source still reports
+     * (or that holds `recordedThrough` itself). Trend fits leave them out; a
+     * chart should not draw them as full readings. In bucket order. Optional so
+     * a newer client reads an older API.
      */
     partialBuckets: z.array(z.string()).optional(),
     /**
