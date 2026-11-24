@@ -208,14 +208,15 @@ describe('traffic.source.connected', () => {
     const r = await sourceConnectedCheck.run(ctxFor(h))
     expect(r.status).toBe('fail')
     expect(r.code).toBe('traffic.source.all-errored')
+    expect(r.urgent).toBe(true)
     expect(r.remediation).toContain('auth bad')
   })
 
   // A source reads `error` after one failed sync, until its next success.
   it.each([
-    { failed: 1, status: 'warn', code: 'traffic.source.all-errored-recently' },
-    { failed: 3, status: 'fail', code: 'traffic.source.all-errored' },
-  ])('is $status after $failed failed sync(s) in a row since the last success', async ({ failed, status, code }) => {
+    { failed: 1, status: 'warn', code: 'traffic.source.all-errored-recently', urgent: undefined },
+    { failed: 3, status: 'fail', code: 'traffic.source.all-errored', urgent: true },
+  ])('is $status after $failed failed sync(s) in a row since the last success', async ({ failed, status, code, urgent }) => {
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60_000).toISOString()
     const lastSyncedAt = hoursAgo(failed + 1)
     const sourceId = insertTrafficSource(h, {
@@ -231,7 +232,68 @@ describe('traffic.source.connected', () => {
     const r = await sourceConnectedCheck.run(ctxFor(h))
 
     expect(r).toMatchObject({ status, code })
+    expect(r.urgent).toBe(urgent)
     expect(r.summary).toContain(`No new data since ${lastSyncedAt}`)
+  })
+
+  describe('a source that keeps failing', () => {
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60_000).toISOString()
+    function failingSource(opts: { failed: number; lastError: string; displayName?: string }): string {
+      const sourceId = insertTrafficSource(h, {
+        displayName: opts.displayName ?? 'Logs', status: 'error', lastError: opts.lastError, lastSyncedAt: hoursAgo(opts.failed + 1),
+      })
+      const syncRun = (runStatus: string, hours: number) => h.db.insert(runs).values({
+        id: crypto.randomUUID(), projectId: h.project.id, kind: 'traffic-sync', status: runStatus, trigger: 'scheduled',
+        sourceId, createdAt: hoursAgo(hours), finishedAt: hoursAgo(hours - 0.01),
+      }).run()
+      syncRun('completed', opts.failed + 1)
+      for (let hours = opts.failed; hours >= 1; hours--) syncRun('failed', hours)
+      return sourceId
+    }
+
+    it('is urgent while other sources still report, once it has failed repeatedly', async () => {
+      insertTrafficSource(h, { displayName: 'Edge' })
+      const sourceId = failingSource({ failed: 3, lastError: 'hostname could not be resolved' })
+
+      const r = await sourceConnectedCheck.run(ctxFor(h))
+
+      expect(r).toMatchObject({ status: 'warn', code: 'traffic.source.partially-errored', urgent: true })
+      expect(r.details?.failingIds).toEqual([sourceId])
+      expect(r.alert?.line).toContain('Traffic syncs for Logs failed 3 or more times in a row')
+      expect(r.alert?.line).toContain('Other sources are still reporting.')
+      expect(r.alert?.next).toContain('cnry traffic sources')
+    })
+
+    it('is not urgent after one failed sync while other sources still report', async () => {
+      insertTrafficSource(h, { displayName: 'Edge' })
+      failingSource({ failed: 1, lastError: 'hostname could not be resolved' })
+
+      const r = await sourceConnectedCheck.run(ctxFor(h))
+
+      expect(r).toMatchObject({ status: 'warn', code: 'traffic.source.partially-errored' })
+      expect(r.urgent).toBeUndefined()
+      expect(r.alert).toBeUndefined()
+      expect(r.details?.failingIds).toEqual([])
+    })
+
+    it.each([
+      { lastError: 'Vercel request-logs endpoint returned HTTP 403', rejected: true },
+      { lastError: 'Cloud Run logs returned HTTP 401', rejected: true },
+      { lastError: 'Vercel request-logs endpoint returned HTTP 4031', rejected: false },
+      { lastError: 'hostname could not be resolved', rejected: false },
+    ])('says the credentials were rejected only for an auth refusal: $lastError', async ({ lastError, rejected }) => {
+      failingSource({ failed: 3, lastError })
+
+      const r = await sourceConnectedCheck.run(ctxFor(h))
+
+      expect(r).toMatchObject({ code: 'traffic.source.all-errored', urgent: true })
+      if (rejected) {
+        expect(r.alert?.next).toContain('rejected the saved token or key')
+        expect(r.alert?.next).toContain('backfill')
+      } else {
+        expect(r.alert?.next).toBe(`Check the source with \`cnry traffic sources ${h.project.name}\`, then reconnect it if needed.`)
+      }
+    })
   })
 
   it('treats archived-only sources as no source', async () => {
