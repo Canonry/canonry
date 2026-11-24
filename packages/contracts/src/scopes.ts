@@ -48,6 +48,9 @@ export const ADS_ACTIVATE_SCOPE = 'ads.activate'
  */
 export const EMBED_QUERIES_WRITE_SCOPE = 'embed.queries.write'
 
+/** The embed scope token: keys minted for embedded dashboards. */
+export const EMBED_SCOPE = 'embed'
+
 /** Grants live, quota-consuming reads from Google Ads and Tag Manager. */
 export const GOOGLE_MARKETING_LIVE_READ_SCOPE = 'google-marketing.read-live'
 
@@ -96,4 +99,70 @@ export function intersectScopes(authority: readonly string[], requested: readonl
  */
 export function isReadOnlyKey(scopes: readonly string[]): boolean {
   return scopes.some(scope => scope === READ_ONLY_SCOPE || scope.endsWith('.read')) && !scopes.some(grantsWrite)
+}
+
+/**
+ * Read-capability bundles for API keys (#817). Capabilities are scope
+ * tokens ending in `.read`, so `isReadOnlyKey` already classifies a key
+ * carrying only capabilities as read-only and the global write gate keeps
+ * applying. Bundles nest: full read includes analytics, analytics includes
+ * dashboard — a broader bundle never narrows what the key could already
+ * read.
+ */
+
+/** Mention/citation metrics, competitors, trend. */
+export const DASHBOARD_READ_CAPABILITY = 'dashboard.read'
+
+/** Broader analytics reads. Includes the dashboard bundle. */
+export const ANALYTICS_READ_CAPABILITY = 'analytics.read'
+
+/** Full read: exports, raw runs, full query lists. Includes both bundles. */
+export const FULL_READ_CAPABILITY = 'full.read'
+
+export type ReadCapability =
+  | typeof DASHBOARD_READ_CAPABILITY
+  | typeof ANALYTICS_READ_CAPABILITY
+  | typeof FULL_READ_CAPABILITY
+
+/** Narrowest first. */
+export const READ_CAPABILITIES: readonly ReadCapability[] = [
+  DASHBOARD_READ_CAPABILITY,
+  ANALYTICS_READ_CAPABILITY,
+  FULL_READ_CAPABILITY,
+]
+
+/** What each bundle includes: itself plus every bundle narrower than it. */
+const CAPABILITY_INCLUDES: Record<ReadCapability, readonly ReadCapability[]> = {
+  [DASHBOARD_READ_CAPABILITY]: [DASHBOARD_READ_CAPABILITY],
+  [ANALYTICS_READ_CAPABILITY]: [ANALYTICS_READ_CAPABILITY, DASHBOARD_READ_CAPABILITY],
+  [FULL_READ_CAPABILITY]: [FULL_READ_CAPABILITY, ANALYTICS_READ_CAPABILITY, DASHBOARD_READ_CAPABILITY],
+}
+
+/**
+ * Effective read capabilities for a key's scope list.
+ *
+ * Backward compatibility (#817): the wildcard and the legacy `read` scope
+ * map to every capability, so existing integrations keep reading exactly
+ * what they read today. `embed` maps to the dashboard bundle only — the
+ * surface an embedded dashboard shows. An explicit capability token grants
+ * its bundle and everything narrower. Any other scope (`users.read`,
+ * `google-marketing.read-live`, …) grants no capability: a key that never
+ * opted into a read bundle is denied on tagged routes (default deny).
+ */
+export function capabilitiesForScopes(scopes: readonly string[]): ReadonlySet<ReadCapability> {
+  const granted = new Set<ReadCapability>()
+  const add = (capability: ReadCapability): void => {
+    for (const included of CAPABILITY_INCLUDES[capability]) granted.add(included)
+  }
+  if (scopes.includes(WILDCARD_SCOPE) || scopes.includes(READ_ONLY_SCOPE)) {
+    add(FULL_READ_CAPABILITY)
+    return granted
+  }
+  if (scopes.includes(EMBED_SCOPE)) add(DASHBOARD_READ_CAPABILITY)
+  for (const scope of scopes) {
+    if (scope === DASHBOARD_READ_CAPABILITY) add(DASHBOARD_READ_CAPABILITY)
+    else if (scope === ANALYTICS_READ_CAPABILITY) add(ANALYTICS_READ_CAPABILITY)
+    else if (scope === FULL_READ_CAPABILITY) add(FULL_READ_CAPABILITY)
+  }
+  return granted
 }
