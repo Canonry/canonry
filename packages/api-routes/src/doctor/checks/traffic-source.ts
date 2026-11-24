@@ -27,6 +27,8 @@ import {
   TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../../traffic-limits.js'
 import { cloudflareWorkerVersionFor } from '../../cloudflare-worker-version.js'
+// Only direct push has no pull watermark; queue pull and future modes take the pull checks.
+import { isCloudflareDirectPush } from '../../traffic-recording.js'
 import { SYNC_FAILURE_WINDOW, readSyncRunState } from './integration-sync.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } from '../types.js'
 
@@ -43,19 +45,6 @@ import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } 
 
 const RECENT_DATA_WARN_DAYS = 7
 const RECENT_DATA_FAIL_DAYS = 30
-
-/**
- * Only the current direct-push Cloudflare transport has no Canonry-side pull
- * watermark. Missing mode is the legacy direct-push shape. Reserved/future
- * modes must flow through normal pull checks instead of inheriting behavior
- * from `sourceType = cloudflare`.
- */
-function isCloudflareDirectPush(source: TrafficSourceProbe): boolean {
-  if (source.sourceType !== TrafficSourceTypes.cloudflare) return false
-  const deliveryMode = source.configJson.deliveryMode
-  return deliveryMode === undefined
-    || deliveryMode === CloudflareTrafficDeliveryModes['direct-push']
-}
 
 function isCloudflareQueuePull(source: TrafficSourceProbe): boolean {
   return source.sourceType === TrafficSourceTypes.cloudflare

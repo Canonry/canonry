@@ -6575,6 +6575,145 @@ describe('crawler-hit content/infra segmentation', () => {
   })
 
   /**
+   * The other end of coverage. A source whose syncs keep failing (an expired
+   * token answers every sync with HTTP 403) holds its watermark still, and the
+   * days after it read as a measured zero: the chart showed crawlers stopping
+   * when only the log pull had. A bucket past every selected source's
+   * watermark was not measured; one that holds a watermark, or runs past one
+   * while another source keeps reporting, is partial.
+   */
+  describe('buckets after the last sync', () => {
+    const WINDOW = 'since=2026-04-30T13%3A45%3A00.000Z&granularity=day'
+    const DAYS = Array.from({ length: 8 }, (_, index) =>
+      new Date(Date.UTC(2026, 3, 30) + index * 86_400_000).toISOString().slice(0, 10))
+    const STOPPED_AT = '2026-05-04T09:30:00.000Z'
+    const NOW = '2026-05-07T13:45:00.000Z'
+
+    async function seriesOf(h: Awaited<ReturnType<typeof buildHarness>>, sourceId?: string) {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?${WINDOW}${sourceId ? `&sourceId=${sourceId}` : ''}`,
+      })
+      expect(res.statusCode).toBe(200)
+      return trafficEventsResponseSchema.parse(JSON.parse(res.payload)).series
+    }
+
+    /** 100 content crawls a day from May 1 through the morning of May 4. */
+    function crawlsUntilStopped(h: Awaited<ReturnType<typeof buildHarness>>, source: typeof trafficSources.$inferSelect) {
+      insertSeriesCrawlerRows(h, source, [
+        ...[1, 2, 3].map(day => ({ tsHour: `2026-05-0${day}T00:00:00.000Z`, pathNormalized: `/day-${day}`, hits: 100 })),
+        { tsHour: '2026-05-04T05:00:00.000Z', pathNormalized: '/day-4', hits: 30 },
+      ])
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(NOW))
+    })
+
+    it('marks every bucket after a failing source\'s watermark as unmeasured', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT, lastError: 'HTTP 403' })
+          .where(eq(trafficSources.id, source.id)).run()
+        crawlsUntilStopped(h, source)
+
+        for (const series of [await seriesOf(h), await seriesOf(h, source.id)]) {
+          expect(series.coverageStart).toBe('2026-05-01T00:00:00.000Z')
+          expect(series.recordedThrough).toBe(STOPPED_AT)
+          expect(series.points.map(point => [point.bucket, point.measured])).toEqual(DAYS.map((day, index) => [day, index >= 1 && index <= 4]))
+          expect(series.partialBuckets, 'the day the source stopped inside; an unmeasured today is not partial').toEqual(['2026-05-04'])
+          expect(series.trends.crawlerContentHits, 'only the three full days').toMatchObject({ slope: 0, start: 100, end: 100, n: 3, startIndex: 1, endIndex: 3 })
+        }
+      } finally { await h.close() }
+    })
+
+    it('keeps the day measured but partial while another source still reports', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT })
+          .where(eq(trafficSources.id, source.id)).run()
+        const healthy = { ...source, id: 'healthy-source', displayName: 'Healthy', status: TrafficSourceStatuses.connected, lastSyncedAt: NOW }
+        h.db.insert(trafficSources).values(healthy).run()
+        crawlsUntilStopped(h, source)
+        insertSeriesCrawlerRows(h, healthy, [3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/healthy-${day}`, hits: 10 })))
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBe(NOW)
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07'])
+        expect(project.trends.crawlerContentHits, 'fitted only before the stopped source fell behind').toMatchObject({ n: 3, startIndex: 1, endIndex: 3 })
+
+        const stopped = await seriesOf(h, source.id)
+        expect(stopped.recordedThrough).toBe(STOPPED_AT)
+        expect(stopped.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1 && index <= 4))
+
+        const reporting = await seriesOf(h, healthy.id)
+        expect(reporting.recordedThrough).toBe(NOW)
+        expect(reporting.points.map(point => point.measured), 'its own coverage starts May 3').toEqual(DAYS.map((_, index) => index >= 3))
+        expect(reporting.partialBuckets, 'its first day began at noon; today is still running').toEqual(['2026-05-03', '2026-05-07'])
+      } finally { await h.close() }
+    })
+
+    it('never marks a bucket unmeasured while a direct-push source can still report', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT })
+          .where(eq(trafficSources.id, source.id)).run()
+        // A missing delivery mode is the legacy direct-push shape; its own
+        // last-sync time is not a pull watermark.
+        h.db.insert(trafficSources).values({
+          ...source, id: 'worker-source', sourceType: 'cloudflare', displayName: 'Worker',
+          status: TrafficSourceStatuses.connected, lastSyncedAt: '2026-05-02T00:00:00.000Z', configJson: {},
+        }).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBeNull()
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07'])
+      } finally { await h.close() }
+    })
+
+    it('ignores paused, archived and never-synced sources project-wide', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.connected, lastSyncedAt: NOW })
+          .where(eq(trafficSources.id, source.id)).run()
+        h.db.insert(trafficSources).values([
+          { ...source, id: 'paused-source', displayName: 'Paused', status: TrafficSourceStatuses.paused, lastSyncedAt: '2026-05-02T00:00:00.000Z' },
+          { ...source, id: 'archived-source', displayName: 'Archived', status: TrafficSourceStatuses.archived, lastSyncedAt: '2026-05-02T00:00:00.000Z' },
+          { ...source, id: 'never-synced-source', displayName: 'New', status: TrafficSourceStatuses.error, lastSyncedAt: null },
+        ]).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBe(NOW)
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets, 'only today, still running').toEqual(['2026-05-07'])
+
+        const paused = await seriesOf(h, 'paused-source')
+        expect(paused.recordedThrough, 'a selected source counts in any status').toBe('2026-05-02T00:00:00.000Z')
+        expect(paused.points.every(point => !point.measured), 'it recorded nothing of its own').toBe(true)
+      } finally { await h.close() }
+    })
+
+    it('leaves the series as it was when no selected source has a watermark', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: null })
+          .where(eq(trafficSources.id, source.id)).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBeNull()
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-07'])
+      } finally { await h.close() }
+    })
+  })
+
+  /**
    * Review finding: `until` defaults to now, so the newest daily bucket holds
    * only the elapsed fraction of the current UTC day. Fitting through it makes a
    * flat site read as declining, every time, for everyone. Same class of error
