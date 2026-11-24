@@ -17,6 +17,7 @@ import {
   validationError,
   type CompetitorAutoAlias,
   type CompetitorDto,
+  DASHBOARD_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import type { ZodType } from 'zod'
 import {
@@ -131,7 +132,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   }
 
   // GET /projects/:name/competitors
-  app.get<{ Params: { name: string } }>('/projects/:name/competitors', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/competitors', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     return reply.send(listCompetitors(project.id))
   })
@@ -192,7 +193,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   app.post<{
     Params: { name: string }
     Body: { competitors: unknown[] }
-  }>('/projects/:name/competitors', async (request, reply) => {
+  }>('/projects/:name/competitors', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(competitorAppendRequestSchema, request.body, 'Invalid competitor batch request')
 
@@ -547,7 +548,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   app.delete<{
     Params: { name: string }
     Body: { competitors: string[] }
-  }>('/projects/:name/competitors', async (request, reply) => {
+  }>('/projects/:name/competitors', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(competitorBatchRequestSchema, request.body, 'Invalid competitor batch request')
 
