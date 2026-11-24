@@ -9,6 +9,8 @@ import {
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
   hostOf, matcherMatchesText, normalizeQueryText, queryClassFilterSchema, sourceBreakdownQuerySchema, answerProseForMentions,
   prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio,
+  DASHBOARD_READ_CAPABILITY,
+  ANALYTICS_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import type {
   BrandMetricsDto, CitationState, GapAnalysisDto, SourceBreakdownDto,
@@ -47,7 +49,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; queryClass?: string }
-  }>('/projects/:name/analytics/metrics', async (request, reply) => {
+  }>('/projects/:name/analytics/metrics', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const classifyQuery = projectQueryClassifier(project)
     const mentionShareScope = classifyQuery ? 'non-brand' as const : 'pooled' as const
@@ -527,7 +529,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string }
-  }>('/projects/:name/analytics/gaps', async (request, reply) => {
+  }>('/projects/:name/analytics/gaps', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const window = parseWindow(request.query.window)
@@ -778,7 +780,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; limit?: string; runId?: string; queryClass?: string; includeByQuery?: string }
-  }>('/projects/:name/analytics/sources', async (request, reply) => {
+  }>('/projects/:name/analytics/sources', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const window = parseWindow(request.query.window)
