@@ -322,8 +322,11 @@ marketplace add Canonry/canonry` and `claude plugin install
 canonry-remote@canonry`; the page does not show those commands yet. Claude on
 the web, desktop and mobile uses the same gateway as a custom connector: add
 `https://mcp.canonry.ai/mcp`, choose **Use your own OAuth client**, enter
-`canonry-claude` and leave the secret blank. Direct connection stays available
-under **Connect directly** for Claude and other MCP clients.
+`canonry-claude` and leave the secret blank. Claude keeps one connector per URL,
+so to connect a second workspace add it at its own address,
+`https://mcp.canonry.ai/mcp/<workspace>`; its sign-in asks for that workspace
+only. Direct connection stays available under **Connect directly** for Claude and
+other MCP clients.
 
 The operator sets this once per instance, after registering the instance with
 the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):

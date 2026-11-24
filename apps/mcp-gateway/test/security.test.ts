@@ -70,8 +70,8 @@ async function fixture(input: { clientName?: string; workspaceName?: string; wor
     }
     return request(`/oauth/authorize?${params}`)
   }
-  const consent = async () => {
-    const authorization = await authorize()
+  const consent = async (patch: Record<string, string | null> = {}) => {
+    const authorization = await authorize(patch)
     expect(authorization.status).toBe(303)
     const location = new URL(authorization.headers.get('location')!, issuer)
     expect(location.pathname).toMatch(/^\/interaction\/[^/]+$/)
@@ -450,5 +450,87 @@ describe('gateway browser authorization boundary', () => {
     })
     expect(mcp.status).toBe(401)
     expect(mcp.headers.get('www-authenticate')).toBe(`Bearer resource_metadata="${built.issuer}/.well-known/oauth-protected-resource/mcp"`)
+  })
+})
+
+/** A registered workspace's OAuth discovery, so a selection reaches its handoff. */
+async function workspaceDiscovery(): Promise<{ origin: string; requests: string[] }> {
+  const requests: string[] = []
+  let origin = ''
+  const upstream = createServer((req, res) => {
+    requests.push(req.url ?? '')
+    const metadata = req.url?.startsWith('/.well-known/oauth-protected-resource')
+      ? { resource: `${origin}/api/v1/mcp`, authorization_servers: [origin] }
+      : { issuer: origin, authorization_endpoint: `${origin}/oauth/authorize`, token_endpoint: `${origin}/oauth/token`, revocation_endpoint: `${origin}/oauth/revoke` }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify(metadata))
+  })
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  const address = upstream.address()
+  if (!address || typeof address === 'string') throw new Error('Missing upstream listener')
+  origin = `http://127.0.0.1:${address.port}`
+  running.push({ close: () => new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve())) })
+  return { origin, requests }
+}
+
+describe('workspace addresses', () => {
+  it('answers metadata for every well-formed workspace address, so none reveals whether a workspace exists', async () => {
+    const built = await fixture()
+    for (const id of ['synthetic', 'unregistered-workspace']) {
+      const metadata = await built.request(`/.well-known/oauth-protected-resource/mcp/${id}`)
+      expect(metadata.status).toBe(200)
+      expect(await metadata.json()).toEqual({ resource: `${built.issuer}/mcp/${id}`, authorization_servers: [built.issuer], scopes_supported: ['read', 'offline_access'], bearer_methods_supported: ['header'], resource_name: 'Canonry' })
+      const refused = await built.request(`/mcp/${id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      expect(refused.status).toBe(401)
+      expect(refused.headers.get('www-authenticate')).toBe(`Bearer resource_metadata="${built.issuer}/.well-known/oauth-protected-resource/mcp/${id}"`)
+      await refused.body?.cancel()
+    }
+    for (const path of ['/.well-known/oauth-protected-resource/mcp/-dash', '/.well-known/oauth-protected-resource/mcp/a%2Fb', '/.well-known/oauth-protected-resource/mcp/a/b', '/mcp/a/b', '/mcp/a%20b', '/mcp/']) {
+      const response = await built.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      expect(response.status, path).toBe(404)
+      expect(response.headers.get('www-authenticate'), path).toBeNull()
+      await response.body?.cancel()
+    }
+  })
+
+  it('fills in the workspace its address names and connects that one, whatever the form sends', async () => {
+    const workspace = await workspaceDiscovery()
+    const built = await fixture({ workspaceOrigin: workspace.origin })
+    const consent = await built.consent({ resource: `${built.issuer}/mcp/synthetic` })
+    const field = JSDOM.fragment(consent.document).querySelector('#workspace')
+    expect(field?.getAttribute('value')).toBe('synthetic')
+    expect(field?.hasAttribute('readonly')).toBe(true)
+    expect(consent.document).not.toContain(workspace.origin)
+    expect(consent.contentSecurityPolicy).not.toContain(workspace.origin)
+    const selected = await built.request(`${consent.path}/start`, {
+      method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ csrf: consent.csrf, tenant: 'synthetic-other', approve: 'yes' }),
+    })
+    expect(selected.status).toBe(200)
+    const refresh = JSDOM.fragment(await selected.text()).querySelector('meta[http-equiv="refresh"]')?.getAttribute('content')
+    expect(refresh?.startsWith('0;url=')).toBe(true)
+    const authorize = new URL(refresh!.slice('0;url='.length))
+    expect(authorize.origin).toBe(workspace.origin)
+    expect(authorize.searchParams.get('resource')).toBe(`${workspace.origin}/api/v1/mcp`)
+    // An unregistered workspace's address gets the same answer as typing one, and no lookup.
+    const unknown = await built.consent({ resource: `${built.issuer}/mcp/unregistered-workspace` })
+    const denied = await built.request(`${unknown.path}/start`, {
+      method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ csrf: unknown.csrf, tenant: 'synthetic', approve: 'yes' }),
+    })
+    expect(denied.status).toBe(400)
+    expect(JSDOM.fragment(await denied.text()).querySelector('[role="alert"]')?.textContent).toBe('Unable to connect. Check your workspace and try again.')
+    expect(workspace.requests).toEqual(['/.well-known/oauth-protected-resource/api/v1/mcp/readonly', '/.well-known/oauth-authorization-server'])
+  })
+
+  it('refuses a resource the gateway does not serve before asking for a workspace', async () => {
+    const built = await fixture()
+    for (const resource of [`${built.issuer}/mcp/a/b`, `${built.issuer}/mcp/`, `${built.issuer}/other`, 'https://elsewhere.example/mcp/synthetic']) {
+      const response = await built.authorize({ resource })
+      expect(response.status, resource).toBe(303)
+      const location = new URL(response.headers.get('location')!, built.issuer)
+      expect(`${location.origin}${location.pathname}`, resource).toBe(built.redirectUri)
+      expect(location.searchParams.get('error'), resource).toBe('invalid_target')
+    }
   })
 })
