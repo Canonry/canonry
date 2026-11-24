@@ -29,6 +29,7 @@ import {
   type VisibilityStatsQueryEntry,
   type VisibilityStatsShareOfVoice,
   normalizeIdentityText as normalizeText,
+  DASHBOARD_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { readQueryClasses } from './query-class-read.js'
@@ -250,7 +251,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
       shareOfVoice?: string
       queryClass?: string
     }
-  }>('/projects/:name/visibility-stats', async (request, reply) => {
+  }>('/projects/:name/visibility-stats', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const {
@@ -439,7 +440,7 @@ export async function visibilityStatsRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: VisibilityCompareSelection & { from?: string; to?: string }
-  }>('/projects/:name/visibility-compare', async (request, reply) => {
+  }>('/projects/:name/visibility-compare', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const dto = readVisibilityCompare(app.db, request.params.name, request.query)
     return reply.send(dto)
   })
