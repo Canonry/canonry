@@ -8,6 +8,7 @@ import {
   ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
+  capabilitiesForScopes,
   EMBED_QUERY_LIMIT_HEADER,
   EMBED_QUERIES_WRITE_SCOPE,
   forbidden,
@@ -24,6 +25,7 @@ import {
   splitList,
   UserRoles,
   WILDCARD_SCOPE,
+  type ReadCapability,
   type UserRole,
 } from '@canonry/canonry-contracts'
 import { assertSameOriginWrite } from './same-origin.js'
@@ -164,6 +166,17 @@ declare module 'fastify' {
     writeScope?: string
 
     /**
+     * Read capability this route requires (`dashboard.read`,
+     * `analytics.read`, or `full.read`). The auth plugin refuses a caller
+     * whose key does not carry it with 403 — default deny. A route without
+     * this marker keeps its existing gates; tagging a route is the explicit
+     * act that closes it to narrow keys. Only set this on read routes: the
+     * marker says nothing about writes, and a write route stays governed by
+     * the method gate plus `writeScope`.
+     */
+    readCapability?: ReadCapability
+
+    /**
      * This route's POST is a PROTOCOL ENVELOPE, not an operation.
      *
      * A JSON-RPC transport (MCP over Streamable HTTP) carries every message —
@@ -245,6 +258,31 @@ export function requireScope(request: FastifyRequest, scope: string): void {
     throw forbidden(VIEWER_DENIED_MESSAGE)
   }
   throw forbidden(`This action requires the "${scope}" scope on your API key.`)
+}
+
+/**
+ * Reject the request unless the caller carries the named read capability
+ * (or the wildcard / legacy `read` scope, which map to every capability).
+ * Mirrors `requireScope`, but against the capability bundles derived from
+ * the key's scopes (`capabilitiesForScopes`) rather than one scope token.
+ * Routes that declare `readCapability` are enforced centrally by the auth
+ * plugin; call this directly only when the capability a route needs cannot
+ * be known from its static config.
+ */
+export function requireCapability(request: FastifyRequest, capability: ReadCapability): void {
+  // A viewer on a route that only reads is allowed through — see the
+  // `readSemantic` route config above.
+  if (request.readSemanticGrant) return
+
+  const scopes = principalScopes(request)
+  // No principal on the request means the auth plugin didn't run — same
+  // "auth not enforced" treatment as `requireScope`.
+  if (!scopes) return
+  if (capabilitiesForScopes(scopes).has(capability)) return
+  if (request.principal?.kind === 'user') {
+    throw forbidden(VIEWER_DENIED_MESSAGE)
+  }
+  throw forbidden(`This action requires the "${capability}" capability on your API key.`)
 }
 
 /** What a viewer is told when they reach something only an admin can do. */
@@ -1043,6 +1081,18 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       !isTransportEnvelopeRoute(request)
     ) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
+    }
+
+    // Capability gate. A route that declares `readCapability` in its config
+    // refuses any caller whose key does not carry it — default deny, so a
+    // narrow key cannot reach a tagged read surface it was never granted.
+    // Untouched routes keep their existing gates; tagging a route is the
+    // explicit act that closes it. The MCP transport re-dispatches each tool
+    // call as a fresh authenticated request, so the check re-applies per
+    // operation there too.
+    const requiredCapability = request.routeOptions.config.readCapability
+    if (requiredCapability) {
+      requireCapability(request, requiredCapability)
     }
 
     enforceEmbedProjectTabs(request, opts.embedProjectTabs)
