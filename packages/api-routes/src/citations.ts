@@ -15,6 +15,7 @@ import {
   type CitationVisibilitySummary,
   type CompetitorGapRow,
   type CitationState,
+  DASHBOARD_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 
@@ -38,7 +39,7 @@ export async function citationRoutes(app: FastifyInstance) {
   // computed from the latest snapshot per (query × provider).
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/citations/visibility', async (request, reply) => {
+  }>('/projects/:name/citations/visibility', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const configuredProviders = project.providers
 
