@@ -115,6 +115,14 @@ export async function keysRoutes(app: FastifyInstance) {
 
   // Create a key — requires the keys.write scope. Mints a `cnry_…` token,
   // stores only its sha256 hash + prefix, and returns the plaintext ONCE.
+  //
+  // Capability scopes narrow a READ key to a subset of read endpoints:
+  // `dashboard.read` (visibility/dashboard), `analytics.read` (broader
+  // analytics, includes dashboard), `full.read` (exports, raw runs, full
+  // query lists; includes both bundles). Capabilities are scope tokens,
+  // stored in the same `scopes` array and verified server-side by the auth
+  // plugin — a legacy `read` key keeps every capability, `embed` keeps only
+  // the dashboard bundle. See `capabilitiesForScopes` (#817).
   app.post('/keys', async (request) => {
     requireAdminSession(request)
     requireScope(request, KEYS_WRITE_SCOPE)
