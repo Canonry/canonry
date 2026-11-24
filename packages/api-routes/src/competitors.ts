@@ -193,7 +193,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   app.post<{
     Params: { name: string }
     Body: { competitors: unknown[] }
-  }>('/projects/:name/competitors', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
+  }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(competitorAppendRequestSchema, request.body, 'Invalid competitor batch request')
 
@@ -548,7 +548,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   app.delete<{
     Params: { name: string }
     Body: { competitors: string[] }
-  }>('/projects/:name/competitors', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
+  }>('/projects/:name/competitors', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const body = parseBody(competitorBatchRequestSchema, request.body, 'Invalid competitor batch request')
 
