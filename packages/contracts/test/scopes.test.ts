@@ -3,6 +3,9 @@ import {
   ADS_ACTIVATE_SCOPE,
   ADS_APPROVE_SCOPE,
   ADS_WRITE_SCOPE,
+  ANALYTICS_READ_CAPABILITY,
+  DASHBOARD_READ_CAPABILITY,
+  FULL_READ_CAPABILITY,
   GOOGLE_MARKETING_LIVE_READ_SCOPE,
   GOOGLE_MARKETING_WRITE_SCOPE,
   READ_ONLY_SCOPE,
@@ -12,6 +15,7 @@ import {
   isReadOnlyKey,
   restrictedWriteScopes,
   intersectScopes,
+  capabilitiesForScopes,
 } from '../src/scopes.js'
 
 describe('scope constants', () => {
@@ -94,3 +98,39 @@ describe('isReadOnlyKey', () => {
     expect(isReadOnlyKey(['analytics'])).toBe(false)
   })
 })
+
+describe('capabilitiesForScopes (#817)', () => {
+  it('exposes the capability tokens', () => {
+    expect(DASHBOARD_READ_CAPABILITY).toBe('dashboard.read')
+    expect(ANALYTICS_READ_CAPABILITY).toBe('analytics.read')
+    expect(FULL_READ_CAPABILITY).toBe('full.read')
+  })
+
+  it('maps the wildcard and legacy read to every capability', () => {
+    expect([...capabilitiesForScopes(['*'])].sort()).toEqual(['analytics.read', 'dashboard.read', 'full.read'])
+    expect([...capabilitiesForScopes(['read'])].sort()).toEqual(['analytics.read', 'dashboard.read', 'full.read'])
+    expect([...capabilitiesForScopes(['read', 'keys.write'])].sort()).toEqual(['analytics.read', 'dashboard.read', 'full.read'])
+  })
+
+  it('maps embed to the dashboard bundle only', () => {
+    expect([...capabilitiesForScopes(['embed'])]).toEqual(['dashboard.read'])
+  })
+
+  it('nests explicit bundles: a broader bundle includes the narrower ones', () => {
+    expect([...capabilitiesForScopes(['dashboard.read'])]).toEqual(['dashboard.read'])
+    expect([...capabilitiesForScopes(['analytics.read'])].sort()).toEqual(['analytics.read', 'dashboard.read'])
+    expect([...capabilitiesForScopes(['full.read'])].sort()).toEqual(['analytics.read', 'dashboard.read', 'full.read'])
+  })
+
+  it('grants no capability to unrelated read scopes', () => {
+    expect([...capabilitiesForScopes(['users.read'])]).toEqual([])
+    expect([...capabilitiesForScopes(['google-marketing.read-live'])]).toEqual([])
+    expect([...capabilitiesForScopes([])]).toEqual([])
+  })
+
+  it('keeps a capability-only key read-only', () => {
+    expect(isReadOnlyKey(['dashboard.read'])).toBe(true)
+    expect(isReadOnlyKey(['full.read'])).toBe(true)
+    expect(isReadOnlyKey(['dashboard.read', 'settings.write'])).toBe(false)
+  })
+}))
