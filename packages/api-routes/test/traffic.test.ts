@@ -1259,6 +1259,39 @@ describe('POST /traffic/connect/wordpress', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('accepts an application password in its spaced groups but refuses a second line', async () => {
+    const spaced = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(spaced.statusCode).toBe(200)
+
+    const twoLines = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, applicationPassword: 'abcd efgh ijkl\nmnop qrst uvwx' },
+    })
+    expect(twoLines.statusCode).toBe(400)
+    expect(JSON.parse(twoLines.payload).error.message).toMatch(/WordPress application password has 2 lines/)
+    expect(twoLines.payload).not.toContain('abcd efgh')
+    expect(twoLines.payload).not.toContain('mnop')
+  })
+
+  it('keeps the application password out of a failed probe message', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failWpProbeWith: { status: 401, message: `rejected ${validBody.applicationPassword}`, body: 'nope' },
+    })
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.payload).error.message).toBe('WordPress traffic probe failed (HTTP 401): rejected [REDACTED] — nope')
+  })
+
   it('rejects baseUrl that resolves to a private / metadata address (SSRF guard)', async () => {
     // The probe attaches Basic-auth credentials, so an API-key holder could
     // otherwise coerce the server into reaching its own metadata service or
@@ -1408,6 +1441,55 @@ describe('POST /traffic/connect/vercel', () => {
       payload: { ...validBody, token: '' },
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  /**
+   * A token file appended to with `>>` holds two tokens on two lines. Sent as
+   * a header, that value made fetch throw an error quoting both tokens, and
+   * the probe failure carried it back to the caller. It is now refused before
+   * any request, with a message that names the problem and not the value.
+   */
+  it.each([
+    { name: 'two lines', token: 'vcp_first_line_secret\nvcp_second_line_secret', problem: /has 2 lines/ },
+    { name: 'a space', token: 'vcp_first_line_secret vcp_second_line_secret', problem: /contains a space/ },
+    { name: 'a control character', token: 'vcp_first_line_secret\u0007vcp_second', problem: /control character/ },
+  ])('refuses a token with $name without repeating it or probing', async ({ token, problem }) => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload).error.message).toMatch(problem)
+    expect(res.payload).not.toContain('vcp_first_line_secret')
+    expect(res.payload).not.toContain('vcp_second')
+    expect(h.getVercelProbeInvocations()).toHaveLength(0)
+    expect(h.vercelCredentials.get('test-project')).toBeUndefined()
+  })
+
+  it('stores a token pasted with surrounding whitespace trimmed', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token: `  ${validBody.token}\n` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(h.vercelCredentials.get('test-project')?.token).toBe(validBody.token)
+  })
+
+  it('keeps the token out of a failed probe message', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failVercelProbeWith: { status: 400, message: `request quoted Bearer ${validBody.token}`, body: `echo ${validBody.token}` },
+    })
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(res.payload).not.toContain(validBody.token)
+    expect(JSON.parse(res.payload).error.message).toBe('Vercel traffic probe failed (HTTP 400): request quoted Bearer [REDACTED] — echo [REDACTED]')
   })
 
   it('rejects requests with an invalid environment', async () => {
@@ -1885,6 +1967,29 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     }
   })
 
+  // A failed sync is stored on the run and the source, and health alerts
+  // quote the source's last error: none of them may carry the token.
+  it('keeps the token out of a failed sync wherever the failure is stored', async () => {
+    const h = await buildHarness([], { failVercelPullWith: `Headers.append: "Bearer ${vercelConnectBody.token}" is an invalid header value.` })
+    try {
+      const sourceId = await connectVercel(h)
+      backdateLastSyncedAt(h.db, sourceId, 60 * 60_000)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(syncRes.payload).not.toContain(vercelConnectBody.token)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastError).toBe('Headers.append: "Bearer [REDACTED]" is an invalid header value.')
+      expect(h.db.select().from(runs).all().map(run => run.error)).toEqual([sourceRow.lastError])
+    } finally {
+      await h.close()
+    }
+  })
+
   it.each([
     { failure: 'a rejected token', error: () => new VercelLogsApiError('Vercel request-logs endpoint returned HTTP 403', 403), errorCode: 'PROVIDER_AUTH' },
     { failure: 'any other pull error', error: () => new Error('request-logs 500: gateway'), errorCode: 'PROVIDER_PULL' },
@@ -2345,6 +2450,26 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     } finally {
       await h.close()
       vi.useRealTimers()
+    }
+  })
+
+  it('keeps the token out of a failed backfill run', async () => {
+    const h = await buildHarness([], { failVercelPullWith: `request quoted Bearer ${vercelConnectBody.token}` })
+    try {
+      const sourceId = await connectVercel(h)
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const finalRun = await waitForRunComplete(h.db, JSON.parse(submitRes.payload).runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toBe('Vercel pull failed: request quoted Bearer [REDACTED]')
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(JSON.stringify(sourceRow)).not.toContain(vercelConnectBody.token)
+    } finally {
+      await h.close()
     }
   })
 
@@ -3806,6 +3931,32 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
       const wpEvent = fired.find((e) => (e as { sourceType: string }).sourceType === 'wordpress') as { status: string; errorCode: string } | undefined
       expect(wpEvent?.status).toBe('failed')
       expect(wpEvent?.errorCode).toBe('PROVIDER_PULL')
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('keeps the application password out of a failed sync in every form it travels in', async () => {
+    const password = wpConnectBody.applicationPassword
+    const basic = Buffer.from(`${wpConnectBody.username}:${password}`, 'utf8').toString('base64')
+    const h = await buildHarness([], {
+      failWpPullWith: `sent "${password}" as ${password.replace(/ /g, '')} in Basic ${basic}`,
+    })
+    try {
+      const sourceId = await connectWp(h)
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(res.statusCode).toBe(502)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastError).toBe('sent "[REDACTED]" as [REDACTED] in Basic [REDACTED]')
+      for (const text of [res.payload, sourceRow.lastError!, ...h.db.select().from(runs).all().map(run => run.error ?? '')]) {
+        expect(text).not.toContain(password)
+        expect(text).not.toContain(password.replace(/ /g, ''))
+        expect(text).not.toContain(basic)
+      }
     } finally {
       await h.close()
     }

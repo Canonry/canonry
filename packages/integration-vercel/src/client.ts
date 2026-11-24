@@ -73,6 +73,37 @@ function trimRequired(name: string, value: string): string {
   return trimmed
 }
 
+/**
+ * A token holding a line break or a space is not a valid header value, and
+ * the error `fetch` throws for one quotes the whole header, token included.
+ * Refused here, before any request, with a message that does not repeat it.
+ */
+function assertSingleLineToken(token: string): void {
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001F\u007F]/.test(token)) {
+    throw new VercelLogsApiError(
+      'The Vercel token must be a single line with no spaces. Reconnect the source with the token alone.',
+      400,
+    )
+  }
+}
+
+/**
+ * The message for a request that never got an HTTP response. A transport
+ * error can quote the request it failed on, headers included, so only a
+ * fixed message and the low-level error code (ENOTFOUND, ECONNRESET, ...)
+ * leave this package.
+ */
+function transportFailure(error: unknown): VercelLogsApiError {
+  const name = error instanceof Error ? error.name : ''
+  if (name === 'TimeoutError' || name === 'AbortError') {
+    return new VercelLogsApiError('Vercel request-logs request timed out', 504)
+  }
+  const cause = error instanceof Error ? (error as Error & { cause?: { code?: unknown } }).cause : undefined
+  const code = typeof cause?.code === 'string' && /^[A-Z][A-Z0-9_]{1,40}$/.test(cause.code) ? cause.code : null
+  return new VercelLogsApiError(`Vercel request-logs request failed${code ? ` (${code})` : ''}`, 503)
+}
+
 function normalizeMaxPages(maxPages: number | undefined): number {
   if (maxPages === undefined) return DEFAULT_MAX_PAGES
   if (!Number.isInteger(maxPages) || maxPages < 1) {
@@ -147,6 +178,7 @@ export async function listVercelTrafficEvents(
   options: ListVercelTrafficEventsOptions,
 ): Promise<VercelTrafficEventsPage> {
   const token = trimRequired('token', options.token)
+  assertSingleLineToken(token)
   const projectId = trimRequired('projectId', options.projectId)
   const teamId = trimRequired('teamId', options.teamId)
   const environment = options.environment ?? DEFAULT_ENVIRONMENT
@@ -176,14 +208,19 @@ export async function listVercelTrafficEvents(
     // hiccup does not kill a multi-hour drain that has already pulled
     // thousands of pages successfully.
     const body = await withVercelRetry(async () => {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(timeoutMs),
-      })
+      let response: Response
+      try {
+        response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+      } catch (error) {
+        throw transportFailure(error)
+      }
 
       if (!response.ok) {
         const errorBody = await readErrorBody(response)
