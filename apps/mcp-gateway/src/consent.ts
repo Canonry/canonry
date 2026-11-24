@@ -81,6 +81,8 @@ interface ConsentPage {
   action: string
   csrf: string
   unavailable?: boolean
+  /** The workspace a workspace's own address names; shown filled in and not editable. */
+  workspace?: string
 }
 
 export function renderConsentPage(input: ConsentPage): string {
@@ -98,7 +100,7 @@ export function renderConsentPage(input: ConsentPage): string {
 <form method="post" action="${html(input.action)}">
 <input type="hidden" name="csrf" value="${html(input.csrf)}">
 <label for="workspace">Workspace</label>
-<input id="workspace" type="text" name="tenant" required maxlength="253" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Workspace slug or domain"${input.unavailable ? ' aria-invalid="true" aria-describedby="workspace-error"' : ''}>
+<input id="workspace" type="text" name="tenant" required maxlength="253" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Workspace slug or domain"${input.workspace === undefined ? '' : ` value="${html(input.workspace)}" readonly`}${input.unavailable ? ' aria-invalid="true" aria-describedby="workspace-error"' : ''}>
 ${input.unavailable ? '<p id="workspace-error" class="hint" role="alert">Unable to connect. Check your workspace and try again.</p>' : ''}
 <div class="permissions">
 <p>Can read stored data. Cannot make changes or start paid work.</p>
