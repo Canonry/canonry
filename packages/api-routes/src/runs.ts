@@ -37,6 +37,7 @@ import {
   serializeRunError,
   readCitationState,
   retrievedSourceSchema,
+  FULL_READ_CAPABILITY,
   type RetrievedSource,
 } from '@canonry/canonry-contracts'
 import { z } from 'zod'
@@ -355,7 +356,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; since?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
-  }>('/projects/:name/runs', async (request, reply) => {
+  }>('/projects/:name/runs', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const parsedLimit = parseInt(request.query.limit ?? '', 10)
@@ -401,7 +402,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // written after the most recent real sweep must not become the project's
   // public state. Per-run detail endpoints (`GET /runs/:id`) still include
   // probes for operator inspection.
-  app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const countRow = app.db
       .select({ count: sql<number>`count(*)` })
@@ -500,7 +501,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   //   ?excludeKinds=K — exclude repeated or comma-separated run kinds.
   app.get<{
     Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
-  }>('/runs', async (request, reply) => {
+  }>('/runs', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const limit = parseListLimit(request.query.limit, 500, 5000)
     const since = parseListSince(request.query.since, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
     const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
@@ -796,7 +797,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // GET /runs/:id/completeness — answered vs missing slots, and whether a fill would be admitted
-  app.get<{ Params: { id: string } }>('/runs/:id/completeness', async (request, reply) => {
+  app.get<{ Params: { id: string } }>('/runs/:id/completeness', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
     assertProjectScope(request, run.projectId)
@@ -808,7 +809,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // GET /runs/:id — get single run with snapshots
-  app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
+  app.get<{ Params: { id: string } }>('/runs/:id', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
     assertProjectScope(request, run.projectId)
