@@ -311,6 +311,30 @@ describe('trafficConnectCloudflare', () => {
     })).rejects.toMatchObject({ code: 'TRAFFIC_CLOUDFLARE_SECRET_EXPOSURE' })
   })
 
+  it('refuses a Queue token file holding two lines before contacting the server', async () => {
+    const tokenFile = path.join(scratch(), 'queue-token.txt')
+    fs.writeFileSync(tokenFile, 'cf_first_secret_token\ncf_second_secret_token\n', { mode: 0o600 })
+    let called = false
+
+    const error = await trafficConnectCloudflare('demo', {
+      deliveryMode: 'queue-pull',
+      accountId: queueResponse.accountId,
+      queueId: queueResponse.queueId,
+      queueName: queueResponse.queueName,
+      apiTokenFile: tokenFile,
+      outputDirectory: path.join(scratch(), 'worker'),
+    }, {
+      client: { trafficConnectCloudflare: async () => { called = true; return queueResponse } },
+      loadLocalConfig: () => undefined,
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(CliError)
+    expect(error).toMatchObject({ code: 'TRAFFIC_CLOUDFLARE_QUEUE_TOKEN_INVALID' })
+    expect((error as CliError).message).toMatch(/Cloudflare API token in --api-token-file has 2 lines/)
+    expect(JSON.stringify(error)).not.toContain('secret_token')
+    expect(called).toBe(false)
+  })
+
   it('redacts the token-file input from Queue deploy failures without shared server config', async () => {
     const apiToken = 'cloudflare-queue-api-token-deploy-unshared'
     const tokenFile = path.join(scratch(), 'queue-token.txt')

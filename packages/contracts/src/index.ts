@@ -125,6 +125,7 @@ export * from './share-of-voice.js'
 
 export * from './operational-logs.js'
 export * from './log-redaction.js'
+export * from './credential-text.js'
 export * from './semver.js'
 export * from './update-notice.js'
 export * from './shell.js'

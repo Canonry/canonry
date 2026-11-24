@@ -1,5 +1,6 @@
 import { linearTrendSchema } from './statistics.js'
 import { z } from 'zod'
+import { credentialTextSchema } from './credential-text.js'
 import { runStatusSchema } from './run.js'
 import { cloudflareQueueDrainSummarySchema, runSyncSummarySchema } from './run-sync-summary.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
@@ -270,8 +271,8 @@ export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRu
 export const trafficConnectWordpressRequestSchema = z.object({
   baseUrl: z.string().url(),
   username: z.string().min(1),
-  /** WordPress Application Password (the same auth used by the content client). */
-  applicationPassword: z.string().min(1),
+  /** WordPress Application Password (the same auth used by the content client). Its spaces are allowed; line breaks are not. */
+  applicationPassword: credentialTextSchema('WordPress application password', { allowSpaces: true }),
   displayName: z.string().min(1).optional(),
 })
 export type TrafficConnectWordpressRequest = z.infer<typeof trafficConnectWordpressRequestSchema>
@@ -281,8 +282,8 @@ export const trafficConnectVercelRequestSchema = z.object({
   projectId: z.string().min(1),
   /** Vercel team or account id: the org that owns the project ("orgId" in .vercel/project.json). */
   teamId: z.string().min(1),
-  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. */
-  token: z.string().min(1),
+  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. One line, no spaces. */
+  token: credentialTextSchema('Vercel token'),
   /** Which deployment environment's request logs to pull. Default: `production`. */
   environment: vercelTrafficEnvironmentSchema.optional(),
   displayName: z.string().min(1).optional(),
@@ -389,8 +390,8 @@ export const trafficConnectCloudflareQueuePullRequestSchema = trafficConnectClou
   queueId: z.string().min(1),
   queueName: cloudflareQueueNameSchema,
   retentionSeconds: z.number().int().min(60).max(1_209_600),
-  /** Queue pull token; secret-store only, never persisted in configJson or returned. */
-  apiToken: z.string().min(1),
+  /** Queue pull token; secret-store only, never persisted in configJson or returned. One line, no spaces. */
+  apiToken: credentialTextSchema('Cloudflare API token'),
 })
 
 export const trafficConnectCloudflareRequestSchema = z.preprocess(

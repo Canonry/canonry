@@ -31,6 +31,8 @@ import {
 } from '@canonry/canonry-db'
 import {
   aiReferralClassCounts,
+  credentialRedactionValues,
+  redactKnownSecrets,
   nextScheduleUpdatedAt,
   notFound,
   operationInProgress,
@@ -1141,6 +1143,20 @@ function aiUserFetchVerificationProvenance(
   return buildVerificationProvenance(events, rows)
 }
 
+/**
+ * What to redact for a WordPress credential: the password itself (and each
+ * word of it) plus the Basic auth value built from it, which a transport
+ * error could quote instead.
+ */
+function wordpressRedactionValues(username: string, applicationPassword: string): string[] {
+  return [
+    ...credentialRedactionValues(applicationPassword),
+    // WordPress accepts the password with or without its group spaces.
+    applicationPassword.replace(/\s+/g, ''),
+    Buffer.from(`${username.trim()}:${applicationPassword.trim()}`, 'utf8').toString('base64'),
+  ]
+}
+
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
   return row.configJson
 }
@@ -1349,6 +1365,8 @@ interface RunBackfillTaskOptions {
    * source type.
    */
   pullErrorPrefix: string
+  /** Credential values to take out of a pull failure before it is stored. */
+  pullSecrets?: readonly string[]
   /** See `TrafficRoutesOptions.journeyKeySecret`. */
   journeyKeySecret?: string
 }
@@ -1468,7 +1486,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
     // exact range, while the existing source state is left intact so its
     // regular forward sync remains healthy.
     markFailed(
-      `${pullErrorPrefix}: ${describeError(e)}`,
+      `${pullErrorPrefix}: ${redactKnownSecrets(describeError(e), options.pullSecrets ?? [])}`,
       e instanceof VercelRetentionClampError,
     )
     reportBackfill(failedOutcome(e, e instanceof VercelRetentionClampError ? OutcomeReasonCodes.NO_DATA : undefined))
@@ -2306,14 +2324,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
     } catch (e) {
       attempt.failed(e, e instanceof EgressRefusedError ? 'BLOCKED_UNSAFE_URL' : e instanceof EgressFailedError ? 'NETWORK' : undefined)
+      // The password travels as Basic auth; neither it nor the encoded header
+      // value may come back in the message.
+      const secrets = wordpressRedactionValues(username, applicationPassword)
       if (e instanceof WordpressTrafficApiError) {
-        throw providerError(
+        throw providerError(redactKnownSecrets(
           `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
-        )
+          secrets,
+        ))
       }
       // The name answered differently for the probe than for the check above.
       if (e instanceof EgressRefusedError && !e.redirected) throw validationError(`WordPress baseUrl rejected: ${e.message}`)
-      const msg = describeError(e)
+      const msg = redactKnownSecrets(describeError(e), secrets)
       throw providerError(`WordPress traffic probe failed: ${msg}`)
     }
 
@@ -2447,12 +2469,16 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
     } catch (e) {
       attempt.failed(e)
+      // An adapter error can quote the request it failed on. The token is in
+      // hand here, so take it out of anything shown back to the caller.
+      const secrets = credentialRedactionValues(token)
       if (e instanceof VercelLogsApiError) {
-        throw providerError(
+        throw providerError(redactKnownSecrets(
           `Vercel traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
-        )
+          secrets,
+        ))
       }
-      const msg = describeError(e)
+      const msg = redactKnownSecrets(describeError(e), secrets)
       throw providerError(`Vercel traffic probe failed: ${msg}`)
     }
 
@@ -3895,7 +3921,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         allEvents = collected
         nextCursor = cursor
       } catch (e) {
-        const msg = describeError(e)
+        // Stored as the run's and the source's error, which health alerts quote.
+        const msg = redactKnownSecrets(describeError(e), wordpressRedactionValues(credential.username, credential.applicationPassword))
         markFailed(msg, 'PROVIDER_PULL')
         // The stored URL now resolves to a refused address: the same 400 the
         // check above gives. A refused redirect is the site's failure.
@@ -4053,7 +4080,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         }
         allEvents = drained.events
       } catch (e) {
-        const msg = describeError(e)
+        // Stored as the run's and the source's error, which health alerts quote.
+        const msg = redactKnownSecrets(describeError(e), credentialRedactionValues(credential.token))
         // A 401/403 is the credential's problem, not the pull's: the token was
         // rejected, or lacks access to this team, project or plan's request
         // logs. Either way every sync fails until the token or its scope
@@ -4621,6 +4649,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // runBackfillTask after the run row is in place.
     let pullForBackfill: BackfillPullFn
     let pullErrorPrefix: string
+    let pullSecrets: string[] = []
 
     if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
       const credential = requireCloudRunSourceCredential(sourceRow, project.name)
@@ -4673,6 +4702,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         ?? credential.environment
 
       pullErrorPrefix = 'Vercel pull failed'
+      pullSecrets = credentialRedactionValues(credential.token)
       pullForBackfill = async (signal) => {
         const collected: NormalizedTrafficRequest[] = []
         const seenEventIds = new Set<string>()
@@ -4767,6 +4797,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       windowEnd,
       pullForBackfill,
       pullErrorPrefix,
+      pullSecrets,
     }).catch(() => {
       // runBackfillTask handles its own error recording. The catch here
       // exists only so an unhandled rejection cannot crash the process if
