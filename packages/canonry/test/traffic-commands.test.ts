@@ -607,6 +607,67 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/failed to read --token-file/i)
   })
 
+  /**
+   * A token file appended to with `>>` holds two tokens. Sent on, the header
+   * built from it made fetch throw an error quoting both, which the CLI
+   * printed. The CLI now refuses it first, naming the problem, not the value.
+   */
+  it('refuses a token file holding two lines without printing either token', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vercel-token-'))
+    try {
+      const tokenFile = path.join(dir, 'token')
+      fs.writeFileSync(tokenFile, 'vcp_first_secret_token\nvcp_second_secret_token\n', { mode: 0o600 })
+      for (const format of [[], ['--format', 'json']]) {
+        const result = await invokeCli([
+          'traffic', 'connect', 'vercel', 'test-proj',
+          '--project-id', 'prj_abc',
+          '--team-id', 'team_xyz',
+          '--token-file', tokenFile,
+          ...format,
+        ])
+        expect(result.exitCode).not.toBe(0)
+        const output = `${result.stdout}${result.stderr}`
+        expect(output).toMatch(/Vercel token in --token-file has 2 lines/)
+        expect(output).toMatch(/not >> \(append\)/)
+        expect(output).not.toContain('secret_token')
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses an inline token with a space without printing it', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--team-id', 'team_xyz',
+      '--token', 'vcp_first_secret_token vcp_second_secret_token',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/Vercel token contains a space/)
+    expect(`${result.stdout}${result.stderr}`).not.toContain('secret_token')
+  })
+
+  it('refuses a WordPress application password file holding two lines', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wp-password-'))
+    try {
+      const passwordFile = path.join(dir, 'password')
+      fs.writeFileSync(passwordFile, 'abcd efgh ijkl mnop\nqrst uvwx yzab cdef\n', { mode: 0o600 })
+      const result = await invokeCli([
+        'traffic', 'connect', 'wordpress', 'test-proj',
+        '--url', 'https://example.com',
+        '--username', 'bot',
+        '--app-password-file', passwordFile,
+      ])
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stderr).toMatch(/WordPress application password in --app-password-file has 2 lines/)
+      expect(`${result.stdout}${result.stderr}`).not.toContain('abcd efgh')
+      expect(`${result.stdout}${result.stderr}`).not.toContain('qrst')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects traffic connect vercel with an invalid --environment', async () => {
     const result = await invokeCli([
       'traffic', 'connect', 'vercel', 'test-proj',
