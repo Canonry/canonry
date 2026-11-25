@@ -52,7 +52,7 @@ import {
   type MeasurementTargetUrlInput,
   type MeasurementUsageEdgeInput,
 } from './measurement-report.js'
-import { notScopedRun } from './helpers.js'
+import { notScopedRun } from './run-scope.js'
 
 export type StoredMeasurementReport =
   | { kind: 'no-plan'; revision: number }
