@@ -42,11 +42,11 @@ Every Claude snapshot stores `retrieval_contract`, the search policy of the requ
 | Models | Contract | `tool_choice` | Retrieval |
 |--------|----------|---------------|-----------|
 | Every other `claude-*` model, including the default | `search-required-v1` | `{ "type": "tool", "name": "web_search" }` | Required by the API control |
-| `claude-opus-5-5`, `claude-fable-5-1`, `claude-mythos-5-1` | `native-auto-v1` | `{ "type": "auto" }` | Claude decides; not guaranteed |
+| `claude-fable-5-2`, `claude-mythos-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1`, `claude-mythos-5-1` | `native-auto-v1` | `{ "type": "auto" }` | Claude decides; not guaranteed |
 
 Under `native-auto-v1`, Claude decides whether the query needs a search. Canonry still measures mentions in the answer text when Claude skips retrieval. Under `search-required-v1`, the request requires a `web_search` call.
 
-Anthropic documents that Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos 5.1 return HTTP 400 for a forced `tool_choice` (`any` or `tool`): `tool_choice: type "tool" and "any" are not supported for this model.` ([Forcing tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use), [error reference](https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported)). Those models run `native-auto-v1`: the same query, the same tool and no system prompt, with the search left to Claude. This is also what the adapter sent before `search-required-v1` existed.
+Anthropic documents that Claude Fable 5.2, Claude Mythos 5.2, Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.1 and Claude Mythos 5.1 return HTTP 400 for a forced `tool_choice` (`any` or `tool`): `tool_choice: type "tool" and "any" are not supported for this model.` ([Forcing tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use), [error reference](https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported)). Those models run `native-auto-v1`: the same query, the same tool and no system prompt, with the search left to Claude. This is also what the adapter sent before `search-required-v1` existed.
 
 On these models, visibility numbers can include answers written without a search. Two fields keep that visible:
 

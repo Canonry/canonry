@@ -35,13 +35,17 @@ describe('DEFAULT_MODEL_PRICES', () => {
     const search = { searchPer1k: 10, searchUnit: 'query', batchTokenDiscount: 0.5 }
     expect(DEFAULT_MODEL_PRICES).toEqual({
       claude: {
+        'claude-fable-5-2': { inputPerMTok: 8, outputPerMTok: 40, cachedInputPerMTok: 0.2, ...search },
+        'claude-mythos-5-2': { inputPerMTok: 8, outputPerMTok: 40, cachedInputPerMTok: 0.2, ...search },
         'claude-opus-5-5': { inputPerMTok: 4, outputPerMTok: 20, cachedInputPerMTok: 0.2, ...search },
         'claude-fable-5-1': { inputPerMTok: 10, outputPerMTok: 50, cachedInputPerMTok: 0.25, ...search },
+        'claude-mythos-5-1': { inputPerMTok: 10, outputPerMTok: 50, cachedInputPerMTok: 0.25, ...search },
         'claude-fable-5': { inputPerMTok: 10, outputPerMTok: 50, ...search },
         'claude-opus-5': { inputPerMTok: 5, outputPerMTok: 25, ...search },
         'claude-opus-4-8': { inputPerMTok: 5, outputPerMTok: 25, ...search },
         'claude-opus-4-7': { inputPerMTok: 5, outputPerMTok: 25, ...search },
         'claude-opus-4-6': { inputPerMTok: 5, outputPerMTok: 25, ...search },
+        'claude-sonnet-5-5': { inputPerMTok: 2, outputPerMTok: 10, cachedInputPerMTok: 0.1, ...search },
         'claude-sonnet-5': { inputPerMTok: 2, outputPerMTok: 10, ...search },
         'claude-sonnet-4-6': { inputPerMTok: 3, outputPerMTok: 15, ...search },
         'claude-haiku-4-5': { inputPerMTok: 1, outputPerMTok: 5, ...search },
