@@ -42,7 +42,7 @@ import {
   simpleMeasurementDefinitions,
   type DatabaseClient,
 } from '@canonry/canonry-db'
-import { notProbeRun, resolveProject } from './helpers.js'
+import { isScopedRun, notProbeRun, notScopedRun, resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import {
   buildMeasurementPlanV2Manifest,
@@ -352,7 +352,7 @@ function advancedRun(
     completedAt: run.finishedAt,
     state: run.status === RunStatuses.partial ? 'partial' : 'measured',
     probe: false,
-    scoped: run.measurementScope !== null,
+    scoped: isScopedRun(run),
     definition: v2Definition(plan, version.revision, populated.manifest, run),
     definitionId: version.id,
     comparableDefinitionIds,
@@ -499,7 +499,7 @@ function frozenSimpleRun(
     completedAt: run.finishedAt,
     state: run.status === RunStatuses.partial ? 'partial' : 'measured',
     probe: false,
-    scoped: run.measurementScope !== null,
+    scoped: isScopedRun(run),
     definition: {
       ...simpleScope(definition.identity.displayName, matcher.keys.size > 0),
       provenance: { kind: 'frozen-simple', definitionRevision: null },
@@ -546,7 +546,7 @@ function legacySimpleRun(
     completedAt: run.finishedAt,
     state: run.status === RunStatuses.partial ? 'partial' : 'measured',
     probe: false,
-    scoped: run.measurementScope !== null,
+    scoped: isScopedRun(run),
     definition: {
       ...simpleScope(project.displayName, true),
       slots,
@@ -664,7 +664,7 @@ function completedVisibilityRuns(
     planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
     // A scoped spot check is never a whole-project sweep. It can be inspected
     // by its exact id, but must not win the default latest-result selection.
-    query.runId === undefined ? isNull(runs.measurementScope) : undefined,
+    query.runId === undefined ? notScopedRun() : undefined,
     query.runId === undefined ? undefined : eq(runs.id, query.runId),
     query.from === undefined ? undefined : gte(runs.createdAt, query.from),
     query.to === undefined ? undefined : lte(runs.createdAt, query.to),
@@ -689,7 +689,7 @@ function previousEligibleVisibilityRun(
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
     notProbeRun(),
     planless ? isNull(runs.measurementPlanVersionId) : isNotNull(runs.measurementPlanVersionId),
-    isNull(runs.measurementScope),
+    notScopedRun(),
     or(
       lt(runs.createdAt, selected.createdAt),
       and(eq(runs.createdAt, selected.createdAt), lt(runs.id, selected.id)),
@@ -857,7 +857,7 @@ function advancedReaderInput(
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (!includePrevious || selectedSource === undefined || selectedSource.run.measurementScope !== null) return null
+    if (!includePrevious || selectedSource === undefined || isScopedRun(selectedSource.run)) return null
     return readPreviousSweep(() => {
       const predecessor = previousEligibleVisibilityRun(db, projectId, false, selectedSource.run)
       if (predecessor === undefined) return null
@@ -993,7 +993,7 @@ function previousSimpleSweep(
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
     notProbeRun(),
     isNull(runs.measurementPlanVersionId),
-    isNull(runs.measurementScope),
+    notScopedRun(),
     or(
       lt(runs.createdAt, selected.createdAt),
       and(eq(runs.createdAt, selected.createdAt), lt(runs.id, selected.id)),
@@ -1033,7 +1033,7 @@ function simpleReaderInput(
   const previousInput = (): VisibilityReportPreviousRunInput | null => {
     // A missing or scoped selection is never compared (the reader checks both
     // first), so it needs no predecessor read.
-    if (!includeHistory || selectedRun === undefined || selectedRun.measurementScope !== null) return null
+    if (!includeHistory || selectedRun === undefined || isScopedRun(selectedRun)) return null
     return readPreviousSweep(() => {
       // A pinned run compares with its own location in the sweep before it.
       const location: VisibilityReportQuery['location'] = !pinned ? query.location
@@ -1175,7 +1175,7 @@ export function readVisibilityComparisonRuns(db: DatabaseClient, projectId: stri
   const sourceRuns = db.select().from(runs).where(and(
     eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]), notProbeRun(),
-    isNotNull(runs.measurementPlanVersionId), isNull(runs.measurementScope),
+    isNotNull(runs.measurementPlanVersionId), notScopedRun(),
     gte(runs.createdAt, since), lte(runs.createdAt, until),
   )).all()
   const versionRows = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.projectId, projectId)).all()
