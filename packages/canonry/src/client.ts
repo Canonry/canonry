@@ -150,6 +150,7 @@ import type {
   SchedulePreviewDto,
   SchedulePreviewRequest,
   NotificationDto,
+  NotificationUpdateRequest,
   SnapshotReportDto,
   SnapshotRequestInput,
   BrandMetricsDto,
@@ -461,6 +462,7 @@ import {
   getApiV1ProjectsByNameNotifications,
   postApiV1ProjectsByNameNotifications,
   deleteApiV1ProjectsByNameNotificationsById,
+  patchApiV1ProjectsByNameNotificationsById,
   postApiV1ProjectsByNameNotificationsByIdTest,
   // Locations
   getApiV1ProjectsByNameLocations,
@@ -2860,6 +2862,12 @@ export class ApiClient {
   async deleteNotification(project: string, id: string): Promise<void> {
     await this.invoke<unknown>(() =>
       deleteApiV1ProjectsByNameNotificationsById({ client: this.heyClient, path: { name: project, id } }),
+    )
+  }
+
+  async updateNotification(project: string, id: string, body: NotificationUpdateRequest): Promise<NotificationDto> {
+    return this.invoke<NotificationDto>(() =>
+      patchApiV1ProjectsByNameNotificationsById({ client: this.heyClient, path: { name: project, id }, body }),
     )
   }
 

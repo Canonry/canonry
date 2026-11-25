@@ -57,6 +57,8 @@ import {
   queryGenerateRequestSchema,
   queryBatchRequestSchema,
   notificationCreateRequestSchema,
+  notificationDtoSchema,
+  notificationUpdateRequestSchema,
   notificationEventSchema,
   projectConfigSchema,
   projectPatchRequestSchema,
@@ -960,6 +962,17 @@ const scheduleReadInputSchema = z.object({
 // legacy JSON text content.
 const scheduleListOutputSchema = z.object({ items: z.array(scheduleDtoSchema) })
 const notificationEventsOutputSchema = z.object({ items: z.array(notificationEventSchema) })
+
+const notificationListOutputSchema = z.object({ items: z.array(notificationDtoSchema) })
+
+const notificationUpdateInputSchema = z.object({
+  project: projectNameSchema,
+  id: z.string().min(1).describe('Webhook ID, from canonry_notifications_list.'),
+  events: notificationUpdateRequestSchema.shape.events.describe('Replace the whole event list. Do not combine with addEvents or removeEvents.'),
+  addEvents: notificationUpdateRequestSchema.shape.addEvents.describe('Events to add to the stored list.'),
+  removeEvents: notificationUpdateRequestSchema.shape.removeEvents.describe('Events to remove from the stored list.'),
+  enabled: notificationUpdateRequestSchema.shape.enabled.describe('Turn the webhook on (true) or off (false).'),
+})
 
 const agentWebhookAttachInputSchema = z.object({
   project: projectNameSchema,
@@ -2393,6 +2406,33 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/notifications/events'],
     handler: (client) => client.listNotificationEvents(),
+  }),
+  defineTool({
+    name: 'canonry_notifications_list',
+    title: 'List project webhooks',
+    description: 'List a project\'s notification webhooks: id, events, enabled, and the destination host. URLs are redacted; the signing secret is never returned. Use the id with canonry_notification_update.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    outputSchema: notificationListOutputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/notifications'],
+    handler: (client, input) => client.listNotifications(input.project),
+  }),
+  defineTool({
+    name: 'canonry_notification_update',
+    title: 'Update a project webhook',
+    description: 'Change an existing webhook in place: replace its events, add or remove events, or turn it on or off. The URL and signing secret stay the same. A webhook made before an event existed (for example mention.lost / mention.gained) only receives it once it is added here.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: notificationUpdateInputSchema,
+    outputSchema: notificationDtoSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PATCH /api/v1/projects/{name}/notifications/{id}'],
+    handler: (client, input) => {
+      const { project, id, ...update } = input
+      return client.updateNotification(project, id, update)
+    },
   }),
   defineTool({
     name: 'canonry_backlinks_latest_release',

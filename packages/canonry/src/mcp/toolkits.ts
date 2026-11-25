@@ -60,8 +60,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'setup',
     title: 'Project setup and measurement',
-    description: 'Manage project configuration, Advanced Measurement drafts, query assets, competitors, and schedules.',
-    whenToLoad: 'Load when onboarding a project, editing its measurement plan, or managing tracked queries, competitors, or schedules.',
+    description: 'Manage project configuration, Advanced Measurement drafts, query assets, competitors, schedules, and notification webhooks.',
+    whenToLoad: 'Load when onboarding a project, editing its measurement plan, or managing tracked queries, competitors, schedules, or which events a webhook receives.',
   },
   {
     name: 'gsc',
