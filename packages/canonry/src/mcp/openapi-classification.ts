@@ -252,6 +252,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/notifications': 'included',
   'GET /api/v1/projects/{name}/notifications': 'included',
   'DELETE /api/v1/projects/{name}/notifications/{id}': 'included',
+  'PATCH /api/v1/projects/{name}/notifications/{id}': 'included',
   'POST /api/v1/projects/{name}/notifications/{id}/test': 'deferred',
   'GET /api/v1/telemetry': 'included',
   'PUT /api/v1/telemetry': 'included',

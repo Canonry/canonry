@@ -3982,6 +3982,27 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'patch',
+    path: '/api/v1/projects/{name}/notifications/{id}',
+    summary: 'Update a notification',
+    description: 'Changes an existing webhook in place: replaces its event list and/or turns it on or off. The URL and signing secret stay as they are; to send somewhere else, add a new webhook. Name at least one field.',
+    tags: ['notifications'],
+    parameters: [nameParameter, notificationIdParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/NotificationUpdateRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Notification updated.', 'NotificationDto'),
+      400: errorResponse('Invalid notification update.'),
+      404: errorResponse('Notification not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/notifications/{id}/test',
     summary: 'Send a test notification',

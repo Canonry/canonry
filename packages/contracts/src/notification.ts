@@ -171,6 +171,23 @@ export const notificationCreateRequestSchema = z.object({
 
 export type NotificationCreateRequest = z.infer<typeof notificationCreateRequestSchema>
 
+/**
+ * Change an existing webhook in place: its events and whether it sends.
+ * `events` replaces the whole list; `addEvents` / `removeEvents` change it
+ * relative to what is stored (applied on the server, so two callers never
+ * overwrite each other) and cannot be combined with `events`. The URL is not
+ * editable here; a different destination is a new webhook with a new signing
+ * secret. Name at least one field.
+ */
+export const notificationUpdateRequestSchema = z.object({
+  events: z.array(notificationEventSchema).min(1).optional(),
+  addEvents: z.array(notificationEventSchema).min(1).optional(),
+  removeEvents: z.array(notificationEventSchema).min(1).optional(),
+  enabled: z.boolean().optional(),
+}).strict()
+
+export type NotificationUpdateRequest = z.infer<typeof notificationUpdateRequestSchema>
+
 export interface InsightWebhookPayload {
   source: 'canonry'
   event: 'insight.critical' | 'insight.high'

@@ -813,11 +813,15 @@ cnry schedule remove <project>
 cnry notify add <project> --webhook <url> --events mention.lost,mention.gained,citation.lost,citation.gained
 cnry notify events                             # list all available event types
 cnry notify list <project>
+cnry notify update <project> <id> --add-events mention.lost,mention.gained   # change an existing webhook in place
+cnry notify update <project> <id> --events run.failed --disable                # replace its events; --enable / --disable
 cnry notify remove <project> <id>
 cnry notify test <project> <id>
 ```
 
 Use `cnry notify events --target server` for the connected server's current event catalog.
+
+`cnry notify update` changes a webhook without touching its URL or signing secret: `--add-events` / `--remove-events` edit the stored list, `--events` replaces it (not combined with the other two), and `--enable` / `--disable` turn it on or off. A webhook needs at least one event. A webhook created before an event existed never receives it until the event is added, so check older webhooks with `cnry notify list` when Canonry adds events (`mention.lost` / `mention.gained` arrived in 7.109). MCP: `canonry_notifications_list` and `canonry_notification_update` in the `setup` toolkit.
 
 `mention.lost` / `mention.gained` fire when the project's brand or domain leaves or enters an answer's text since the previous sweep; `citation.lost` / `citation.gained` fire when its domain leaves or enters the answer's source links. The two move independently, so subscribe to both to see every AI visibility change. Each transition names the query, engine, location and `queryClass` (`branded`, `non-brand`, or null); mention transitions read `mentioned` / `not-mentioned`, citation transitions `cited` / `not-cited`. An answer whose mention was never checked, or whose citation was not measured (an engine with no sources), sends neither. On an Advanced project each transition is one Property's answer and adds `property` and `markets`, compared with the comparable previous sweep exactly as `cnry overview`'s What changed compares it: a sweep with different engines, models or plan definition, a partial one, or a spot check sends no transitions. `run.completed` keeps carrying the citation transitions only.
 

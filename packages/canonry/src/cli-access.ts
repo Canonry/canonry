@@ -295,6 +295,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'notify.list': 'stored',
   'notify.remove': 'write',
   'notify.test': 'write',
+  'notify.update': 'write',
   'organic-evidence': 'stored',
   'overview': 'stored',
   'project': 'write',

@@ -13899,6 +13899,13 @@ export type NotificationDto = {
     updatedAt: string;
 };
 
+export type NotificationUpdateRequest = {
+    events?: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
+    addEvents?: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
+    removeEvents?: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
+    enabled?: boolean;
+};
+
 export type OnboardingTelemetryEvent = {
     eventId: string;
     flowVersion: 1;
@@ -29080,6 +29087,44 @@ export type DeleteApiV1ProjectsByNameNotificationsByIdResponses = {
 };
 
 export type DeleteApiV1ProjectsByNameNotificationsByIdResponse = DeleteApiV1ProjectsByNameNotificationsByIdResponses[keyof DeleteApiV1ProjectsByNameNotificationsByIdResponses];
+
+export type PatchApiV1ProjectsByNameNotificationsByIdData = {
+    body: NotificationUpdateRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Notification ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/notifications/{id}';
+};
+
+export type PatchApiV1ProjectsByNameNotificationsByIdErrors = {
+    /**
+     * Invalid notification update.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Notification not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PatchApiV1ProjectsByNameNotificationsByIdError = PatchApiV1ProjectsByNameNotificationsByIdErrors[keyof PatchApiV1ProjectsByNameNotificationsByIdErrors];
+
+export type PatchApiV1ProjectsByNameNotificationsByIdResponses = {
+    /**
+     * Notification updated.
+     */
+    200: NotificationDto;
+};
+
+export type PatchApiV1ProjectsByNameNotificationsByIdResponse = PatchApiV1ProjectsByNameNotificationsByIdResponses[keyof PatchApiV1ProjectsByNameNotificationsByIdResponses];
 
 export type PostApiV1ProjectsByNameNotificationsByIdTestData = {
     body?: never;

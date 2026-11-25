@@ -1,7 +1,7 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
-import { NOTIFICATION_EVENT_DESCRIPTIONS, notificationEventSchema } from '@canonry/canonry-contracts'
+import { NOTIFICATION_EVENT_DESCRIPTIONS, notificationEventSchema, type NotificationEvent } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -73,6 +73,30 @@ export async function removeNotification(project: string, id: string, format?: s
     return
   }
   console.log(`Notification ${id} removed from "${project}"`)
+}
+
+export async function updateNotification(project: string, id: string, opts: {
+  events?: string[]
+  addEvents?: string[]
+  removeEvents?: string[]
+  enabled?: boolean
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const result = await client.updateNotification(project, id, {
+    ...(opts.events ? { events: opts.events as NotificationEvent[] } : {}),
+    ...(opts.addEvents ? { addEvents: opts.addEvents as NotificationEvent[] } : {}),
+    ...(opts.removeEvents ? { removeEvents: opts.removeEvents as NotificationEvent[] } : {}),
+    ...(opts.enabled !== undefined ? { enabled: opts.enabled } : {}),
+  })
+
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`Notification ${id} updated for "${project}":`)
+  printNotification(result)
 }
 
 export async function testNotification(project: string, id: string, format?: string): Promise<void> {
