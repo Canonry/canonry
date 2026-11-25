@@ -12,8 +12,9 @@ import {
   validateConfig,
 } from '../src/normalize.js'
 
-// Anthropic documents that Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos
-// 5.1 reject forced tool use: `tool_choice` `any` / `tool` returns HTTP 400
+// Anthropic documents that Claude Fable 5.2, Claude Mythos 5.2, Claude Opus
+// 5.5, Claude Sonnet 5.5, Claude Fable 5.1 and Claude Mythos 5.1 reject forced
+// tool use: `tool_choice` `any` / `tool` returns HTTP 400
 // ("tool_choice: type "tool" and "any" are not supported for this model.").
 // https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use
 // https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported
@@ -23,16 +24,25 @@ import {
 // instead (tool offered, Claude decides), and each snapshot records that
 // contract so nothing reads the weaker guarantee as the stronger one.
 
-const REJECTS_FORCING = ['claude-opus-5-5', 'claude-fable-5-1', 'claude-mythos-5-1'] as const
+const REJECTS_FORCING = [
+  'claude-fable-5-2',
+  'claude-mythos-5-2',
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-fable-5-1',
+  'claude-mythos-5-1',
+] as const
 
 // The nearest neighbours matter most: each rejecting id extends one of these
-// as a string prefix (`claude-opus-5` / `claude-opus-5-5`), and Anthropic
-// documents that Claude Fable 5 and Claude Opus 5 still accept forcing.
+// as a string prefix (`claude-opus-5` / `claude-opus-5-5`, `claude-sonnet-5` /
+// `claude-sonnet-5-5`), and Anthropic documents that Claude Fable 5, Claude
+// Opus 5 and Claude Haiku 5.5 still accept forcing.
 const ACCEPTS_FORCING = [
   'claude-opus-5',
   'claude-fable-5',
   'claude-mythos-5',
   'claude-sonnet-5',
+  'claude-haiku-5-5',
   'claude-sonnet-4-6',
   'claude-opus-4-6',
   'claude-haiku-4-5-20251001',
