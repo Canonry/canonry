@@ -238,6 +238,8 @@ describe('IntelligenceService', () => {
         ['still running', { status: 'running' }],
         ['failed', { status: 'failed' }],
         ['probe trigger', { trigger: 'probe' }],
+        ['spot check of a query list', { queries: ['roof repair'] }],
+        ['spot check of a plan slice', { measurementScope: { groups: ['north'], targets: [], queries: [], resolvedTargets: ['north-office'] } }],
       ]
 
       for (const [label, overrides] of ineligible) {
@@ -863,6 +865,40 @@ describe('IntelligenceService', () => {
       const savedTypes = db.select().from(insights).all().map(i => i.type)
       expect(savedTypes.filter(t => t === 'first-citation')).toHaveLength(0)
       expect(savedTypes.filter(t => t === 'gain')).toHaveLength(0)
+    })
+
+    it('never takes a spot check between two sweeps as the baseline or a history run', () => {
+      const { db } = createTempDb('intel-spot-check-baseline-')
+      const projectId = seedProject(db)
+      const q1 = seedQuery(db, projectId, 'roof repair')
+      const q2 = seedQuery(db, projectId, 'metal roofing')
+
+      const sweepA = insertRun(db, projectId, 'answer-visibility', '2026-01-01T00:00:00Z')
+      seedSnapshot(db, sweepA, q1, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, sweepA, q2, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      // The spot check asked only q2 and saw it uncited.
+      const spot = insertRun(db, projectId, 'answer-visibility', '2026-01-02T00:00:00Z')
+      db.update(runs).set({ queries: ['metal roofing'] }).where(eq(runs.id, spot)).run()
+      seedSnapshot(db, spot, q2, 'gemini', 'not-cited')
+
+      const sweepB = insertRun(db, projectId, 'answer-visibility', '2026-01-03T00:00:00Z')
+      seedSnapshot(db, sweepB, q1, 'gemini', 'not-cited')
+      seedSnapshot(db, sweepB, q2, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      // The spot check itself is not analyzed: no insights, no health row.
+      expect(service.analyzeAndPersist(spot, projectId)).toBeNull()
+      expect(db.select().from(healthSnapshots).where(eq(healthSnapshots.runId, spot)).all()).toHaveLength(0)
+
+      const result = service.analyzeAndPersist(sweepB, projectId)
+      // Against sweep A: q1 was lost, q2 held. Against the spot check, q1's
+      // loss would be invisible (the spot check never asked it) and q2 would
+      // read as a gain.
+      expect(result!.regressions.map(r => ({ query: r.query, previousRunId: r.previousRunId }))).toEqual([
+        { query: 'roof repair', previousRunId: sweepA },
+      ])
+      expect(result!.gains).toHaveLength(0)
     })
 
     it('still detects a real regression across an interleaved sync run', () => {
