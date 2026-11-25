@@ -286,6 +286,34 @@ it.each(MODES.flatMap(mode => GROUP_CASES.map(poison => ({ mode, poison }))))(
   },
 )
 
+// A spot check (a run limited to a list of queries) is not a sweep. It is never
+// the sweep a later sweep diffs against: with it as the baseline, a loss it
+// happened to see first is hidden and a query it saw uncited reads as gained.
+const SPOT_CHECK_CASES = [
+  { name: 'false gain', previous: CitationStates.cited, spot: CitationStates['not-cited'], current: CitationStates.cited, event: null },
+  { name: 'hidden loss', previous: CitationStates.cited, spot: CitationStates['not-cited'], current: CitationStates['not-cited'], event: 'citation.lost' },
+] as const
+it.each(MODES.flatMap(mode => SPOT_CHECK_CASES.map(row => ({ mode, ...row }))))(
+  '$mode never diffs a sweep against a spot check: $name', async ({ mode, previous, spot, current, event }) => {
+    const { db, seed, dispatch } = notificationHarness(mode === 'Planned')
+    seed('z-previous', PREVIOUS_AT, previous)
+    seed('spot-check', '2026-10-02T00:00:00.000Z', spot)
+    db.update(runs).set({ queries: ['roof coating'] }).where(eq(runs.id, 'spot-check')).run()
+    seed('current', CURRENT_AT, current, RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+    await dispatch(event)
+  },
+)
+
+it.each(MODES)('%s sends run.completed for a spot check and no change events', async mode => {
+  const { db, seed, complete, assertDelivered } = notificationHarness(mode === 'Planned', [LOCATION], ['run.completed', 'citation.gained', 'citation.lost'])
+  seed('previous', PREVIOUS_AT, CitationStates.cited)
+  seed('spot-check', CURRENT_AT, CitationStates['not-cited'], RunTriggers.manual, RunStatuses.completed, CURRENT_FINISHED_AT)
+  db.update(runs).set({ queries: ['roof coating'] }).where(eq(runs.id, 'spot-check')).run()
+  await complete('spot-check')
+  // Diffed against the cited sweep before it, this would also send citation.lost.
+  assertDelivered([expectedPayload('run.completed', { id: 'spot-check', status: 'completed', finishedAt: CURRENT_FINISHED_AT }, [])])
+})
+
 // Local (no web access) returns no sources, so its citation is never measured.
 // Its first sweep after the upgrade must not report its older stored misses
 // moving to `not-measured`, while a measured engine's real loss still fires.
