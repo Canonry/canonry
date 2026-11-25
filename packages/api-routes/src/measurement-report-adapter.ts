@@ -52,6 +52,7 @@ import {
   type MeasurementTargetUrlInput,
   type MeasurementUsageEdgeInput,
 } from './measurement-report.js'
+import { notScopedRun } from './run-scope.js'
 
 export type StoredMeasurementReport =
   | { kind: 'no-plan'; revision: number }
@@ -566,7 +567,7 @@ export function latestMeasurementRun(
     eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [...statuses]),
     ne(runs.trigger, RunTriggers.probe),
-    isNull(runs.measurementScope),
+    notScopedRun(),
   ]
   if (window.from !== undefined) conditions.push(gte(runs.createdAt, window.from))
   if (window.to !== undefined) conditions.push(lte(runs.createdAt, window.to))

@@ -10,7 +10,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 |------|------|
 | `src/status.ts` | Stored integration status, scoped to visible projects; shares doctor failure readers and freshness constants without running doctor checks. Optional `getMcpHealth` supplies the host's MCP prerequisites for instance and project reads, including an empty project list; it must not probe providers, DNS, or a client connection. |
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
-| `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` Drizzle predicate (see "Probe runs") |
+| `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()`, and `notScopedRun()` / `isScopedRun()` re-exported from `src/run-scope.ts` (no Fastify dependency, so script-loaded readers import it directly; see "Probe runs") |
 | `src/auth.ts` | Auth plugin: API key and session validation, scope gates (see "Deployment posture and key authority") |
 | `src/chatgpt-routes.ts` / `src/chatgpt-accounts.ts` / `src/chatgpt-oidc.ts` | Sign in with ChatGPT: routes (`/auth/chatgpt/*`, all on the auth skip-list, each resolving the sign-in cookie itself and same-origin-checking its writes), who may sign in (linked identity or verified-email invitation, never an existing account by email) and each person's encrypted plan grant, and the OpenAI wire protocol (discovery, PKCE, code exchange, refresh, revocation, RS256 ID-token checks, plan models). Token and refresh requests are never retried. `docs/chatgpt-sign-in.md` |
 | `src/user-invitations.ts` | `/users/invitations` list, create and revoke; same authority as `POST /users` |
@@ -361,6 +361,8 @@ Routes fire lifecycle hooks via `opts` callbacks: `onRunCreated`, `onProviderUpd
 ### Probe runs
 
 `src/helpers.ts`: `notProbeRun()` — Drizzle predicate every dashboard/analytics/report/timeline/intelligence read MUST AND-in to exclude probe runs — see root AGENTS.md "Probe runs" section.
+
+A spot check (`runs.queries` or `runs.measurement_scope` set) stores real answers for the queries it asked but is never a whole-project sweep. A run-level series (trend points, run history, health history) or a "latest/previous sweep" pick also ANDs in `notScopedRun()` (or filters with `isScopedRun(run)`, or uses analytics `measuredWhole`); per-query evidence (timeline, What changed's previous check, visibility stats) keeps it. A run pinned by id stays readable. Add a case to `test/spot-check-exclusion.test.ts` for every new series or latest-sweep read.
 
 ### Request context and runtime logging
 
