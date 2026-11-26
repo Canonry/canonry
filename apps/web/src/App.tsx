@@ -838,12 +838,13 @@ export function RootLayout() {
           <div className="topbar-actions">
             {updateNotificationVisible && documentBuild ? (
               <ReleaseNotesBadge
-                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible])}
+                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible, whatsNewOnly, canWrite])}
                 storageKey={updateNoticeKey}
                 availableUpdate={availableUpdateBadge}
                 build={documentBuild}
                 showResourceLinks={resourceLinksVisible}
                 whatsNewOnly={whatsNewOnly}
+                canWrite={canWrite}
               />
             ) : availableUpdateBadge}
             <ThemeSelector />

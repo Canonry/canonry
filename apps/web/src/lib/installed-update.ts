@@ -1,4 +1,4 @@
-import { availableReleaseNotes, compareReleaseBoundaries, validBuildVersion, type ReleaseNotes } from './release-notes.js'
+import { availableReleaseNotes, compareReleaseBoundaries, validBuildVersion, type ReleaseAudience, type ReleaseNotes } from './release-notes.js'
 
 export type InstalledBuild = { version: string; commit?: string }
 type Baseline = { version: string; includeLatest: boolean }
@@ -43,8 +43,8 @@ function firstVisit(storage: Storage, scope: string, version: string): Baseline 
   return baseline
 }
 
-export function observeReleaseNotes(storage: Storage | undefined, scope: string, runningVersion: string, showResourceLinks = true): ReleaseSelection {
-  const available = availableReleaseNotes(runningVersion, showResourceLinks)
+export function observeReleaseNotes(storage: Storage | undefined, scope: string, runningVersion: string, audience?: ReleaseAudience): ReleaseSelection {
+  const available = availableReleaseNotes(runningVersion, audience)
   const quiet = { releases: available.slice(0, 1), unread: false }
   if (!storage || !validBuildVersion(runningVersion)) return quiet
 
