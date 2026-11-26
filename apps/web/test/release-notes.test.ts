@@ -21,7 +21,7 @@ const overview = {
   version: '7.123.0',
   highlights: [{
     title: 'Overview shows gains too',
-    text: 'What changed now lists the queries that gained a mention or citation beside the ones that lost one, and names the projects that held steady. Activity shows only jobs that failed or are still running.',
+    text: 'What changed now counts the queries that gained a mention or citation beside the ones that lost one, and names the projects that held steady. Activity lists only jobs that failed, were stopped or are still running.',
   }],
 }
 
@@ -62,7 +62,7 @@ it('shows each note only to readers who can act on it', () => {
 })
 
 it('shows the Overview note to every reader, hosted and read-only included', () => {
-  expect(availableReleaseNotes('7.123.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: false })).toEqual([overview])
+  expect(availableReleaseNotes('7.123.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: false, showFeedback: false })).toEqual([overview])
 })
 
 it('excludes future, malformed or inapplicable release highlights', () => {

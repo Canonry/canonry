@@ -21,6 +21,9 @@ afterEach(() => {
 
 const projectsKey = getApiV1ProjectsQueryKey({ client: heyClient })
 
+/** Activity's read when no job needs attention. */
+const NO_ACTIVITY = { since: '2026-08-10T00:00:00.000Z', items: [] }
+
 /**
  * Opens Overview with a project list the server cannot load. Counts its reads,
  * and can hold them in flight so the retrying state is observable.
@@ -36,6 +39,7 @@ async function renderUnavailableOverview() {
       projectReads += 1
       return holding ? new Promise<Response>(resolve => { held.push(() => resolve(failure())) }) : failure()
     }
+    if (path === '/api/v1/runs/attention') return jsonResponse(NO_ACTIVITY)
     if (path.startsWith('/api/v1/runs')) return jsonResponse([])
     return jsonResponse({})
   })
@@ -84,14 +88,16 @@ function overviewWith(project: ProjectDto, whatChanged: ProjectOverviewWhatChang
 
 /** The server's `whatChanged` for a checked project with these counts, its rows built as the server builds them. */
 function whatChanged(project: ProjectDto, counts: { mentions?: number; citations?: number; activeRunIds?: string[] } = {}): ProjectOverviewWhatChangedDto {
-  const lost = (queryCount: number) => ({ queryCount, queries: [], truncated: false })
+  const signal = (queryCount: number) => ({ queryCount, queries: [], truncated: false })
   const activeRunIds = counts.activeRunIds ?? []
   return {
     mode: 'simple',
     latestCheck: { runIds: ['run_latest'], createdAt: '2026-09-08T00:00:00.000Z' },
     comparison: { state: 'available', previousRunIds: ['run_previous'] },
-    lostMentions: lost(counts.mentions ?? 0),
-    lostCitations: lost(counts.citations ?? 0),
+    lostMentions: signal(counts.mentions ?? 0),
+    lostCitations: signal(counts.citations ?? 0),
+    gainedMentions: signal(0),
+    gainedCitations: signal(0),
     activeRuns: { count: activeRunIds.length, runIds: activeRunIds },
     items: whatChangedProjectItems(project, { lostMentionQueries: counts.mentions ?? 0, gainedMentionQueries: 0, lostCitationQueries: counts.citations ?? 0, gainedCitationQueries: 0, activeRuns: activeRunIds.length }),
   }
@@ -114,6 +120,7 @@ async function renderOverviewOf(read: {
     const path = pathOf(url).split('?')[0]
     if (path === '/api/v1/projects') return jsonResponse(projects)
     if (path === '/api/v1/runs') return jsonResponse(read.runs())
+    if (path === '/api/v1/runs/attention') return jsonResponse(NO_ACTIVITY)
     const project = projects.find(candidate => path === `/api/v1/projects/${candidate.name}/overview`)
     if (project) {
       overviewReads += 1

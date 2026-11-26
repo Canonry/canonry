@@ -16935,6 +16935,88 @@ export type RunDto = {
     createdAt: string;
 };
 
+export type RunsAttentionDto = {
+    since: string;
+    items: Array<{
+        project: {
+            id: string;
+            name: string;
+            displayName: string;
+        };
+        run: {
+            sourceId?: string | null;
+            id: string;
+            projectId: string;
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
+            status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
+            measurementPlanVersionId?: string | null;
+            measurementManifest?: {
+                [key: string]: unknown;
+            } | null;
+            measurementScope?: {
+                groups: Array<string>;
+                targets: Array<string>;
+                queries: Array<string>;
+                resolvedTargets: Array<string>;
+            } | null;
+            measurementExecutionIdentity?: {
+                schemaVersion: 1;
+                language?: string;
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                checksum: string;
+            } | null;
+            location?: string | null;
+            queries?: Array<string> | null;
+            startedAt?: string | null;
+            finishedAt?: string | null;
+            error?: {
+                message?: string;
+                providers?: {
+                    [key: string]: {
+                        message: string;
+                        raw?: unknown;
+                        code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                        skipped?: boolean;
+                    };
+                };
+            } | null;
+            queryBasketRevision?: number | null;
+            dispatchModes?: {
+                [key: string]: 'batch';
+            };
+            skippedProviders?: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+            syncSummary?: {
+                type: 'cloudflare-queue';
+                stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+                pulls: number;
+                emptyPulls: number;
+                messagesPulled: number;
+                messagesAcknowledged: number;
+                poisonMessages: number;
+                skippedUnleasedMessages: number;
+                acceptedEvents: number;
+                duplicateEvents: number;
+                backlogAtFirstPull: number | null;
+                backlogAtLastPull: number | null;
+                elapsedMs: number;
+            };
+            createdAt: string;
+        };
+    }>;
+};
+
 export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor' | 'seo-sync';
 
 export type CalendarRecurrence = {
@@ -27205,6 +27287,36 @@ export type PostApiV1RunsResponses = {
 };
 
 export type PostApiV1RunsResponse = PostApiV1RunsResponses[keyof PostApiV1RunsResponses];
+
+export type GetApiV1RunsAttentionData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Read runs created at or after this ISO 8601 timestamp. Defaults to 30 days ago.
+         */
+        since?: string;
+    };
+    url: '/api/v1/runs/attention';
+};
+
+export type GetApiV1RunsAttentionErrors = {
+    /**
+     * `since` is not a valid timestamp.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1RunsAttentionError = GetApiV1RunsAttentionErrors[keyof GetApiV1RunsAttentionErrors];
+
+export type GetApiV1RunsAttentionResponses = {
+    /**
+     * Jobs that need attention returned.
+     */
+    200: RunsAttentionDto;
+};
+
+export type GetApiV1RunsAttentionResponse = GetApiV1RunsAttentionResponses[keyof GetApiV1RunsAttentionResponses];
 
 export type GetApiV1RunsByIdData = {
     body?: never;

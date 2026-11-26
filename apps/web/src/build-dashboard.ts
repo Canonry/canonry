@@ -888,6 +888,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
 /** Instance settings as the dashboard shows them; a read that was refused or not made lists no providers. */
 export function buildSettingsVm(apiSettings?: ApiSettings | null): SettingsVm {
   return {
+    providersKnown: apiSettings != null,
     providerStatuses: (apiSettings?.providers ?? []).map(p => {
       // Present only for an install administrator: the connection's revision and stored last test.
       const connection = apiSettings?.providerConnections?.find(entry => entry.name === p.name)

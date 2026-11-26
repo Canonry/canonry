@@ -131,8 +131,10 @@ describe('What changed: Simple projects', () => {
     retrievalStatus?: 'used' | 'not-applicable'
     provider?: string
     location?: string | null
-    answerText?: string
-    storedMentioned?: boolean
+    /** Null stores no answer text, as rows from before answer text was kept. */
+    answerText?: string | null
+    /** Null stores no mention verdict. */
+    storedMentioned?: boolean | null
     mentionIdentity?: MentionIdentity | null
     /** When the answer was stored; ten seconds into its run when omitted. */
     at?: string
@@ -144,9 +146,9 @@ describe('What changed: Simple projects', () => {
       provider: answer.provider ?? 'openai',
       citationState: answer.citationState ?? (answer.cited ? 'cited' : 'not-cited'),
       retrievalStatus: answer.retrievalStatus ?? null,
-      answerMentioned: answer.storedMentioned ?? answer.mentioned,
+      answerMentioned: answer.storedMentioned === undefined ? answer.mentioned : answer.storedMentioned,
       mentionIdentity: answer.mentionIdentity ?? null,
-      answerText: answer.answerText ?? (answer.mentioned ? 'Acme Coatings is the one to call.' : 'Other contractors lead here.'),
+      answerText: answer.answerText === undefined ? (answer.mentioned ? 'Acme Coatings is the one to call.' : 'Other contractors lead here.') : answer.answerText,
       citedDomains: answer.cited ? ['acme.example'] : [],
       competitorOverlap: [],
       recommendedCompetitors: [],
@@ -254,6 +256,25 @@ describe('What changed: Simple projects', () => {
       { id: `attention_${PROJECT_ID}_mentions_changed`, tone: 'positive', title: 'Acme Coatings mentions changed', detail: '1 query lost a mention and 2 gained one in the latest check.', actionLabel: 'Open project', href: '/projects/acme' },
       gainedCitationsRow(PROJECT_ID, 'acme', 'Acme Coatings', '2 queries gained a citation in the latest check.'),
     ])
+  })
+
+  // As the change webhooks read it: an answer never checked for a mention (no
+  // stored text, no stored verdict) is unknown, so it neither loses nor gains one.
+  it('moves no mention into or out of an answer that was never checked for one', async () => {
+    seedProject()
+    addQuery('q_legacy_before', 'best polyurea roof coating')
+    addQuery('q_legacy_after', 'roof coating contractors')
+    addRun('run_1', FIRST)
+    addRun('run_2', SECOND)
+    addAnswer('run_1', 'q_legacy_before', { mentioned: false, cited: false, answerText: null, storedMentioned: null })
+    addAnswer('run_2', 'q_legacy_before', { mentioned: true, cited: false })
+    addAnswer('run_1', 'q_legacy_after', { mentioned: true, cited: false })
+    addAnswer('run_2', 'q_legacy_after', { mentioned: false, cited: false, answerText: null, storedMentioned: null })
+
+    const whatChanged = await readWhatChanged('acme')
+    expect(whatChanged.gainedMentions).toEqual(NO_QUERIES)
+    expect(whatChanged.lostMentions).toEqual(NO_QUERIES)
+    expect(whatChanged.items).toEqual([])
   })
 
   // As the evidence rows read it: an answer whose engine returned no sources

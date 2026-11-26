@@ -38,6 +38,12 @@ import {
   readCitationState,
   retrievedSourceSchema,
   type RetrievedSource,
+  OVERVIEW_ACTIVITY_DEFAULT_DAYS,
+  OVERVIEW_ACTIVITY_EXCLUDED_KINDS,
+  overviewActivityRuns,
+  type RunKind,
+  type RunStatus,
+  type RunTrigger,
 } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
@@ -525,6 +531,60 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       .limit(limit)
       .all()
     return reply.send(rows.map(formatRun))
+  })
+
+  // GET /runs/attention — Overview's Activity: each job's latest run that
+  // failed, finished partly, was cancelled, or is still queued or running,
+  // across the projects the key can see. The rule is contracts
+  // `overviewActivityRuns`, applied to every run of the window, so no
+  // newer run elsewhere can push a job's failure out of view. The dashboard,
+  // `canonry activity`, `canonry overview --all` and MCP read this response.
+  app.get<{ Querystring: { since?: string } }>('/runs/attention', async (request, reply) => {
+    const since = parseListSince(request.query.since, new Date(Date.now() - OVERVIEW_ACTIVITY_DEFAULT_DAYS * 24 * 60 * 60 * 1000).toISOString())
+    const filters = [gte(runs.createdAt, since), notProbeRun(), notInArray(runs.kind, [...OVERVIEW_ACTIVITY_EXCLUDED_KINDS])]
+    // A project-scoped key sees only its own project's jobs.
+    const scopedProjectId = request.apiKey?.projectId
+    if (scopedProjectId) filters.push(eq(runs.projectId, scopedProjectId))
+
+    // Job identity and state only: a plan run's manifest can be large, and
+    // only the runs picked below are read in full.
+    const candidates = app.db.select({
+      id: runs.id,
+      projectId: runs.projectId,
+      kind: runs.kind,
+      status: runs.status,
+      trigger: runs.trigger,
+      createdAt: runs.createdAt,
+      location: runs.location,
+      sourceId: runs.sourceId,
+      queries: runs.queries,
+      measurementScope: runs.measurementScope,
+    }).from(runs).where(and(...filters)).all()
+    const picked = overviewActivityRuns(candidates.map(row => ({
+      ...row,
+      kind: row.kind as RunKind,
+      status: row.status as RunStatus,
+      trigger: row.trigger as RunTrigger,
+    })))
+
+    const ids = picked.map(run => run.id)
+    const rowsById = new Map(ids.length === 0 ? [] : app.db.select().from(runs).where(inArray(runs.id, ids)).all().map(row => [row.id, row]))
+    const projectIds = [...new Set(picked.map(run => run.projectId))]
+    const projectsById = new Map(projectIds.length === 0 ? [] : app.db
+      .select({ id: projects.id, name: projects.name, displayName: projects.displayName })
+      .from(projects).where(inArray(projects.id, projectIds)).all()
+      .map(project => [project.id, project]))
+
+    const items = picked.flatMap(run => {
+      const row = rowsById.get(run.id)
+      const project = projectsById.get(run.projectId)
+      if (!row || !project) return []
+      // Activity names the job and its state; it never needs the frozen manifest.
+      const { measurementManifest: _manifest, ...formatted } = formatRun(row)
+      return [{ project, run: formatted }]
+    })
+    // The `RunsAttentionDto` OpenAPI schema (contracts `runsAttentionDtoSchema`).
+    return reply.send({ since, items })
   })
 
   // POST /runs — trigger a run for all projects

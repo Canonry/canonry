@@ -352,6 +352,16 @@ test.each([false, true])('deleting a project updates the live portfolio before n
       return jsonResponse(runs.filter(run => projects.some(project => project.id === run.projectId)
         && (!url.searchParams.has('kind') || run.kind === url.searchParams.get('kind'))))
     }
+    // Activity: the server's latest run per job, for the projects that still exist.
+    if (path === '/api/v1/runs/attention') {
+      return jsonResponse({
+        since: '2026-09-08T00:00:00.000Z',
+        items: runs.flatMap(run => {
+          const project = projects.find(candidate => candidate.id === run.projectId)
+          return project ? [{ project: { id: project.id, name: project.name, displayName: project.displayName }, run }] : []
+        }),
+      })
+    }
     if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: {}, bing: {} })
     if (path === '/api/v1/cdp/status') return jsonResponse({ connected: false, targets: [] })
     if (path === '/health') return jsonResponse({ status: 'ok' })

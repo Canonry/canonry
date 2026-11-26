@@ -361,7 +361,7 @@ export interface ProjectOverviewDto {
   providerScores: ProjectOverviewProviderScoreDto[]
   /** Insight echoes and server hints for the project page. Overview's "What changed" reads `whatChanged`. */
   attentionItems: AttentionItemDto[]
-  /** Lost mentions and lost citations in the latest check, one per query, and runs in progress.
+  /** Lost and gained mentions and citations in the latest check, one per query and direction, and runs in progress.
    * Optional only for older servers. */
   whatChanged?: ProjectOverviewWhatChangedDto
   runHistory: RunHistoryPointDto[]

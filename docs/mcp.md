@@ -492,6 +492,14 @@ inspections or frequent traffic pulls. The CLI equivalent is
 `canonry runs <project> --exclude-kinds bing-inspect,traffic-sync --limit 5 --format json`.
 The `since` bound is inclusive and accepts ISO timestamps with offsets. Omitted
 `since` reads all dates, and omitted `limit` returns every matching run.
+
+`canonry_activity` returns the dashboard's Overview Activity across every
+project the key can see (`GET /api/v1/runs/attention`): each job's latest run
+when it failed, finished partly, was cancelled, or is still queued or running,
+with its project. A job is one project, run kind, location and source, spot
+checks apart from full sweeps. Probes and per-URL inspections are left out;
+`since` bounds the runs read (default 30 days ago). The CLI equivalent is
+`canonry activity --format json`.
 `canonry run list <project>` is the CLI alias; traffic runs include their stored
 `sourceId` when available.
 Repeat `--exclude-kinds` or supply a comma list. The API accepts repeated or
@@ -653,7 +661,7 @@ Core tier (always loaded):
 - `canonry_help` — compact intent route, approval boundaries, and analyst playbooks to read; use `includeCatalog: true` for toolkit details and `playbook` for a playbook's full text
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
-- `canonry_project_overview` — composite read for "how is project X doing?"; its `whatChanged` is the dashboard's "What changed" (lost mentions and lost citations in the latest check, one per query, and runs in progress)
+- `canonry_project_overview` — composite read for "how is project X doing?"; its `whatChanged` is the dashboard's "What changed" (lost and gained mentions and citations in the latest check, one per query and direction, and runs in progress)
 - `canonry_search` — composite text search across snapshots and insights
 - `canonry_doctor` — run health checks (Google/GA auth, redirect URI, scopes, providers); filter by check id or wildcard
 - `canonry_settings_get`
@@ -676,7 +684,7 @@ Toolkits (loaded on demand):
 
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
-| `monitoring` | sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, the next manual sweep preview (`canonry_run_preview`: planned answers and provider holds, no spending), project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder), Agent Readiness audit scans, scores, pages, findings and link-graph reads (`canonry_agent_readiness_*`) | Investigating regressions, comparing runs, reviewing insights/health, checking Agent Readiness, surfacing content opportunities, generating client-facing reports |
+| `monitoring` | sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, `canonry_activity` (jobs needing attention across projects), the next manual sweep preview (`canonry_run_preview`: planned answers and provider holds, no spending), project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder), Agent Readiness audit scans, scores, pages, findings and link-graph reads (`canonry_agent_readiness_*`) | Investigating regressions, comparing runs, reviewing insights/health, checking Agent Readiness, surfacing content opportunities, generating client-facing reports |
 | `setup` | project export/upsert, first-run setup status (`canonry_project_setup`), sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove plus `canonry_competitors_aliases_set` (curated answer-text names) and the answer-derived auto-alias tools (`canonry_competitors_auto_aliases_detect`, `_apply`, `canonry_competitors_aliases_block`, `_unblock`), schedule get/list/set/delete plus `canonry_schedule_preview` (the next occurrence of proposed timing), answer-engine provider connections (`canonry_provider_settings_get`, `canonry_provider_settings_update`, `canonry_provider_disconnect`, `canonry_provider_test`, `canonry_providers_reload`), notification event names, notification webhooks (`canonry_notifications_list`, and `canonry_notification_update` to change an existing webhook's events or turn it on or off), telemetry status, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing, testing or disconnecting a provider connection, reviewing notification capability or which events a webhook receives, and checking safe setup state |
 | `gsc` | `canonry_gsc_connect`, `canonry_gsc_properties`, `canonry_gsc_set_property`, Google connection status, performance, inspections, coverage and sitemaps | Connecting Search Console and reviewing search and indexing evidence |
 | `bing` | `canonry_bing_connect`, `canonry_bing_status`, `canonry_bing_sites`, `canonry_bing_set_site`, coverage and search data | Connecting Bing Webmaster Tools and reviewing evidence for the selected site |

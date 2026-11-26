@@ -9,10 +9,10 @@
  * - Simple compares each answer of the latest sweep with the previous check
  *   of the same tracked query, engine and location: the most recent earlier
  *   answer for that slot, from any non-probe sweep, whatever its status. A
- *   mention is resolved as the project page's evidence rows resolve it
- *   (`resolveSnapshotAnswerMentioned`), so a query counted here is one whose
- *   evidence row reads "Lost since the previous check" (or, gained, the first
- *   mention or citation). A citation is read through `readCitationState`: an
+ *   mention is resolved as the evidence rows resolve it, through
+ *   `snapshotMentionObserver`, which the change webhooks use too: an answer
+ *   never checked for a mention (no answer text, no stored verdict) neither
+ *   loses nor gains one. A citation is read through `readCitationState`: an
  *   answer without sources neither loses nor gains one.
  * - Advanced compares each Property's answer in the sweep the coverage
  *   headline reads with the same slot of the eligible sweep before it, under
@@ -46,7 +46,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { queries, querySnapshots, runs, type DatabaseClient, type projects } from '@canonry/canonry-db'
 import { advancedSignalTransitions, type AdvancedSignalTransition } from './advanced-signal-changes.js'
-import { resolveSnapshotAnswerMentioned } from './helpers.js'
+import { snapshotMentionObserver } from './helpers.js'
 import { readQueryClasses } from './query-class-read.js'
 import { locationMatches } from './visibility-report-reader.js'
 import type { OverviewAdvancedSweeps } from './visibility-report.js'
@@ -297,7 +297,7 @@ function simpleSignalChanges(
   }
 
   const classes = readQueryClasses(db, project, tracked)
-  const mentioned = (snapshot: SignalRow) => resolveSnapshotAnswerMentioned(snapshot, project)
+  const mentioned = snapshotMentionObserver(project)
   const lostMentions = new Map<string, ChangedQuery>()
   const lostCitations = new Map<string, ChangedQuery>()
   const gainedMentions = new Map<string, ChangedQuery>()
@@ -314,9 +314,10 @@ function simpleSignalChanges(
       provider: snapshot.provider,
       location: snapshot.location,
     }
+    // Null is never checked: it moves neither way.
     const [wasMentioned, isMentioned] = [mentioned(previous), mentioned(snapshot)]
-    if (wasMentioned && !isMentioned) record(lostMentions, answer)
-    if (!wasMentioned && isMentioned) record(gainedMentions, answer)
+    if (wasMentioned === true && isMentioned === false) record(lostMentions, answer)
+    if (wasMentioned === false && isMentioned === true) record(gainedMentions, answer)
     // Measured on both sides: an answer without sources moves neither way.
     const [wasCited, isCited] = [readCitationState(previous), readCitationState(snapshot)]
     if (wasCited === CitationStates.cited && isCited === CitationStates['not-cited']) record(lostCitations, answer)

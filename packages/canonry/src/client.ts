@@ -76,6 +76,7 @@ import type {
   ProjectUpsertRequest,
   ProjectPatchRequest,
   RunDto,
+  RunsAttentionDto,
   RunDetailDto,
   MeasurementPlanInput,
   MeasurementPlanCompilePreviewResponse,
@@ -414,11 +415,10 @@ import {
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
   type GetApiV1ProjectsByNameRunsData,
-  type GetApiV1RunsData,
   postApiV1ProjectsByNameResultsClear,
   postApiV1ProjectsByNameRuns,
   getApiV1ProjectsByNameRunsLatest,
-  getApiV1Runs,
+  getApiV1RunsAttention,
   getApiV1RunsById,
   postApiV1RunsByIdCancel,
   postApiV1RunsByIdFill,
@@ -2519,18 +2519,12 @@ export class ApiClient {
   }
 
   /**
-   * Runs across every project the key can see (`GET /runs`), newest first.
-   * The server leaves probes out and reads the last 30 days unless `since`
-   * says otherwise; excluded kinds are dropped before `limit` applies.
+   * Overview's Activity (`GET /runs/attention`): each job's latest run that
+   * failed, finished partly, was cancelled, or is still queued or running,
+   * across the projects the key can see. `since` defaults to 30 days ago.
    */
-  async listAllRuns(query: { limit?: number; excludeKinds?: readonly string[]; since?: string } = {}): Promise<RunDto[]> {
-    return this.invoke<RunDto[]>(() =>
-      getApiV1Runs({
-        client: this.heyClient,
-        // Kinds arrive as strings; the server validates them against the enum.
-        query: { limit: query.limit, excludeKinds: query.excludeKinds ? [...query.excludeKinds] : undefined, since: query.since } as GetApiV1RunsData['query'],
-      }),
-    )
+  async getRunsAttention(query: { since?: string } = {}): Promise<RunsAttentionDto> {
+    return this.invoke<RunsAttentionDto>(() => getApiV1RunsAttention({ client: this.heyClient, query: { since: query.since } }))
   }
 
   async previewRun(project: string): Promise<RunPreviewDto> {

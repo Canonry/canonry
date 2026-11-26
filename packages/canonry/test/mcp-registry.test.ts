@@ -78,6 +78,7 @@ const expectedToolNames = [
   'canonry_project_history',
   'canonry_history_global',
   'canonry_runs_list',
+  'canonry_activity',
   'canonry_run_preview',
   'canonry_runs_latest',
   'canonry_run_get',
@@ -880,7 +881,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(239)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(240)
     expect(canonryMcpTools.filter(tool => tool.deprecatedAliasOf !== undefined)).toHaveLength(17)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name)
@@ -922,7 +923,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     // 66 canonical monitoring tools plus the 17 deprecated Agent Readiness names.
-    expect(counts.get('monitoring')).toBe(83)
+    expect(counts.get('monitoring')).toBe(84)
     expect(counts.get('setup')).toBe(76)
     expect(counts.get('gsc')).toBe(14)
     expect(counts.get('ga')).toBe(16)

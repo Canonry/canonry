@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectOverviewWhatChangedDto } from '../src/composites.js'
-import { isWhatChangedActiveRun, portfolioWhatChangedItems } from '../src/what-changed.js'
+import { isWhatChangedActiveRun, portfolioWhatChangedItems, whatChangedAllClearDetail } from '../src/what-changed.js'
 
 const ACME = { id: 'proj_acme', name: 'acme', displayName: 'Acme Coatings' }
 const BETA = { id: 'proj_beta', name: 'beta co', displayName: '' }
@@ -150,6 +150,39 @@ describe('portfolioWhatChangedItems', () => {
     expect(portfolioWhatChangedItems([{ project: ACME, whatChanged: older }])).toEqual([ACME_LOST_MENTIONS, ACME_LOST_CITATION])
   })
 
+  it('says all clear only when every measured project was compared, and names the ones that were not', () => {
+    const cove = { id: 'proj_cove', name: 'cove', displayName: 'Cove Dental' }
+    // A first check (or one under another model) has nothing to compare: never "stable".
+    expect(portfolioWhatChangedItems([
+      { project: ACME, whatChanged: whatChanged({ compared: false }) },
+      { project: BETA, whatChanged: whatChanged() },
+      { project: cove, whatChanged: whatChanged({ checked: false }) },
+    ])).toEqual([
+      BETA_UNCHANGED,
+      { id: 'attention_not_compared', tone: 'neutral', title: '1 project not compared', detail: 'Acme Coatings. Its latest check had no comparable check before it.' },
+    ])
+    expect(portfolioWhatChangedItems([
+      { project: ACME, whatChanged: whatChanged({ compared: false }) },
+      { project: cove, whatChanged: whatChanged({ compared: false }) },
+    ])).toEqual([
+      { id: 'attention_not_compared', tone: 'neutral', title: '2 projects not compared', detail: 'Acme Coatings, Cove Dental. Their latest check had no comparable check before it.' },
+    ])
+  })
+
+  // A server before 7.123.0 reports losses only: its quiet is "no losses", never "no change".
+  it('calls nothing unchanged from a server that measured no gains, and words the all-clear for losses only', () => {
+    const older = (counts: Parameters<typeof whatChanged>[0] = {}) => {
+      const { gainedMentions: _mentions, gainedCitations: _citations, ...rest } = whatChanged(counts)
+      return rest
+    }
+    expect(portfolioWhatChangedItems([{ project: ACME, whatChanged: older() }, { project: BETA, whatChanged: older() }])).toEqual([
+      { ...ALL_CLEAR, detail: 'No lost mentions or citations, and no runs in progress.' },
+    ])
+    expect(portfolioWhatChangedItems([{ project: ACME, whatChanged: older({ mentions: 2 }) }, { project: BETA, whatChanged: older() }])).toEqual([ACME_LOST_MENTIONS])
+    expect(whatChangedAllClearDetail(older())).toBe('No lost mentions or citations, and no runs in progress.')
+    expect(whatChangedAllClearDetail(whatChanged())).toBe('No mentions or citations changed, and no runs in progress.')
+  })
+
   it('names the projects compared and unchanged after the changes, and never one with nothing to compare', () => {
     const cove = { id: 'proj_cove', name: 'cove', displayName: 'Cove Dental' }
     const dune = { id: 'proj_dune', name: 'dune', displayName: 'Dune Spa' }
@@ -166,6 +199,7 @@ describe('portfolioWhatChangedItems', () => {
       ACME_LOST_MENTIONS,
       { id: 'attention_proj_elm_active', tone: 'neutral', title: 'Elm Law has active runs', detail: '1 run in progress.', actionLabel: 'View runs', href: '/runs' },
       { id: 'attention_unchanged', tone: 'neutral', title: '2 projects unchanged', detail: 'beta co, Cove Dental. No mentions or citations changed since the previous check.' },
+      { id: 'attention_not_compared', tone: 'neutral', title: '1 project not compared', detail: 'Dune Spa. Its latest check had no comparable check before it.' },
       { id: 'attention_unread', tone: 'caution', title: '1 project couldn\'t be loaded', detail: 'Fir Hotel. Its changes are unknown.' },
     ])
   })

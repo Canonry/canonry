@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectOverviewDto, ProjectOverviewWhatChangedDto, RunDto } from '@canonry/canonry-contracts'
+import type { ProjectOverviewDto, ProjectOverviewWhatChangedDto, RunDto, RunsAttentionDto } from '@canonry/canonry-contracts'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
@@ -644,6 +644,13 @@ describe('canonry overview — human output', () => {
     expect(output).not.toContain('No mentions or citations changed')
   })
 
+  // A server before 7.123.0 reports losses only, so its quiet is "no losses", never "no change".
+  it('words the all-clear for losses only when the server reports no gains', async () => {
+    const { gainedMentions: _mentions, gainedCitations: _citations, ...older } = makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
+    expect((await captureOutput(makeOverview({ whatChanged: older }))).split('\n'))
+      .toContain('  What changed: No lost mentions or citations, and no runs in progress.')
+  })
+
   it('prints no What changed section from a server that predates it', async () => {
     output = await captureOutput(makeOverview())
     expect(output).not.toContain('What changed')
@@ -671,6 +678,8 @@ function makeWhatChanged(overrides: Partial<ProjectOverviewWhatChangedDto> = {})
       queries: [{ queryId: 'q_brand', query: 'demo reviews', queryClass: 'branded', providers: ['openai'], locations: ['florida'], properties: [], markets: [] }],
       truncated: false,
     },
+    gainedMentions: NOTHING_LOST,
+    gainedCitations: NOTHING_LOST,
     activeRuns: { count: 1, runIds: ['run_live'] },
     items: [
       { id: 'attention_p-1_lost_mentions', tone: 'negative', title: 'Demo lost mentions', detail: '3 queries lost a mention in the latest check.', actionLabel: 'Open project', href: '/projects/demo' },
@@ -693,29 +702,31 @@ describe('canonry overview --all — What changed', () => {
     cleanup()
   })
 
+  const QUIET_ACTIVITY: RunsAttentionDto = { since: '2026-08-10T00:00:00.000Z', items: [] }
+
   /**
-   * Serves the project list, each project's overview and the run list, as the
+   * Serves the project list, each project's overview and Activity, as the
    * server would. A project named in `failing` answers its overview read with
-   * that status; `runs` is what `GET /runs` returns (a status fails it).
+   * that status; `activity` is what `GET /runs/attention` returns (a status fails it).
    */
-  async function readAll(overviews: ProjectOverviewDto[], options: { failing?: Record<string, number>; format?: string; runs?: RunDto[] | number } = {}) {
+  async function readAll(overviews: ProjectOverviewDto[], options: { failing?: Record<string, number>; format?: string; activity?: RunsAttentionDto | number; args?: string[] } = {}) {
     const runRequests: URL[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.pathname === '/prefix/api/v1/projects') return Response.json(overviews.map(overview => overview.project))
-      if (url.pathname === '/prefix/api/v1/runs') {
+      if (url.pathname === '/prefix/api/v1/runs/attention') {
         runRequests.push(url)
-        const runs = options.runs ?? []
-        return typeof runs === 'number'
-          ? Response.json({ error: { code: 'INTERNAL_ERROR', message: 'Runs unavailable' } }, { status: runs })
-          : Response.json(runs)
+        const activity = options.activity ?? QUIET_ACTIVITY
+        return typeof activity === 'number'
+          ? Response.json({ error: { code: 'INTERNAL_ERROR', message: 'Runs unavailable' } }, { status: activity })
+          : Response.json(activity)
       }
       const overview = overviews.find(candidate => url.pathname === `/prefix/api/v1/projects/${candidate.project.name}/overview`)
       const status = overview && options.failing?.[overview.project.name]
       if (status) return Response.json({ error: { code: status >= 500 ? 'INTERNAL_ERROR' : 'NOT_FOUND', message: 'Overview unavailable' } }, { status })
       return overview ? Response.json(overview) : Response.json({ error: { code: 'NOT_FOUND', message: url.pathname } }, { status: 404 })
     }))
-    const result = await invokeCli(['overview', '--all', ...(options.format ? ['--format', options.format] : [])])
+    const result = await invokeCli(['overview', '--all', ...(options.args ?? []), ...(options.format ? ['--format', options.format] : [])])
     return { ...result, runRequests }
   }
 
@@ -732,7 +743,7 @@ describe('canonry overview --all — What changed', () => {
 
   const quiet = () => makeWhatChanged({ lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: { count: 0, runIds: [] }, items: [] })
   /** What follows What changed when no job needs a person. */
-  const NO_ACTIVITY = ['', 'Activity:', '  No failed or running jobs.', '']
+  const NO_ACTIVITY = ['', 'Activity:', '  No failed or running jobs since 2026-08-10.', '']
   const tableRows = (stdout: string) => stdout.split('\n').filter(line => /^ {2}(?:alpha|beta) /.test(line))
 
   it('lists every project\'s rows under the table, in project order', async () => {
@@ -813,37 +824,65 @@ describe('canonry overview --all — What changed', () => {
     return { projectId: 'id-alpha', trigger: 'scheduled', ...fields }
   }
 
-  it('prints the dashboard\'s Activity: each job\'s latest run that failed or is still working, from the same run window', async () => {
-    const result = await readAll([projectOverview('alpha', quiet()), projectOverview('beta', quiet())], {
-      runs: [
-        run({ id: 'run_ga_ok', kind: 'ga-sync', status: 'completed', createdAt: '2026-09-09T00:00:00.000Z' }),
-        run({ id: 'run_ga_failed', kind: 'ga-sync', status: 'failed', createdAt: '2026-09-08T00:00:00.000Z' }),
-        run({ id: 'run_gsc', kind: 'gsc-sync', status: 'failed', createdAt: '2026-09-07T00:00:00.000Z', error: { message: 'Search Console access was revoked.' } }),
-        run({ id: 'run_sweep', projectId: 'id-beta', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-10T00:00:00.000Z' }),
-        // Another key's project is not listed.
-        run({ id: 'run_other', projectId: 'id-hidden', kind: 'gsc-sync', status: 'failed', createdAt: '2026-09-11T00:00:00.000Z' }),
-      ],
-    })
+  /** The server's Activity for these tests: it has already picked each job's latest run. */
+  const ACTIVITY: RunsAttentionDto = {
+    since: '2026-08-10T00:00:00.000Z',
+    items: [
+      { project: { id: 'id-beta', name: 'beta', displayName: 'Beta Roofing' }, run: run({ id: 'run_sweep', projectId: 'id-beta', kind: 'answer-visibility', status: 'running', createdAt: '2026-09-10T00:00:00.000Z', location: 'florida' }) },
+      { project: { id: 'id-alpha', name: 'alpha', displayName: '' }, run: run({ id: 'run_gsc', kind: 'gsc-sync', status: 'failed', createdAt: '2026-09-07T00:00:00.000Z', error: { message: 'Search Console access was revoked.' } }) },
+    ],
+  }
+
+  it('prints the dashboard\'s Activity from GET /runs/attention, read with the same --since', async () => {
+    const result = await readAll([projectOverview('alpha', quiet()), projectOverview('beta', quiet())], { activity: ACTIVITY, args: ['--since', '2026-08-10T00:00:00.000Z'] })
     expect(result.exitCode).toBeUndefined()
     const lines = result.stdout.split('\n')
     expect(lines.slice(lines.indexOf('Activity:'))).toEqual([
       'Activity:',
-      '  beta · answer-visibility · running · 2026-09-10T00:00:00.000Z · run_sweep',
+      '  Beta Roofing · answer-visibility · florida · running · 2026-09-10T00:00:00.000Z · run_sweep',
       '  alpha · gsc-sync · failed · 2026-09-07T00:00:00.000Z · run_gsc',
       '    error: Search Console access was revoked.',
       '',
     ])
-    expect(result.runRequests.map(url => [url.searchParams.get('limit'), url.searchParams.getAll('excludeKinds').join(',')]))
-      .toEqual([['100', 'bing-inspect,traffic-sync']])
+    expect(result.runRequests.map(url => url.searchParams.get('since'))).toEqual(['2026-08-10T00:00:00.000Z'])
   })
 
-  it('says Activity couldn\'t be loaded without failing the overviews, and reads no runs for JSON', async () => {
-    const failed = await readAll([projectOverview('alpha', quiet())], { runs: 500 })
-    expect(failed.exitCode).toBeUndefined()
+  // Activity is part of the human report: an unread Activity is an incomplete
+  // report, exit 2 when a retry may help, like an unread overview.
+  it('says Activity couldn\'t be loaded and exits 2, and reads no Activity for JSON', async () => {
+    const failed = await readAll([projectOverview('alpha', quiet())], { activity: 500 })
     const lines = failed.stdout.split('\n')
     expect(lines.slice(lines.indexOf('Activity:'))).toEqual(['Activity:', '  Couldn\'t be loaded: Runs unavailable', ''])
+    expect(failed.stderr).toBe('Error: Activity couldn\'t be loaded: Runs unavailable')
+    expect(failed.exitCode).toBe(2)
 
     const json = await readAll([projectOverview('alpha', quiet())], { format: 'json' })
     expect(json.runRequests).toEqual([])
+  })
+
+  it('canonry activity prints the API response as JSON, and the same lines as overview --all as text', async () => {
+    const requests: URL[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      requests.push(url)
+      return url.pathname === '/prefix/api/v1/runs/attention'
+        ? Response.json(ACTIVITY)
+        : Response.json({ error: { code: 'NOT_FOUND', message: url.pathname } }, { status: 404 })
+    }))
+    const json = await invokeCli(['activity', '--since', '2026-08-10T00:00:00.000Z', '--format', 'json'])
+    expect(json.exitCode).toBeUndefined()
+    expect(JSON.parse(json.stdout)).toEqual(ACTIVITY)
+    expect(requests.map(url => [url.pathname, url.searchParams.get('since')])).toEqual([['/prefix/api/v1/runs/attention', '2026-08-10T00:00:00.000Z']])
+
+    const text = await invokeCli(['activity'])
+    expect(text.stdout.split('\n')).toEqual([
+      '',
+      'Activity (jobs that failed or are still running):',
+      '',
+      '  Beta Roofing · answer-visibility · florida · running · 2026-09-10T00:00:00.000Z · run_sweep',
+      '  alpha · gsc-sync · failed · 2026-09-07T00:00:00.000Z · run_gsc',
+      '    error: Search Console access was revoked.',
+      '',
+    ])
   })
 })

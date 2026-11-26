@@ -1780,7 +1780,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call project summary with latest run, health, insights and movement. whatChanged is the dashboard\'s "What changed": queries that lost a mention and queries that lost a citation in the latest check (each query once, mentions and citations counted apart, with engines, locations and Advanced Properties), runs in progress, and the rows the dashboard lists; comparison says when nothing could be compared. mentionCoverage preserves independent branded, non-brand and unknown answer populations with frozen Simple or Advanced selection; default headlines use non-brand. queryClassScope names legacy pooled fields, including scores.mention: never use those as class-specific coverage or as a fallback. Sentiment headline is sentiment.branded; non-brand exceptions remain separate. Read canonry_visibility_report for Property, group and market detail, canonry_run_preview for the next full manual sweep workload and admission, and canonry_run_completeness or canonry_measurement_data_quality for saved-run completeness. Run status and health are not a completeness check; canonry_doctor checks configuration and integrations, not sweeps. When the system prompt has no Project shape line, call canonry_measurement_plan_get before inferring the absence of an Advanced plan or Properties. Cited figures leave out answers whose engine returns no sources: `citationNotMeasured` / `queryCounts.citationNotMeasuredQueries` count them, and a cited rate with none measured is null, never 0. Filterable by location and time window.',
+    description: 'One-call project summary with latest run, health, insights and movement. whatChanged is the dashboard\'s "What changed": queries that lost a mention, lost a citation, gained a mention or gained a citation in the latest check (lostMentions, lostCitations, gainedMentions, gainedCitations; each query once per direction, mentions and citations counted apart, with engines, locations and Advanced Properties; a query can lose on one engine and gain on another), runs in progress, and the rows the dashboard lists, red for losses, positive for gains, toned by the larger count when both; comparison says when nothing could be compared. Servers before 7.123.0 send no gained fields. mentionCoverage preserves independent branded, non-brand and unknown answer populations with frozen Simple or Advanced selection; default headlines use non-brand. queryClassScope names legacy pooled fields, including scores.mention: never use those as class-specific coverage or as a fallback. Sentiment headline is sentiment.branded; non-brand exceptions remain separate. Read canonry_visibility_report for Property, group and market detail, canonry_run_preview for the next full manual sweep workload and admission, and canonry_run_completeness or canonry_measurement_data_quality for saved-run completeness. Run status and health are not a completeness check; canonry_doctor checks configuration and integrations, not sweeps. When the system prompt has no Project shape line, call canonry_measurement_plan_get before inferring the absence of an Advanced plan or Properties. Cited figures leave out answers whose engine returns no sources: `citationNotMeasured` / `queryCounts.citationNotMeasuredQueries` count them, and a cited rate with none measured is null, never 0. Filterable by location and time window.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
@@ -1999,6 +1999,19 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/runs'],
     handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds, input.since),
+  }),
+  defineTool({
+    name: 'canonry_activity',
+    title: 'Jobs needing attention',
+    description: "The dashboard's Overview Activity across every project the key can see: each job's latest run, kept when it failed, finished partly, was cancelled, or is still queued or running, newest first, with its project. A job is one project, run kind, location and source, with spot checks apart from full sweeps, so a newer run elsewhere never hides a failure. Probes and per-URL inspections are left out. `since` bounds the runs read (default 30 days ago); a job with no run since then is not listed. An empty list means nothing failed or is running in that window. Stored read: no provider calls.",
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: z.object({
+      since: z.string().optional().describe('Read runs created at or after this ISO 8601 timestamp. Defaults to 30 days ago.'),
+    }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/runs/attention'],
+    handler: (client, input) => client.getRunsAttention({ since: input.since }),
   }),
   defineTool({
     name: 'canonry_run_preview',

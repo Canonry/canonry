@@ -2,6 +2,7 @@ import type { OperationAccess } from '@canonry/canonry-contracts'
 import type { CliAccessContext, CliCommandSpec } from './cli-dispatch.js'
 
 const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freeze({
+  'activity': 'stored',
   'ads.account': 'live',
   'ads.activation-grant.create': 'write',
   'ads.activation-grant.revoke': 'write',

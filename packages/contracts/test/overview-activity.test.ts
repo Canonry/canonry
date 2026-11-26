@@ -45,6 +45,31 @@ describe('overviewActivityRuns', () => {
     expect(overviewActivityRuns([newer, older])).toEqual([])
   })
 
+  // `--all-locations` stores one run per location with the same createdAt and
+  // random ids, so a tie on time must never let one location hide another.
+  it('keeps each location apart, so a completed sibling never hides a failed one', () => {
+    const at = '2026-11-21T00:00:00.000Z'
+    const runs = [
+      run('z-michigan', { kind: 'answer-visibility', location: 'michigan', status: 'completed', createdAt: at }),
+      run('a-florida', { kind: 'answer-visibility', location: 'florida', status: 'failed', createdAt: at }),
+      run('m-texas', { kind: 'answer-visibility', location: 'texas', status: 'queued', createdAt: at }),
+    ]
+    expect(overviewActivityRuns(runs).map(row => row.id)).toEqual(['m-texas', 'a-florida'])
+  })
+
+  it('never lets a spot check or another source stand in for a failed job', () => {
+    const runs = [
+      run('sweep-failed', { kind: 'answer-visibility', status: 'failed', createdAt: '2026-11-20T00:00:00.000Z' }),
+      // A later spot check of two queries, and a later plan-scoped one, both completed.
+      run('spot-queries', { kind: 'answer-visibility', status: 'completed', createdAt: '2026-11-21T00:00:00.000Z', queries: ['best roofer'] }),
+      run('spot-scope', { kind: 'answer-visibility', status: 'completed', createdAt: '2026-11-22T00:00:00.000Z', measurementScope: { groups: ['metro'] } }),
+      // One traffic source failing while another syncs fine.
+      run('traffic-a', { kind: 'traffic-sync', sourceId: 'source-a', status: 'failed', createdAt: '2026-11-19T00:00:00.000Z' }),
+      run('traffic-b', { kind: 'traffic-sync', sourceId: 'source-b', status: 'completed', createdAt: '2026-11-22T00:00:00.000Z' }),
+    ]
+    expect(overviewActivityRuns(runs).map(row => row.id)).toEqual(['sweep-failed', 'traffic-a'])
+  })
+
   it('lists nothing when every job\'s latest run completed, or there are no runs', () => {
     expect(overviewActivityRuns([run('ok', { status: 'completed', createdAt: '2026-11-21T00:00:00.000Z' })])).toEqual([])
     expect(overviewActivityRuns([])).toEqual([])

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
+import { formatDate, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { SentimentOverviewMetric, showsSentimentOverview } from '../components/project/SentimentSection.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { CHECKING_HEALTH_SNAPSHOT, buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { CHECKING_HEALTH_SNAPSHOT, buildSystemHealthCards, serviceStatusTooltip, systemHealthNeedingAttention } from '../lib/health-helpers.js'
+import { isEmbed } from '../api.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { RunDetailLink } from '../components/shared/RunDetailLink.js'
@@ -165,17 +166,11 @@ export function OverviewPage() {
   const attentionItems = model.attentionItems
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
-  // Infrastructure shows only what needs a person: a service that is not
-  // healthy (not while it is still being checked), MCP that is unavailable, or
-  // no provider ready to run a sweep. Settings lists every service.
-  const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)
-    .flatMap(item => {
-      const serviceStatus = item.id === 'api' ? healthSnapshot.apiStatus : item.id === 'worker' ? healthSnapshot.workerStatus : undefined
-      const needsAttention = serviceStatus
-        ? serviceStatus.state !== 'ok' && serviceStatus.state !== 'checking'
-        : item.tone === 'negative' || item.tone === 'caution'
-      return needsAttention ? [{ item, serviceStatus }] : []
-    })
+  // Infrastructure shows only what needs a person; Settings lists every service.
+  const systemHealth = systemHealthNeedingAttention(
+    buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings),
+    healthSnapshot,
+  )
 
   return (
     <div className="page-container">
@@ -270,14 +265,17 @@ export function OverviewPage() {
                 <RunDetailLink key={run.id} run={run} projectName={model.projects.find(project => project.project.id === run.projectId)?.project.name} className="compact-run">
                   <div>
                     <p className="compact-run-title">{run.projectName}</p>
-                    <p className="compact-run-detail">{run.summary}</p>
+                    {/* Each location's sweep is its own job, so its row names the location. */}
+                    <p className="compact-run-detail">{run.location ? `${run.summary} · ${run.location}` : run.summary}</p>
                   </div>
                   <StatusBadge status={run.status} />
                 </RunDetailLink>
               ))
             ) : (
               <p className="supporting-copy">
-                No failed or running jobs. <Link to="/runs" className="text-link">All runs</Link>
+                {model.activitySince ? `No failed or running jobs since ${formatDate(model.activitySince)}.` : 'No failed or running jobs.'}
+                {/* An embed may not allow the Runs view. */}
+                {!isEmbed() && <> <Link to="/runs" className="text-link">All runs</Link></>}
               </p>
             )}
           </div>
@@ -291,7 +289,7 @@ export function OverviewPage() {
           </div>
         </div>
         <div className="divide-y divide-default border-y border-default">
-          {systemHealth.map(({ item, serviceStatus }) => {
+          {systemHealth.map(({ card: item, serviceStatus }) => {
             const visibleDetail = serviceStatus ? serviceStatusTooltip(serviceStatus) : item.meta
 
             return (

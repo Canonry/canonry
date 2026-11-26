@@ -38,7 +38,7 @@ const releases: { version: string; highlights: (audience: ReleaseAudience) => Re
     // Every dashboard shows Overview, hosted ones included.
     highlights: () => [{
       title: 'Overview shows gains too',
-      text: 'What changed now lists the queries that gained a mention or citation beside the ones that lost one, and names the projects that held steady. Activity shows only jobs that failed or are still running.',
+      text: 'What changed now counts the queries that gained a mention or citation beside the ones that lost one, and names the projects that held steady. Activity lists only jobs that failed, were stopped or are still running.',
     }],
   },
   {

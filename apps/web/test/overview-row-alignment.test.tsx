@@ -1,5 +1,5 @@
-import { aggregateSentiment } from '@canonry/canonry-contracts'
-import { beforeAll, expect, test } from 'vitest'
+import { aggregateSentiment, RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import { beforeAll, expect, onTestFinished, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
@@ -53,6 +53,10 @@ function statBlocks(row: Element): Element[] {
 
 function slotClasses(block: Element): string[] {
   return [...block.children].map((child) => child.getAttribute('class') ?? '')
+}
+
+function activityOf(doc: Document): Element {
+  return [...doc.querySelectorAll('h2')].find(node => node.textContent === 'Activity')!.closest('section')!
 }
 
 test('every project row has exactly two stat cells, each a three-slot label/value/caption block', async () => {
@@ -348,4 +352,39 @@ test('an unjudged branded score leaves no sentiment metric or grid slot, even wi
   expect(row.classList.contains('project-row-with-sentiment')).toBe(false)
   expect(statBlocks(row)).toHaveLength(2)
   expect(doc.querySelectorAll('[data-sentiment-placeholder]')).toHaveLength(0)
+})
+
+test('Activity\'s empty state names the window it read, and leaves out the Runs link in an embed', async () => {
+  const quiet = (fixture: ReturnType<typeof createDashboardFixture>) => {
+    fixture.dashboard.portfolioOverview.recentRuns = []
+    fixture.dashboard.portfolioOverview.activitySince = '2026-10-27T12:00:00.000Z'
+  }
+
+  const operator = activityOf(await renderOverview(quiet))
+  expect(operator.textContent).toContain('No failed or running jobs since Oct 27, 2026.')
+  expect([...operator.querySelectorAll('a')].map(link => link.textContent)).toEqual(['All runs'])
+
+  window.__CANONRY_CONFIG__ = { embed: { enabled: true } } as typeof window.__CANONRY_CONFIG__
+  onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
+  const embedded = activityOf(await renderOverview(quiet))
+  expect(embedded.textContent).toContain('No failed or running jobs since Oct 27, 2026.')
+  expect(embedded.querySelectorAll('a')).toHaveLength(0)
+})
+
+// Activity keeps each location's latest sweep as its own job, so a project can
+// list two sweeps; the location tells them apart, as on the Runs page.
+test('Activity names the location of each job that has one', async () => {
+  const doc = await renderOverview(fixture => {
+    const [run] = fixture.dashboard.portfolioOverview.recentRuns
+    fixture.dashboard.portfolioOverview.recentRuns = [
+      { ...run!, id: 'run_texas', location: 'texas', status: RunStatuses.running, summary: 'AI Visibility check in progress' },
+      { ...run!, id: 'run_michigan', location: 'michigan', status: RunStatuses.failed, summary: 'AI Visibility check failed' },
+      { ...run!, id: 'run_ga', kind: RunKinds['ga-sync'], location: null, status: RunStatuses.failed, summary: 'GA sync failed' },
+    ]
+  })
+  expect([...activityOf(doc).querySelectorAll('.compact-run-detail')].map(node => node.textContent)).toEqual([
+    'AI Visibility check in progress · texas',
+    'AI Visibility check failed · michigan',
+    'GA sync failed',
+  ])
 })

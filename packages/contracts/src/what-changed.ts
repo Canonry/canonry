@@ -17,6 +17,19 @@ export interface PortfolioWhatChangedItem {
 /** What a measured project with nothing to flag says, alone or across the portfolio. */
 export const WHAT_CHANGED_ALL_CLEAR_DETAIL = 'No mentions or citations changed, and no runs in progress.'
 
+/** The same, from a server before 7.123.0, which reports losses but never gains. */
+export const WHAT_CHANGED_NO_LOSSES_DETAIL = 'No lost mentions or citations, and no runs in progress.'
+
+/** Whether the server reported gains as well as losses; servers before 7.123.0 send no `gained*`. */
+export function whatChangedReportsGains(whatChanged: Pick<ProjectOverviewWhatChangedDto, 'gainedMentions' | 'gainedCitations'>): boolean {
+  return whatChanged.gainedMentions !== undefined && whatChanged.gainedCitations !== undefined
+}
+
+/** The all-clear line for one project's What changed: it claims no gains only when the server measured them. */
+export function whatChangedAllClearDetail(whatChanged: Pick<ProjectOverviewWhatChangedDto, 'gainedMentions' | 'gainedCitations'>): string {
+  return whatChangedReportsGains(whatChanged) ? WHAT_CHANGED_ALL_CLEAR_DETAIL : WHAT_CHANGED_NO_LOSSES_DETAIL
+}
+
 const ALL_CLEAR_ITEM: PortfolioWhatChangedItem = {
   id: 'attention_stable',
   tone: 'positive',
@@ -140,6 +153,17 @@ function unreadItem(labels: readonly string[]): PortfolioWhatChangedItem {
   }
 }
 
+/** Names the measured projects whose latest check had nothing comparable before it, so their quiet is not read as stable. */
+function notComparedItem(labels: readonly string[]): PortfolioWhatChangedItem {
+  const one = labels.length === 1
+  return {
+    id: 'attention_not_compared',
+    tone: 'neutral',
+    title: `${labels.length} ${one ? 'project' : 'projects'} not compared`,
+    detail: `${labels.join(', ')}. ${one ? 'Its' : 'Their'} latest check had no comparable check before it.`,
+  }
+}
+
 /** Names the projects compared with their previous check that changed on neither signal, so quiet reads as quiet. */
 function unchangedItem(labels: readonly string[]): PortfolioWhatChangedItem {
   const one = labels.length === 1
@@ -162,7 +186,7 @@ export interface PortfolioWhatChangedEntry {
   activeRuns?: number
 }
 
-/** A project's counts from its overview; a server before 7.123.0 reports no gains. */
+/** A project's counts from its overview. A server before 7.123.0 reports no gains, which count as none moved but unmeasured. */
 function entryCounts({ whatChanged, activeRuns }: PortfolioWhatChangedEntry): WhatChangedCounts {
   return {
     lostMentionQueries: whatChanged?.lostMentions.queryCount ?? 0,
@@ -173,13 +197,21 @@ function entryCounts({ whatChanged, activeRuns }: PortfolioWhatChangedEntry): Wh
   }
 }
 
+function countsTotal(counts: WhatChangedCounts): number {
+  return counts.lostMentionQueries + counts.gainedMentionQueries + counts.lostCitationQueries + counts.gainedCitationQueries + counts.activeRuns
+}
+
 /**
  * Overview's "What changed" across projects: every project's rows, in the
- * order the projects are given, then one row naming the projects that were
- * compared with their previous check and did not change, then one naming any
- * project whose overview could not be read. Only when every project was read
- * and none has a row does one status row stand in: all clear once any project
- * has a completed check, awaiting the first measurement before that.
+ * order the projects are given; then one row naming the projects compared
+ * with their previous check that changed on neither signal; one naming the
+ * measured projects whose latest check could not be compared; and one naming
+ * any project whose overview could not be read. A project is called unchanged
+ * only when its server measured gains too (7.123.0 and later).
+ *
+ * When every project was read, none has a row, and every measured project was
+ * compared, one status row stands in: all clear, worded for what the servers
+ * measured; awaiting the first measurement when nothing was measured yet.
  *
  * Shared by the dashboard and `canonry overview --all`, so both list the same rows.
  */
@@ -188,18 +220,23 @@ export function portfolioWhatChangedItems(entries: readonly PortfolioWhatChanged
   const counted = entries.map(entry => ({ entry, counts: entryCounts(entry) }))
   const items: PortfolioWhatChangedItem[] = counted.flatMap(({ entry, counts }) => whatChangedProjectItems(entry.project, counts))
   const unread = entries.filter(entry => entry.whatChanged === null).map(entry => projectLabel(entry.project))
+  const measured = counted.flatMap(({ entry, counts }) => entry.whatChanged?.latestCheck ? [{ entry, whatChanged: entry.whatChanged, counts }] : [])
+  const compared = measured.filter(({ whatChanged }) => whatChanged.comparison.state === 'available')
+  const quiet = compared.filter(({ counts }) => countsTotal(counts) === 0)
   if (items.length === 0 && unread.length === 0) {
-    return [entries.some(entry => entry.whatChanged?.latestCheck) ? { ...ALL_CLEAR_ITEM } : { ...AWAITING_ITEM }]
+    if (measured.length === 0) return [{ ...AWAITING_ITEM }]
+    if (quiet.length === measured.length) {
+      const allReportGains = measured.every(({ whatChanged }) => whatChangedReportsGains(whatChanged))
+      return [{ ...ALL_CLEAR_ITEM, detail: allReportGains ? WHAT_CHANGED_ALL_CLEAR_DETAIL : WHAT_CHANGED_NO_LOSSES_DETAIL }]
+    }
   }
-  // Only a project actually compared can be called unchanged: one with no
-  // previous check, or one compared under another definition, says nothing.
-  const unchanged = counted
-    .filter(({ entry, counts }) => entry.whatChanged?.comparison.state === 'available'
-      && counts.lostMentionQueries + counts.gainedMentionQueries + counts.lostCitationQueries + counts.gainedCitationQueries + counts.activeRuns === 0)
-    .map(({ entry }) => projectLabel(entry.project))
+  // Unchanged needs a comparison that measured gains as well as losses.
+  const unchanged = quiet.filter(({ whatChanged }) => whatChangedReportsGains(whatChanged)).map(({ entry }) => projectLabel(entry.project))
+  const notCompared = measured.filter(({ whatChanged }) => whatChanged.comparison.state !== 'available').map(({ entry }) => projectLabel(entry.project))
   return [
     ...items,
     ...(unchanged.length > 0 ? [unchangedItem(unchanged)] : []),
+    ...(notCompared.length > 0 ? [notComparedItem(notCompared)] : []),
     ...(unread.length > 0 ? [unreadItem(unread)] : []),
   ]
 }
