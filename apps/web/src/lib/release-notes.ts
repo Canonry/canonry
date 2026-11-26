@@ -16,9 +16,11 @@ export interface ReleaseAudience {
   whatsNewOnly: boolean
   /** The signed-in viewer has general write authority. */
   canWrite: boolean
+  /** The operator lets the dashboard point to product feedback (`dashboard.showFeedback`). */
+  showFeedback: boolean
 }
 
-const SELF_HOSTED_OPERATOR: ReleaseAudience = { showResourceLinks: true, whatsNewOnly: false, canWrite: true }
+const SELF_HOSTED_OPERATOR: ReleaseAudience = { showResourceLinks: true, whatsNewOnly: false, canWrite: true, showFeedback: true }
 
 export interface ReleaseNotes {
   version: string
@@ -29,10 +31,11 @@ export interface ReleaseNotes {
 const releases: { version: string; highlights: (audience: ReleaseAudience) => ReleaseHighlight[] }[] = [
   {
     version: '7.122.0',
-    // Sending feedback needs write authority, and hosted customers have no CLI.
-    highlights: ({ whatsNewOnly, canWrite }) => !whatsNewOnly && canWrite ? [{
+    // Sending feedback needs write authority, hosted customers have no CLI, and
+    // an operator who hid feedback (`dashboard.showFeedback: false`) gets no pointer to it.
+    highlights: ({ whatsNewOnly, canWrite, showFeedback }) => !whatsNewOnly && canWrite && showFeedback ? [{
       title: 'Send feedback from your agent',
-      text: 'Ask your AI agent to send feedback to the Canonry team, or run this in a terminal. It replaces the Feedback button. API keys are removed before anything is sent.',
+      text: 'Ask your AI agent to send feedback to the Canonry team, or run this in a terminal. It replaces the Feedback button, and API keys are removed before anything is sent.',
       command: 'canonry feedback "what happened"',
     }] : [],
   },

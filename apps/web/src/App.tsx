@@ -32,6 +32,7 @@ import { viewerRoleLabel,
   heyClient,
   shouldShowDashboardAgentBar,
   shouldShowDashboardCommunityLinks,
+  shouldShowDashboardFeedback,
   shouldShowDashboardResourceLinks,
   shouldShowDashboardUpdateNotification,
   signOutOfAccount,
@@ -311,6 +312,7 @@ export function RootLayout() {
   // render. The server-side embed tab policy intentionally blocks /settings.
   const embed = useMemo(() => getEmbedConfig(), [])
   const resourceLinksVisible = useMemo(shouldShowDashboardResourceLinks, [])
+  const feedbackPointersVisible = useMemo(shouldShowDashboardFeedback, [])
   const communityLinksVisible = useMemo(shouldShowDashboardCommunityLinks, [])
   const deploymentServesAgentBar = useMemo(shouldShowDashboardAgentBar, [])
   // Two independent conditions: the deployment still serves the agent at all,
@@ -838,13 +840,14 @@ export function RootLayout() {
           <div className="topbar-actions">
             {updateNotificationVisible && documentBuild ? (
               <ReleaseNotesBadge
-                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible, whatsNewOnly, canWrite])}
+                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible, whatsNewOnly, canWrite, feedbackPointersVisible])}
                 storageKey={updateNoticeKey}
                 availableUpdate={availableUpdateBadge}
                 build={documentBuild}
                 showResourceLinks={resourceLinksVisible}
                 whatsNewOnly={whatsNewOnly}
                 canWrite={canWrite}
+                showFeedback={feedbackPointersVisible}
               />
             ) : availableUpdateBadge}
             <ThemeSelector />

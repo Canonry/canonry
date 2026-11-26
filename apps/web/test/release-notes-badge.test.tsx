@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, expect, it } from 'vitest'
 import { ReleaseNotesBadge } from '../src/components/layout/ReleaseNotesBadge.js'
 
-const props = { storageKey: 'release-notes-test', showResourceLinks: true, whatsNewOnly: false, canWrite: true }
+const props = { storageKey: 'release-notes-test', showResourceLinks: true, whatsNewOnly: false, canWrite: true, showFeedback: true }
 const current = { version: '7.117.0' }
 const patch = { version: '7.117.1' }
 const unread = 'What’s new, unread release notes'

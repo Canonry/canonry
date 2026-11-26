@@ -66,7 +66,7 @@ describe('startDaemon', () => {
   it('launches the CLI entry with the resolved endpoint and terminates an unready child', async () => {
     const { startDaemon } = await import('../src/commands/daemon.js')
 
-    const started = startDaemon({ format: 'json' })
+    const started = startDaemon({ format: 'json', hideFeedback: true })
     const rejected = expect(started).rejects.toMatchObject({
       code: 'DAEMON_START_TIMEOUT',
       details: { host: '127.0.0.1', port: '4750', pid: 4242 },
@@ -83,7 +83,7 @@ describe('startDaemon', () => {
     const args = mocks.spawn.mock.calls[0]?.[1] as string[]
     expect(mocks.spawn).toHaveBeenCalledOnce()
     expect(mocks.spawn.mock.calls[0]?.[0]).toBe(process.execPath)
-    expect(args).toEqual([...process.execArgv, process.argv[1], 'serve', '--port', '4750', '--host', '127.0.0.1'])
+    expect(args).toEqual([...process.execArgv, process.argv[1], 'serve', '--port', '4750', '--host', '127.0.0.1', '--hide-feedback'])
     expect(mocks.kill).toHaveBeenCalledWith('SIGTERM')
     expect(fs.existsSync(path.join(mocks.configDir, 'canonry.pid'))).toBe(false)
   })

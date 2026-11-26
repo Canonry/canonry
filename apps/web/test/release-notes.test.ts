@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { availableReleaseNotes, type ReleaseAudience } from '../src/lib/release-notes.js'
 
-const operator: ReleaseAudience = { showResourceLinks: true, whatsNewOnly: false, canWrite: true }
+const operator: ReleaseAudience = { showResourceLinks: true, whatsNewOnly: false, canWrite: true, showFeedback: true }
 const discord = {
   version: '7.117.0',
   highlights: [expect.objectContaining({
@@ -12,7 +12,7 @@ const feedback = {
   version: '7.122.0',
   highlights: [{
     title: 'Send feedback from your agent',
-    text: 'Ask your AI agent to send feedback to the Canonry team, or run this in a terminal. It replaces the Feedback button. API keys are removed before anything is sent.',
+    text: 'Ask your AI agent to send feedback to the Canonry team, or run this in a terminal. It replaces the Feedback button, and API keys are removed before anything is sent.',
     command: 'canonry feedback "what happened"',
   }],
 }
@@ -36,8 +36,10 @@ it('shows each note only to readers who can act on it', () => {
   expect(availableReleaseNotes('7.122.0', { ...operator, whatsNewOnly: true })).toEqual([discord])
   // Sending feedback needs write authority.
   expect(availableReleaseNotes('7.122.0', { ...operator, canWrite: false })).toEqual([discord])
+  // An operator who hid feedback (`dashboard.showFeedback: false`) gets no pointer to it.
+  expect(availableReleaseNotes('7.122.0', { ...operator, showFeedback: false })).toEqual([discord])
   expect(availableReleaseNotes('7.122.0', { ...operator, showResourceLinks: false })).toEqual([feedback])
-  expect(availableReleaseNotes('7.122.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: true })).toEqual([])
+  expect(availableReleaseNotes('7.122.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: true, showFeedback: true })).toEqual([])
 })
 
 it('excludes future, malformed or inapplicable release highlights', () => {

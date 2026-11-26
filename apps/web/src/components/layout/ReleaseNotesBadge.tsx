@@ -28,7 +28,7 @@ function browserStorage(): Storage | undefined {
   try { return window.localStorage } catch { return undefined }
 }
 
-export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsNewOnly, canWrite, availableUpdate }: {
+export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsNewOnly, canWrite, showFeedback, availableUpdate }: {
   build: { version: string }
   storageKey: string
   availableUpdate?: ReactNode
@@ -36,10 +36,10 @@ export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsN
   const [notes, setNotes] = useState<ReturnType<typeof observeReleaseNotes>>({ releases: [], unread: false })
   const [opened, setOpened] = useState<ReleaseNotes[] | null>(null)
   const { version } = build
-  const audience: ReleaseAudience = { showResourceLinks, whatsNewOnly, canWrite }
+  const audience: ReleaseAudience = { showResourceLinks, whatsNewOnly, canWrite, showFeedback }
 
   useEffect(() => {
-    const reader: ReleaseAudience = { showResourceLinks, whatsNewOnly, canWrite }
+    const reader: ReleaseAudience = { showResourceLinks, whatsNewOnly, canWrite, showFeedback }
     const refresh = () => setNotes(observeReleaseNotes(browserStorage(), storageKey, version, reader))
     function sync(event: StorageEvent) {
       if (event.key === null || event.key === storageKey || event.key.startsWith(storageKey + ':')) refresh()
@@ -47,7 +47,7 @@ export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsN
     refresh()
     window.addEventListener('storage', sync)
     return () => window.removeEventListener('storage', sync)
-  }, [version, storageKey, showResourceLinks, whatsNewOnly, canWrite])
+  }, [version, storageKey, showResourceLinks, whatsNewOnly, canWrite, showFeedback])
 
   if (!opened && availableUpdate) return <>{availableUpdate}</>
   if (!notes.releases.length) return null

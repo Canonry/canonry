@@ -281,7 +281,7 @@ test('loadConfig accepts a legacy blank showUpdateNotification value', () => {
   expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(original)
 })
 
-test.each(['whatsNewOnly'] as const)('loadConfig accepts booleans and blank values for dashboard.%s and rejects a quoted boolean', key => {
+test.each(['whatsNewOnly', 'showFeedback'] as const)('loadConfig accepts booleans and blank values for dashboard.%s and rejects a quoted boolean', key => {
   for (const value of [true, false, null]) {
     const configured = baseConfig({ dashboard: { [key]: value } })
     fs.writeFileSync(getConfigPath(), stringify(configured))

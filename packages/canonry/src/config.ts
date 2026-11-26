@@ -415,9 +415,9 @@ export interface DashboardConfigEntry {
   showResourceLinks?: boolean
 
   /**
-   * @deprecated No effect. The dashboard no longer has a feedback form; send
-   * feedback with `canonry feedback` or the `canonry_feedback` MCP tool. Kept
-   * so existing config files still load.
+   * Whether the dashboard points people to product feedback, such as the
+   * What's new note about `canonry feedback`. Defaults to true. The dashboard
+   * has no feedback form; feedback goes through the CLI and MCP.
    */
   showFeedback?: boolean | null
 
@@ -755,12 +755,14 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
       message: `Invalid config at ${configPath}: dashboard.managedSweeps must be true, false, or left blank.`,
     })
   }
-  const whatsNewOnly = parsed.dashboard?.whatsNewOnly
-  if (whatsNewOnly != null && typeof whatsNewOnly !== 'boolean') {
-    throw new CliError({
-      code: 'CONFIG_INVALID',
-      message: `Invalid config at ${configPath}: dashboard.whatsNewOnly must be true, false, or left blank.`,
-    })
+  for (const key of ['whatsNewOnly', 'showFeedback'] as const) {
+    const value = parsed.dashboard?.[key]
+    if (value != null && typeof value !== 'boolean') {
+      throw new CliError({
+        code: 'CONFIG_INVALID',
+        message: `Invalid config at ${configPath}: dashboard.${key} must be true, false, or left blank.`,
+      })
+    }
   }
   if (!researchAllowViewersSchema.safeParse(parsed.research?.allowViewers).success) {
     throw new CliError({

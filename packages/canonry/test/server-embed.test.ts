@@ -22,6 +22,7 @@ const EMBED_ENV = [
   'CANONRY_EMBED_PROJECT_TABS',
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD',
   'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
+  'CANONRY_DASHBOARD_SHOW_FEEDBACK',
   'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP',
   'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION',
   'CANONRY_DASHBOARD_WHATS_NEW_ONLY',
@@ -321,6 +322,21 @@ describe('server embed mode (#716)', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
       expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { showResourceLinks: false } })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    { configured: false, env: undefined, expected: { showFeedback: false } },
+    { configured: true, env: '0', expected: { showFeedback: false } },
+    { configured: false, env: '1', expected: undefined },
+  ])('serves the feedback form setting on direct Settings visits with config=$configured env=$env', async ({ configured, env, expected }) => {
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK = env
+    const { app, cleanup } = await buildServer(undefined, true, { dashboard: { showFeedback: configured } })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/settings' })
+      expect(injectedConfig(res.body).dashboard).toEqual(expected)
     } finally {
       await cleanup()
     }
