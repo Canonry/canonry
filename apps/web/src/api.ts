@@ -339,6 +339,7 @@ export function shouldShowDashboardResourceLinks(): boolean {
   return window.__CANONRY_CONFIG__?.dashboard?.showResourceLinks !== false
 }
 
+/** Whether the operator lets the dashboard point to product feedback (`dashboard.showFeedback`). */
 export function shouldShowDashboardFeedback(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showFeedback !== false

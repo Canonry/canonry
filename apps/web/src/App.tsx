@@ -32,6 +32,7 @@ import { viewerRoleLabel,
   heyClient,
   shouldShowDashboardAgentBar,
   shouldShowDashboardCommunityLinks,
+  shouldShowDashboardFeedback,
   shouldShowDashboardResourceLinks,
   shouldShowDashboardUpdateNotification,
   signOutOfAccount,
@@ -66,7 +67,6 @@ import { Badge } from './components/ui/badge.js'
 import { BrandLockup } from './components/shared/BrandLockup.js'
 import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { ThemeSelector } from './components/shared/ThemeSelector.js'
-import { FeedbackPanel } from './components/shared/FeedbackPanel.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { FooterLinks } from './components/layout/FooterLinks.js'
@@ -312,6 +312,7 @@ export function RootLayout() {
   // render. The server-side embed tab policy intentionally blocks /settings.
   const embed = useMemo(() => getEmbedConfig(), [])
   const resourceLinksVisible = useMemo(shouldShowDashboardResourceLinks, [])
+  const feedbackPointersVisible = useMemo(shouldShowDashboardFeedback, [])
   const communityLinksVisible = useMemo(shouldShowDashboardCommunityLinks, [])
   const deploymentServesAgentBar = useMemo(shouldShowDashboardAgentBar, [])
   // Two independent conditions: the deployment still serves the agent at all,
@@ -839,15 +840,16 @@ export function RootLayout() {
           <div className="topbar-actions">
             {updateNotificationVisible && documentBuild ? (
               <ReleaseNotesBadge
-                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible])}
+                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible, whatsNewOnly, canWrite, feedbackPointersVisible])}
                 storageKey={updateNoticeKey}
                 availableUpdate={availableUpdateBadge}
                 build={documentBuild}
                 showResourceLinks={resourceLinksVisible}
                 whatsNewOnly={whatsNewOnly}
+                canWrite={canWrite}
+                showFeedback={feedbackPointersVisible}
               />
             ) : availableUpdateBadge}
-            <FeedbackPanel />
             <ThemeSelector />
             <TaskCenter />
             {(<Dialog.Trigger asChild>
