@@ -209,7 +209,6 @@ declare global {
       /** Present only when dashboard chrome differs from its defaults. */
       dashboard?: {
         showResourceLinks?: boolean
-        showFeedback?: boolean
         managedInstance?: boolean
         showLocalAgentSetup?: boolean
         showUpdateNotification?: boolean
@@ -337,11 +336,6 @@ export function getEmbedConfig(): EmbedClientConfig | null {
 export function shouldShowDashboardResourceLinks(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showResourceLinks !== false
-}
-
-export function shouldShowDashboardFeedback(): boolean {
-  if (typeof window === 'undefined') return true
-  return window.__CANONRY_CONFIG__?.dashboard?.showFeedback !== false
 }
 
 export function isManagedDashboard(): boolean {

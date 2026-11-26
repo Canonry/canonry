@@ -80,7 +80,6 @@ export interface ServeForwardOpts {
   port?: string
   host?: string
   basePath?: string
-  hideFeedback?: boolean
   /** Embed mode (#716) — chromeless render + frame-ancestors framing. */
   embed?: boolean
   embedAllowOrigins?: string[]
@@ -122,7 +121,6 @@ export function buildServeForwardArgs(opts: ServeForwardOpts): string[] {
   if (opts.port) args.push('--port', opts.port)
   if (opts.host) args.push('--host', opts.host)
   if (opts.basePath) args.push('--base-path', opts.basePath)
-  if (opts.hideFeedback) args.push('--hide-feedback')
   if (opts.embed) {
     args.push('--embed')
     for (const origin of opts.embedAllowOrigins ?? []) args.push('--embed-allow-origin', origin)

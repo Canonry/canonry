@@ -1188,4 +1188,4 @@ the existing UI event limits and consent path; a lost final checkpoint undercoun
 
 ### Product feedback
 
-`components/shared/FeedbackPanel.tsx` is the shared topbar feedback entry point. It uses the existing generated feedback mutation, a non-modal anchored panel, and an in-memory draft that survives dismissal and route changes. Set `dashboard.showFeedback` to `false` to hide the form and its Settings entry point. Both are also hidden for embeds, public demos, and credentials without general write authority. Only confirmed delivery clears the draft and records `feedback.submit`; message text never enters usage telemetry. Feedback includes a route pattern, never a concrete path or project name. No automatic retries or browser-storage drafts.
+The dashboard has no feedback form. Product feedback goes through `canonry feedback` and the `canonry_feedback` MCP tool, both of which call `POST /api/v1/feedback`. Don't add a dashboard entry point back without a product decision. The `feedback.submit` UI action stays in the telemetry contract so dashboards still open in older tabs keep validating.

@@ -66,7 +66,6 @@ import { Badge } from './components/ui/badge.js'
 import { BrandLockup } from './components/shared/BrandLockup.js'
 import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { ThemeSelector } from './components/shared/ThemeSelector.js'
-import { FeedbackPanel } from './components/shared/FeedbackPanel.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { FooterLinks } from './components/layout/FooterLinks.js'
@@ -847,7 +846,6 @@ export function RootLayout() {
                 whatsNewOnly={whatsNewOnly}
               />
             ) : availableUpdateBadge}
-            <FeedbackPanel />
             <ThemeSelector />
             <TaskCenter />
             {(<Dialog.Trigger asChild>

@@ -12,7 +12,6 @@ function applyServerEnv(values: CliValues): void {
   if (port) process.env.CANONRY_PORT = port
   if (host) process.env.CANONRY_HOST = host
   if (basePath) process.env.CANONRY_BASE_PATH = basePath
-  if (getBoolean(values, 'hide-feedback')) process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK = '0'
 
   // Embed mode (#716). Each var is guarded on presence so an unset flag never
   // clobbers an inherited env value (mirrors the basePath handling above).
@@ -119,11 +118,12 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['serve'],
-    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--hide-feedback] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
+    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
       'base-path': stringOption(),
+      // Retired: the dashboard no longer has a feedback form. Still accepted so existing service files start.
       'hide-feedback': { type: 'boolean' },
       embed: { type: 'boolean', default: false },
       'embed-allow-origin': multiStringOption(),
@@ -139,11 +139,12 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['start'],
-    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--hide-feedback] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
+    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
       'base-path': stringOption(),
+      // Retired: the dashboard no longer has a feedback form. Still accepted so existing service files start.
       'hide-feedback': { type: 'boolean' },
       embed: { type: 'boolean', default: false },
       'embed-allow-origin': multiStringOption(),
@@ -156,7 +157,6 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         port: getString(input.values, 'port'),
         host: getString(input.values, 'host'),
         basePath: getString(input.values, 'base-path'),
-        hideFeedback: getBoolean(input.values, 'hide-feedback'),
         embed: getBoolean(input.values, 'embed'),
         embedAllowOrigins: getStringArray(input.values, 'embed-allow-origin'),
         embedViews: getStringArray(input.values, 'embed-view'),

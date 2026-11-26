@@ -72,14 +72,14 @@ interface SettingsRow {
   host?: string
   url?: string
   prefix?: string
-  hideFeedback?: boolean
   embed?: typeof ON | typeof LIMITED | typeof TABBED
   csp?: string
   expectedEnv?: Record<string, string>
 }
 const SETTINGS: SettingsRow[] = [
   { id: 'default-json', port: 4100 },
-  { id: 'hide-feedback-overrides-env', args: ['--hide-feedback'], env: { CANONRY_DASHBOARD_SHOW_FEEDBACK: '1' }, port: 4100, hideFeedback: true },
+  // The retired feedback switches still start the server and add nothing to the dashboard document.
+  { id: 'retired-feedback-switches', args: ['--hide-feedback'], env: { CANONRY_DASHBOARD_SHOW_FEEDBACK: '0' }, config: { dashboard: { showFeedback: false } }, port: 4100 },
   { id: 'default-jsonl', args: ['--format', 'jsonl'], port: 4100 },
   { id: 'inherited-port', env: { CANONRY_PORT: '4101' }, port: 4101, expectedEnv: { CANONRY_PORT: '4101' } },
   { id: 'env-before-config-port', env: { CANONRY_PORT: '4101' }, config: { port: 5000 }, port: 4101, expectedEnv: { CANONRY_PORT: '4101' } },
@@ -235,8 +235,7 @@ it.each(SETTINGS)('CLI serve resolves settings: $id', async row => {
   expect(script).toBeDefined()
   if (script === undefined) throw new Error('Expected native client configuration')
   const browserConfig: unknown = JSON.parse(script)
-  if (row.hideFeedback) expect(browserConfig).toHaveProperty('dashboard.showFeedback', false)
-  else expect(browserConfig).not.toHaveProperty('dashboard.showFeedback')
+  expect(browserConfig).not.toHaveProperty('dashboard.showFeedback')
   if (row.prefix) expect(browserConfig).toHaveProperty('basePath', `${row.prefix}/`)
   else expect(browserConfig).not.toHaveProperty('basePath')
   if (row.embed) expect(browserConfig).toHaveProperty('embed', row.embed)
