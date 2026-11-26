@@ -361,7 +361,7 @@ export interface ProjectOverviewDto {
   providerScores: ProjectOverviewProviderScoreDto[]
   /** Insight echoes and server hints for the project page. Overview's "What changed" reads `whatChanged`. */
   attentionItems: AttentionItemDto[]
-  /** Lost mentions and lost citations in the latest check, one per query, and runs in progress.
+  /** Lost and gained mentions and citations in the latest check, one per query and direction, and runs in progress.
    * Optional only for older servers. */
   whatChanged?: ProjectOverviewWhatChangedDto
   runHistory: RunHistoryPointDto[]
@@ -521,7 +521,7 @@ const attentionItemSchema = z.object({
 /** The most queries each What changed list names. `queryCount` is always the full count. */
 export const OVERVIEW_WHAT_CHANGED_QUERY_LIMIT = 25
 
-/** Why the latest check has no comparison, so nothing in it can count as lost. */
+/** Why the latest check has no comparison, so nothing in it can count as lost or gained. */
 export const OVERVIEW_WHAT_CHANGED_UNAVAILABLE_REASONS = [
   /** No completed check yet. */
   'not-measured',
@@ -539,27 +539,27 @@ export const OVERVIEW_WHAT_CHANGED_UNAVAILABLE_REASONS = [
   'unreadable',
 ] as const
 
-/** One query that lost a signal in the latest check, and where it lost it. */
+/** One query that lost or gained a signal in the latest check, and where. */
 export const overviewWhatChangedQuerySchema = z.object({
   /** The tracked query's id (Simple) or the plan's query id (Advanced). */
   queryId: z.string().nullable(),
   query: z.string(),
   /** The server's class for the query; null when it has no single class. */
   queryClass: queryClassSchema.nullable(),
-  /** Answer engines whose answer lost the signal. */
+  /** Answer engines whose answer lost (or gained) the signal. */
   providers: z.array(z.string()),
   /** Locations of those answers; null is an answer measured without a location. */
   locations: z.array(z.string().nullable()),
-  /** Advanced: the Properties that lost the signal on this query. Always empty for Simple. */
+  /** Advanced: the Properties that lost (or gained) the signal on this query. Always empty for Simple. */
   properties: z.array(z.object({ key: z.string(), label: z.string() })),
-  /** Advanced: the frozen markets of the answers that lost it. Always empty for Simple. */
+  /** Advanced: the frozen markets of those answers. Always empty for Simple. */
   markets: z.array(z.object({ key: z.string(), label: z.string() })),
 })
 export type OverviewWhatChangedQueryDto = z.output<typeof overviewWhatChangedQuerySchema>
 
-/** One signal's losses. Mentions and citations are counted apart; neither is read from the other. */
+/** One signal's losses or gains. Mentions and citations are counted apart; neither is read from the other. */
 export const overviewWhatChangedSignalSchema = z.object({
-  /** Distinct queries that lost the signal in at least one answer of the latest check. */
+  /** Distinct queries that lost (or gained) the signal in at least one answer of the latest check. */
   queryCount: z.number().int().nonnegative(),
   /** At most `OVERVIEW_WHAT_CHANGED_QUERY_LIMIT` of those queries, in query text order. */
   queries: z.array(overviewWhatChangedQuerySchema),
@@ -582,15 +582,17 @@ export const overviewWhatChangedComparisonSchema = z.discriminatedUnion('state',
 export type OverviewWhatChangedComparisonDto = z.output<typeof overviewWhatChangedComparisonSchema>
 
 /**
- * Overview's "What changed": the latest check's lost mentions and lost
- * citations, one per query, and the AI Visibility runs in progress. Simple
+ * Overview's "What changed": the latest check's lost and gained mentions and
+ * citations, one per query, and the AI Visibility runs in progress. A query can
+ * lose a signal on one answer and gain it on another, so it can count in both
+ * directions. Simple
  * compares each engine's answer with that engine's previous check of the same
  * query and location. Advanced compares each Property's answer with the
  * comparable previous sweep, as the visibility report's change does.
  */
 export const projectOverviewWhatChangedSchema = z.object({
   mode: z.enum(['simple', 'advanced']),
-  /** The completed check the lost signals read; null before the first one. */
+  /** The completed check the changes read; null before the first one. */
   latestCheck: z.object({
     runIds: z.array(z.string()).min(1),
     createdAt: z.string(),
@@ -598,6 +600,10 @@ export const projectOverviewWhatChangedSchema = z.object({
   comparison: overviewWhatChangedComparisonSchema,
   lostMentions: overviewWhatChangedSignalSchema,
   lostCitations: overviewWhatChangedSignalSchema,
+  /** Queries with an answer not mentioned in the previous check and mentioned now. Absent from servers before 7.123.0. */
+  gainedMentions: overviewWhatChangedSignalSchema.optional(),
+  /** Queries with an answer not cited in the previous check and cited now. Absent from servers before 7.123.0. */
+  gainedCitations: overviewWhatChangedSignalSchema.optional(),
   /** Queued and running AI Visibility runs, probes left out. */
   activeRuns: z.object({
     count: z.number().int().nonnegative(),

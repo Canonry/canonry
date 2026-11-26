@@ -180,6 +180,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/run-preview': 'included',
   'GET /api/v1/projects/{name}/setup': 'included',
   'GET /api/v1/runs': 'deferred',
+  'GET /api/v1/runs/attention': 'included',
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',
   'POST /api/v1/runs/{id}/cancel': 'included',

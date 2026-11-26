@@ -58,10 +58,12 @@ Users usually arrive to answer four questions, in this order:
 - Scope Advanced Measurement competitor landscapes to the selected market.
   Aggregate all markets from raw evidence, never by averaging market rates.
 - Use truthful readiness, empty, loading, success, and failure states.
-- Portfolio Activity includes bulk jobs across projects, including sweeps,
-  audits, backlink extractions, discovery, sitemap inspections, and syncs.
-  Traffic pulls and single-URL inspections stay out before the five-job limit;
-  read-only embeds retain sweep-only history.
+- Portfolio Activity lists the jobs that need a person: each job's latest run
+  (sweeps, audits, backlink extractions, discovery, sitemap inspections and
+  syncs, traffic pulls included) when it failed, finished partly, was cancelled
+  or is still running, from `GET /runs/attention`. A job that failed and then
+  succeeded drops off; single-URL inspections stay out. Read-only embeds keep
+  the same rule over their sweep-only history.
 - Prefer familiar product controls over invented interactions.
 - Successful browser writes update the affected views without a page reload.
 

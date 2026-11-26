@@ -76,6 +76,7 @@ import type {
   ProjectUpsertRequest,
   ProjectPatchRequest,
   RunDto,
+  RunsAttentionDto,
   RunDetailDto,
   MeasurementPlanInput,
   MeasurementPlanCompilePreviewResponse,
@@ -417,6 +418,7 @@ import {
   postApiV1ProjectsByNameResultsClear,
   postApiV1ProjectsByNameRuns,
   getApiV1ProjectsByNameRunsLatest,
+  getApiV1RunsAttention,
   getApiV1RunsById,
   postApiV1RunsByIdCancel,
   postApiV1RunsByIdFill,
@@ -2514,6 +2516,15 @@ export class ApiClient {
         query: { limit, kind, status, excludeKind, excludeKinds, since } as GetApiV1ProjectsByNameRunsData['query'],
       }),
     )
+  }
+
+  /**
+   * Overview's Activity (`GET /runs/attention`): each job's latest run that
+   * failed, finished partly, was cancelled, or is still queued or running,
+   * across the projects the key can see. `since` defaults to 30 days ago.
+   */
+  async getRunsAttention(query: { since?: string } = {}): Promise<RunsAttentionDto> {
+    return this.invoke<RunsAttentionDto>(() => getApiV1RunsAttention({ client: this.heyClient, query: { since: query.since } }))
   }
 
   async previewRun(project: string): Promise<RunPreviewDto> {

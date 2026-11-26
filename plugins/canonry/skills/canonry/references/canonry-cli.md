@@ -262,6 +262,7 @@ cnry run fill <run-id> [--provider claude] --wait  # record a partial run's miss
 cnry runs <project> --limit 10                 # list recent runs, including probes
 cnry run list <project> --kind traffic-sync --status failed --since 2026-10-01T00:00:00Z --limit 20 --format json
 cnry run show <id>                             # show run details
+cnry activity [--since <iso>] --format json     # jobs needing attention across projects: each job's latest failed, partial, cancelled, queued or running run (the dashboard's Activity)
 ```
 
 `run list <project>` and `runs <project>` read the same stored history. Filters
@@ -845,9 +846,9 @@ A webhook that lists either event receives **only the health events it lists**, 
 
 For mention-first monitoring, use `cnry overview` to read `mentionCoverage.populations`, `scores.mentionShare`, and `whatChanged.lostMentions`. The citation webhooks report citation changes. See `cnry notify events --target server` for available events.
 
-**What changed.** `cnry overview <project>` prints the dashboard's "What changed" rows: the queries that lost a mention and those that lost a citation in the latest check (each query once, the two signals counted apart, with the engines, locations, and for Advanced the Properties and markets that lost it) and the runs in progress. `cnry overview --all` prints the portfolio's rows under its table. JSON carries them as `whatChanged`: `lostMentions` / `lostCitations` (`queryCount`, at most 25 `queries`, `truncated`), `activeRuns`, the rows as `items`, and `comparison`. Simple compares each engine's answer with its previous check of the same query and location; Advanced compares each Property's answer with the comparable previous sweep.
+**What changed.** `cnry overview <project>` prints the dashboard's "What changed" rows: the queries that lost or gained a mention and those that lost or gained a citation in the latest check (each query once per direction, the two signals counted apart, with the engines, locations, and for Advanced the Properties and markets where it moved) and the runs in progress. A query can lose a signal on one engine and gain it on another, so it can count on both sides. `cnry overview --all` prints the portfolio's rows under its table, names the projects that were compared and did not change and those whose latest check could not be compared, and then prints Activity (the same list as `cnry activity`, read with the same `--since`). A project is called unchanged, and the all-clear says no mentions or citations changed, only when its server measured gains too; against a server before 7.123.0 the all-clear says no lost mentions or citations. JSON carries them as `whatChanged`: `lostMentions` / `gainedMentions` / `lostCitations` / `gainedCitations` (`queryCount`, at most 25 `queries`, `truncated`; servers before 7.123.0 send no `gained*`), `activeRuns`, the rows as `items`, and `comparison`. Simple compares each engine's answer with its previous check of the same query and location; Advanced compares each Property's answer with the comparable previous sweep.
 
-`comparison` is `{ "state": "available", "previousRunIds" }` when the latest check was compared. Otherwise it is `{ "state": "unavailable", "reason" }`, and the lost counts are 0 because nothing was compared, not because nothing was lost:
+`comparison` is `{ "state": "available", "previousRunIds" }` when the latest check was compared. Otherwise it is `{ "state": "unavailable", "reason" }`, and the counts are 0 because nothing was compared, not because nothing moved:
 
 - `not-measured`: the project has no completed check yet. It says nothing about any answer's citation.
 - `no-previous-check`: the latest check is the first, so there is nothing earlier to compare it with.

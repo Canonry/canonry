@@ -185,6 +185,10 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Monitoring",
     "summary": "Show the stored project overview"
   },
+  "activity": {
+    "section": "Monitoring",
+    "summary": "List the jobs that failed or are still running across projects"
+  },
   "results": {
     "section": "Monitoring",
     "summary": "Read stored run and query results"

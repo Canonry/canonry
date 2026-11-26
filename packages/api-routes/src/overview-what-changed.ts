@@ -1,5 +1,5 @@
 /**
- * Overview's "What changed": the latest check's lost mentions and lost
+ * Overview's "What changed": the latest check's lost and gained mentions and
  * citations, one per query, and the AI Visibility runs in progress. It rides
  * on `GET /projects/:name/overview` as `whatChanged`, so the dashboard, the
  * CLI and MCP read the same rows.
@@ -9,9 +9,11 @@
  * - Simple compares each answer of the latest sweep with the previous check
  *   of the same tracked query, engine and location: the most recent earlier
  *   answer for that slot, from any non-probe sweep, whatever its status. A
- *   mention is resolved as the project page's evidence rows resolve it
- *   (`resolveSnapshotAnswerMentioned`), so a query counted here is one whose
- *   evidence row reads "Lost since the previous check".
+ *   mention is resolved as the evidence rows resolve it, through
+ *   `snapshotMentionObserver`, which the change webhooks use too: an answer
+ *   never checked for a mention (no answer text, no stored verdict) neither
+ *   loses nor gains one. A citation is read through `readCitationState`: an
+ *   answer without sources neither loses nor gains one.
  * - Advanced compares each Property's answer in the sweep the coverage
  *   headline reads with the same slot of the eligible sweep before it, under
  *   the visibility report's continuity rule (same plan definition chain, same
@@ -19,8 +21,9 @@
  *   citation come from the frozen report kernel, never the project-level
  *   snapshot columns.
  *
- * Either way a query counts once per signal however many answers lost it, and
- * mentions and citations are counted apart: neither is read from the other.
+ * Either way a query counts once per signal and direction however many answers
+ * moved, and mentions and citations are counted apart: neither is read from
+ * the other. A query can lose a signal on one answer and gain it on another.
  * The caller passes runs that already leave probes out.
  */
 
@@ -32,6 +35,7 @@ import {
   isWhatChangedActiveRun,
   normalizeQueryText,
   OVERVIEW_WHAT_CHANGED_QUERY_LIMIT,
+  readCitationState,
   RunKinds,
   whatChangedProjectItems,
   type OverviewWhatChangedComparisonDto,
@@ -42,7 +46,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { queries, querySnapshots, runs, type DatabaseClient, type projects } from '@canonry/canonry-db'
 import { advancedSignalTransitions, type AdvancedSignalTransition } from './advanced-signal-changes.js'
-import { resolveSnapshotAnswerMentioned } from './helpers.js'
+import { snapshotMentionObserver } from './helpers.js'
 import { readQueryClasses } from './query-class-read.js'
 import { locationMatches } from './visibility-report-reader.js'
 import type { OverviewAdvancedSweeps } from './visibility-report.js'
@@ -71,36 +75,44 @@ export interface OverviewWhatChangedInput {
 }
 
 export function buildOverviewWhatChanged(db: DatabaseClient, input: OverviewWhatChangedInput): ProjectOverviewWhatChangedDto {
-  const lost = input.advanced === null
-    ? simpleLostSignals(db, input.project, input.latestSweep, input.runs)
-    : advancedLostSignals(input.advanced, input.latestSweep, input.location, input.since)
+  const changes = input.advanced === null
+    ? simpleSignalChanges(db, input.project, input.latestSweep, input.runs)
+    : advancedSignalChanges(input.advanced, input.latestSweep, input.location, input.since)
   const activeRuns = input.runs.filter(isWhatChangedActiveRun)
-  const lostMentions = signalDto(lost.mentions)
-  const lostCitations = signalDto(lost.citations)
+  const lostMentions = signalDto(changes.lostMentions)
+  const lostCitations = signalDto(changes.lostCitations)
+  const gainedMentions = signalDto(changes.gainedMentions)
+  const gainedCitations = signalDto(changes.gainedCitations)
   return {
     mode: input.advanced === null ? 'simple' : 'advanced',
-    latestCheck: lost.latestCheck,
-    comparison: lost.comparison,
+    latestCheck: changes.latestCheck,
+    comparison: changes.comparison,
     lostMentions,
     lostCitations,
+    gainedMentions,
+    gainedCitations,
     activeRuns: { count: activeRuns.length, runIds: activeRuns.map(run => run.id) },
     items: whatChangedProjectItems(input.project, {
       lostMentionQueries: lostMentions.queryCount,
+      gainedMentionQueries: gainedMentions.queryCount,
       lostCitationQueries: lostCitations.queryCount,
+      gainedCitationQueries: gainedCitations.queryCount,
       activeRuns: activeRuns.length,
     }),
   }
 }
 
-interface LostSignals {
+interface SignalChanges {
   latestCheck: ProjectOverviewWhatChangedDto['latestCheck']
   comparison: OverviewWhatChangedComparisonDto
-  mentions: Map<string, LostQuery>
-  citations: Map<string, LostQuery>
+  lostMentions: Map<string, ChangedQuery>
+  lostCitations: Map<string, ChangedQuery>
+  gainedMentions: Map<string, ChangedQuery>
+  gainedCitations: Map<string, ChangedQuery>
 }
 
-/** Every answer of one query that lost a signal, gathered so the query counts once. */
-interface LostQuery {
+/** Every answer of one query that moved on a signal in one direction, gathered so the query counts once. */
+interface ChangedQuery {
   queryId: string | null
   query: string
   classes: Set<QueryClass | null>
@@ -110,7 +122,7 @@ interface LostQuery {
   markets: Map<string, string>
 }
 
-interface LostAnswer {
+interface ChangedAnswer {
   /** What makes two answers the same query. */
   queryKey: string
   queryId: string | null
@@ -122,8 +134,8 @@ interface LostAnswer {
   markets?: ReadonlyArray<{ key: string; label: string }>
 }
 
-function record(lost: Map<string, LostQuery>, answer: LostAnswer): void {
-  let entry = lost.get(answer.queryKey)
+function record(changed: Map<string, ChangedQuery>, answer: ChangedAnswer): void {
+  let entry = changed.get(answer.queryKey)
   if (!entry) {
     entry = {
       queryId: answer.queryId,
@@ -134,7 +146,7 @@ function record(lost: Map<string, LostQuery>, answer: LostAnswer): void {
       properties: new Map(),
       markets: new Map(),
     }
-    lost.set(answer.queryKey, entry)
+    changed.set(answer.queryKey, entry)
   }
   entry.classes.add(answer.queryClass)
   entry.providers.add(answer.provider)
@@ -147,11 +159,11 @@ function unavailable(reason: UnavailableReason): OverviewWhatChangedComparisonDt
   return { state: 'unavailable', reason }
 }
 
-function nothingLost(latestCheck: LostSignals['latestCheck'], comparison: OverviewWhatChangedComparisonDto): LostSignals {
-  return { latestCheck, comparison, mentions: new Map(), citations: new Map() }
+function nothingChanged(latestCheck: SignalChanges['latestCheck'], comparison: OverviewWhatChangedComparisonDto): SignalChanges {
+  return { latestCheck, comparison, lostMentions: new Map(), lostCitations: new Map(), gainedMentions: new Map(), gainedCitations: new Map() }
 }
 
-function sweepCheck(sweep: readonly RunRow[]): LostSignals['latestCheck'] {
+function sweepCheck(sweep: readonly RunRow[]): SignalChanges['latestCheck'] {
   const first = sweep.at(0)
   return first === undefined ? null : { runIds: sweep.map(run => run.id), createdAt: first.createdAt }
 }
@@ -164,6 +176,7 @@ const SNAPSHOT_SIGNAL_COLUMNS = {
   provider: querySnapshots.provider,
   location: querySnapshots.location,
   citationState: querySnapshots.citationState,
+  retrievalStatus: querySnapshots.retrievalStatus,
   answerMentioned: querySnapshots.answerMentioned,
   answerText: querySnapshots.answerText,
   mentionIdentity: querySnapshots.mentionIdentity,
@@ -217,14 +230,14 @@ function compareRecency(left: EarlierAnswer, right: EarlierAnswer, runOrder: Rea
     || compareText(left.id, right.id)
 }
 
-function simpleLostSignals(
+function simpleSignalChanges(
   db: DatabaseClient,
   project: ProjectRow,
   latestSweep: readonly RunRow[],
   overviewRuns: readonly RunRow[],
-): LostSignals {
+): SignalChanges {
   const latestCheck = sweepCheck(latestSweep)
-  if (latestCheck === null) return nothingLost(null, unavailable('not-measured'))
+  if (latestCheck === null) return nothingChanged(null, unavailable('not-measured'))
 
   const tracked = db.select({ id: queries.id, query: queries.query })
     .from(queries)
@@ -284,14 +297,16 @@ function simpleLostSignals(
   }
 
   const classes = readQueryClasses(db, project, tracked)
-  const mentioned = (snapshot: SignalRow) => resolveSnapshotAnswerMentioned(snapshot, project)
-  const mentions = new Map<string, LostQuery>()
-  const citations = new Map<string, LostQuery>()
+  const mentioned = snapshotMentionObserver(project)
+  const lostMentions = new Map<string, ChangedQuery>()
+  const lostCitations = new Map<string, ChangedQuery>()
+  const gainedMentions = new Map<string, ChangedQuery>()
+  const gainedCitations = new Map<string, ChangedQuery>()
   for (const [key, { query, snapshot }] of current) {
     const chosen = previousIdBySlot.get(key)
     const previous = chosen === undefined ? undefined : previousById.get(chosen.id)
     if (previous === undefined) continue
-    const answer: LostAnswer = {
+    const answer: ChangedAnswer = {
       queryKey: query.id,
       queryId: query.id,
       query: query.query,
@@ -299,8 +314,14 @@ function simpleLostSignals(
       provider: snapshot.provider,
       location: snapshot.location,
     }
-    if (mentioned(previous) && !mentioned(snapshot)) record(mentions, answer)
-    if (previous.citationState === CitationStates.cited && snapshot.citationState !== CitationStates.cited) record(citations, answer)
+    // Null is never checked: it moves neither way.
+    const [wasMentioned, isMentioned] = [mentioned(previous), mentioned(snapshot)]
+    if (wasMentioned === true && isMentioned === false) record(lostMentions, answer)
+    if (wasMentioned === false && isMentioned === true) record(gainedMentions, answer)
+    // Measured on both sides: an answer without sources moves neither way.
+    const [wasCited, isCited] = [readCitationState(previous), readCitationState(snapshot)]
+    if (wasCited === CitationStates.cited && isCited === CitationStates['not-cited']) record(lostCitations, answer)
+    if (wasCited === CitationStates['not-cited'] && isCited === CitationStates.cited) record(gainedCitations, answer)
   }
 
   const previousRunIds = [...new Set([...previousIdBySlot.values()].map(previous => previous.runId))]
@@ -308,36 +329,36 @@ function simpleLostSignals(
   const comparison: OverviewWhatChangedComparisonDto = previousRunIds.length === 0
     ? unavailable('no-previous-check')
     : { state: 'available', previousRunIds }
-  return { latestCheck, comparison, mentions, citations }
+  return { latestCheck, comparison, lostMentions, lostCitations, gainedMentions, gainedCitations }
 }
 
 type SignalRow = {
   [K in keyof typeof SNAPSHOT_SIGNAL_COLUMNS]: typeof querySnapshots.$inferSelect[K]
 }
 
-function advancedLostSignals(
+function advancedSignalChanges(
   advanced: OverviewAdvancedSweeps,
   latestSweep: readonly RunRow[],
   location: VisibilityReportLocationSelection,
   since: string | null,
-): LostSignals {
+): SignalChanges {
   if (advanced.plan === 'legacy') {
     const latestCheck = sweepCheck(latestSweep)
-    return nothingLost(latestCheck, unavailable(latestCheck === null ? 'not-measured' : 'legacy-plan'))
+    return nothingChanged(latestCheck, unavailable(latestCheck === null ? 'not-measured' : 'legacy-plan'))
   }
   const { current } = advanced
-  if (current === null) return nothingLost(null, unavailable('not-measured'))
+  if (current === null) return nothingChanged(null, unavailable('not-measured'))
   const latestCheck = { runIds: [current.id], createdAt: current.createdAt }
   // The change webhooks read the same transitions, so What changed never
-  // lists a loss an alert did not report, or the reverse.
+  // lists a change an alert did not report, or the reverse.
   const changes = advancedSignalTransitions(advanced, since)
-  if (changes.state === 'unavailable') return nothingLost(latestCheck, unavailable(changes.reason))
+  if (changes.state === 'unavailable') return nothingChanged(latestCheck, unavailable(changes.reason))
 
-  const losses = (transitions: ReadonlyArray<AdvancedSignalTransition<string>>, lostState: string): Map<string, LostQuery> => {
-    const lost = new Map<string, LostQuery>()
+  const moved = (transitions: ReadonlyArray<AdvancedSignalTransition<string>>, toState: string): Map<string, ChangedQuery> => {
+    const changed = new Map<string, ChangedQuery>()
     for (const transition of transitions) {
-      if (transition.to !== lostState || !locationMatches(transition.location, location)) continue
-      record(lost, {
+      if (transition.to !== toState || !locationMatches(transition.location, location)) continue
+      record(changed, {
         queryKey: transition.queryId ?? `text:${transition.query}`,
         queryId: transition.queryId,
         query: transition.query,
@@ -348,11 +369,16 @@ function advancedLostSignals(
         markets: transition.markets,
       })
     }
-    return lost
+    return changed
   }
-  const mentions = losses(changes.mention, MentionStates['not-mentioned'])
-  const citations = losses(changes.citation, CitationStates['not-cited'])
-  return { latestCheck, comparison: { state: 'available', previousRunIds: [changes.previousRunId] }, mentions, citations }
+  return {
+    latestCheck,
+    comparison: { state: 'available', previousRunIds: [changes.previousRunId] },
+    lostMentions: moved(changes.mention, MentionStates['not-mentioned']),
+    lostCitations: moved(changes.citation, CitationStates['not-cited']),
+    gainedMentions: moved(changes.mention, MentionStates.mentioned),
+    gainedCitations: moved(changes.citation, CitationStates.cited),
+  }
 }
 
 function compareNullableText(left: string | null, right: string | null): number {
@@ -368,8 +394,8 @@ function keyedLabels(values: ReadonlyMap<string, string>): Array<{ key: string; 
     .sort((left, right) => compareText(left.label, right.label) || compareText(left.key, right.key))
 }
 
-function signalDto(lost: ReadonlyMap<string, LostQuery>): OverviewWhatChangedSignalDto {
-  const rows = [...lost.values()]
+function signalDto(changed: ReadonlyMap<string, ChangedQuery>): OverviewWhatChangedSignalDto {
+  const rows = [...changed.values()]
     .sort((left, right) => compareText(left.query, right.query) || compareNullableText(left.queryId, right.queryId))
   return {
     queryCount: rows.length,

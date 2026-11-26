@@ -27,6 +27,8 @@ vi.mock('../src/client.js', () => ({
     getProject: mockGetProject,
     getStatus: async () => ({ projects: [] }),
     listRuns: mockListRuns,
+    // Overview --all's human Activity section reads GET /runs/attention.
+    getRunsAttention: async () => ({ since: '2026-08-10T00:00:00.000Z', items: [] }),
     getLatestRun: mockGetLatestRun,
     searchProject: mockSearchProject,
     getProjectOverview: mockGetProjectOverview,

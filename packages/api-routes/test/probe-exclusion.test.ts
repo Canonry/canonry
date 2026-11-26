@@ -233,6 +233,17 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(body.whatChanged?.items).toEqual([])
   })
 
+  it('runs/attention lists the real failed run, never lets the newer probe hide it, and never lists a failed probe', async () => {
+    ctx.db.update(runs).set({ status: RunStatuses.failed }).where(eq(runs.id, ctx.realRunId)).run()
+    ctx.db.insert(runs).values({
+      id: 'probe-audit-failed', projectId: ctx.projectId, kind: RunKinds['site-audit'], status: RunStatuses.failed,
+      trigger: RunTriggers.probe, createdAt: new Date().toISOString(),
+    }).run()
+    const { status, body } = await get<{ items: Array<{ run: { id: string } }> }>('/api/v1/runs/attention?since=2000-01-01T00:00:00.000Z')
+    expect(status).toBe(200)
+    expect(body.items.map(item => item.run.id)).toEqual([ctx.realRunId])
+  })
+
   it('runs/latest returns the real run and totalRuns excludes the probe', async () => {
     // The probe is intentionally newer than the real run, so an unfiltered
     // ORDER BY created_at DESC + LIMIT 1 would surface the probe. This

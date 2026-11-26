@@ -26,7 +26,7 @@ The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify
 |------|------|
 | `src/cli.ts` | CLI entry point — shebang, telemetry, command dispatch |
 | `src/cli-commands.ts` | `REGISTERED_CLI_COMMANDS` array — declarative command specs (see "How to add a CLI command") |
-| `src/commands/` | Command implementations (one file per domain); their CLI specs live in `src/cli-commands/` |
+| `src/commands/` | Command implementations (one file per domain); their CLI specs live in `src/cli-commands/`. `activity.ts`: `canonry activity` and the Activity lines `overview --all` prints, both from `GET /runs/attention` (MCP `canonry_activity`) |
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory (see "ApiClient usage") |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers (see "Server and SPA serving") |
 | `src/embed.ts` | `resolveEmbedConfig(env, config)` — resolves embed mode (see "Embed mode (#716)") |
