@@ -93,7 +93,7 @@ function whatChanged(project: ProjectDto, counts: { mentions?: number; citations
     lostMentions: lost(counts.mentions ?? 0),
     lostCitations: lost(counts.citations ?? 0),
     activeRuns: { count: activeRunIds.length, runIds: activeRunIds },
-    items: whatChangedProjectItems(project, { lostMentionQueries: counts.mentions ?? 0, lostCitationQueries: counts.citations ?? 0, activeRuns: activeRunIds.length }),
+    items: whatChangedProjectItems(project, { lostMentionQueries: counts.mentions ?? 0, gainedMentionQueries: 0, lostCitationQueries: counts.citations ?? 0, gainedCitationQueries: 0, activeRuns: activeRunIds.length }),
   }
 }
 
@@ -209,7 +209,7 @@ test('runs in progress come from the run list, and only a finished sweep reads t
 
 // A project whose overview failed has unknown changes, so the portfolio is
 // never called clear: the project is named instead.
-test('What changed names a project whose overview could not be read', async () => {
+test('What changed names a project whose overview could not be read, after the projects that held steady', async () => {
   const { whatChangedRows } = await renderOverviewOf({
     projects: [ACME, BETA],
     runs: () => [],
@@ -217,7 +217,8 @@ test('What changed names a project whose overview could not be read', async () =
   })
 
   await waitFor(() => expect(whatChangedRows()).toEqual([
-    { title: '1 project couldn\'t be loaded', detail: 'Acme Coatings. Its lost mentions and citations are unknown.', href: null },
+    { title: '1 project unchanged', detail: 'Beta Roofing. No mentions or citations changed since the previous check.', href: null },
+    { title: '1 project couldn\'t be loaded', detail: 'Acme Coatings. Its changes are unknown.', href: null },
   ]))
 })
 

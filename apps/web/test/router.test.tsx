@@ -331,10 +331,11 @@ test.each([false, true])('deleting a project updates the live portfolio before n
     createdAt: '2026-10-08T00:00:00.000Z', updatedAt: '2026-10-08T00:00:00.000Z',
   })
   let projects = [makeProject('alpha'), ...(lastProject ? [] : [makeProject('beta')])]
+  // Failed, so Overview's Activity lists them.
   const runs = projects.map(project => runDetailDtoSchema.parse({
     id: `${project.name}-run`, projectId: project.id,
     kind: project.name === 'alpha' ? RunKinds['site-audit'] : RunKinds['backlink-extract'],
-    status: RunStatuses.completed, trigger: 'manual', createdAt: '2026-10-08T00:00:00.000Z',
+    status: RunStatuses.failed, trigger: 'manual', createdAt: '2026-10-08T00:00:00.000Z',
     snapshots: [],
   }))
   const deletes: string[] = []
@@ -379,7 +380,7 @@ test.each([false, true])('deleting a project updates the live portfolio before n
   onTestFinished(unmount)
 
   const activity = () => within(screen.getByRole('heading', { name: 'Activity', exact: true }).closest('section')!)
-  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Agent Readiness audit scan completed/ })).toBeTruthy())
+  await waitFor(() => expect(activity().getByRole('button', { name: /Alpha.*Agent Readiness audit scan/ })).toBeTruthy())
   await act(async () => { await router.navigate({ to: '/projects/$projectName/settings', params: { projectName: 'alpha' } }) })
   const deleteButton = await screen.findByRole('button', { name: 'Delete project', exact: true })
   await waitFor(() => expect(queryClient.isFetching()).toBe(0))
@@ -394,7 +395,7 @@ test.each([false, true])('deleting a project updates the live portfolio before n
   if (!lastProject) {
     expect(screen.getByRole('link', { name: 'Beta', exact: true })).toBeTruthy()
     await waitFor(() => {
-      expect(activity().getByRole('button', { name: /Beta.*Backlink extract completed/ })).toBeTruthy()
+      expect(activity().getByRole('button', { name: /Beta.*Backlink extract/ })).toBeTruthy()
       expect(activity().queryByRole('button', { name: /Alpha/ })).toBeNull()
     })
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))

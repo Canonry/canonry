@@ -15748,6 +15748,44 @@ export type ProjectOverviewDto = {
             }>;
             truncated: boolean;
         };
+        gainedMentions?: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        gainedCitations?: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
         activeRuns: {
             count: number;
             runIds: Array<string>;

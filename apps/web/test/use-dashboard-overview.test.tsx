@@ -132,13 +132,12 @@ describe('useDashboardOverview', () => {
 
     const { result } = renderHook(() => useDashboardOverview(null, { includeSettings: false }), { wrapper })
 
+    // Activity lists each job's latest run that failed or is still working;
+    // completed jobs, probes and the excluded routine kinds never crowd it.
     await waitFor(() => expect(result.current.dashboard?.portfolioOverview.recentRuns.map(item => [
       item.id, item.projectName, item.status,
     ])).toEqual([
       ['failed-sweep', 'Alpha', RunStatuses.failed],
-      ['audit', 'Alpha', RunStatuses.completed],
-      ['backlinks', 'Beta', RunStatuses.completed],
-      ['discovery', 'Alpha', RunStatuses.completed],
       ['ads', 'Beta', RunStatuses.running],
     ]))
     expect(result.current.dashboard?.projects.map(project => [
@@ -157,7 +156,7 @@ describe('useDashboardOverview', () => {
       id: 'saved-sweep', projectId: metadataProject.id, kind: RunKinds['answer-visibility'],
       status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: '2026-02-01T00:00:00.000Z',
     }
-    const audit: RunDto = { ...sweep, id: 'saved-audit', kind: RunKinds['site-audit'], createdAt: '2026-02-02T00:00:00.000Z' }
+    const audit: RunDto = { ...sweep, id: 'saved-audit', kind: RunKinds['site-audit'], status: RunStatuses.failed, createdAt: '2026-02-02T00:00:00.000Z' }
     const restoreFetch = mockFetch((path) => {
       const url = new URL(path, 'http://localhost')
       if (/\/projects\/[^/]+\/overview$/.test(url.pathname)) return jsonResponse(null)

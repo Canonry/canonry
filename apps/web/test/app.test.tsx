@@ -200,7 +200,8 @@ test('overview route renders the premium portfolio dashboard', async () => {
 
   expect(html).toContain('Open navigation')
   expect(html).toMatch(/Visibility across all projects/)
-  expect(html).toMatch(/Infrastructure/)
+  // Every service is healthy, so Infrastructure stays out of the way.
+  expect(html).not.toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Harbor Legal Group/)
   expect(html).toMatch(/src="\.\/favicon\.svg"/)
@@ -443,7 +444,7 @@ test('default overview covers multiple projects and recent runs', async () => {
 
   expect(html).toMatch(/Northstar Orthopedics/)
   expect(html).toMatch(/One follow-up run is queued/)
-  expect(html).toMatch(/Infrastructure/)
+  expect(html).not.toMatch(/Infrastructure/)
 })
 
 test('setup route renders step indicator with all step labels', async () => {

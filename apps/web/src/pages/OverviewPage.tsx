@@ -165,7 +165,17 @@ export function OverviewPage() {
   const attentionItems = model.attentionItems
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
+  // Infrastructure shows only what needs a person: a service that is not
+  // healthy (not while it is still being checked), MCP that is unavailable, or
+  // no provider ready to run a sweep. Settings lists every service.
   const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)
+    .flatMap(item => {
+      const serviceStatus = item.id === 'api' ? healthSnapshot.apiStatus : item.id === 'worker' ? healthSnapshot.workerStatus : undefined
+      const needsAttention = serviceStatus
+        ? serviceStatus.state !== 'ok' && serviceStatus.state !== 'checking'
+        : item.tone === 'negative' || item.tone === 'caution'
+      return needsAttention ? [{ item, serviceStatus }] : []
+    })
 
   return (
     <div className="page-container">
@@ -266,28 +276,23 @@ export function OverviewPage() {
                 </RunDetailLink>
               ))
             ) : (
-              <p className="supporting-copy">Run history appears here after the first launch.</p>
+              <p className="supporting-copy">
+                No failed or running jobs. <Link to="/runs" className="text-link">All runs</Link>
+              </p>
             )}
           </div>
         </section>
       </div>
 
-      <section className="page-section">
+      {systemHealth.length > 0 && <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
             <h2 className="section-title-sm">Infrastructure</h2>
           </div>
         </div>
         <div className="divide-y divide-default border-y border-default">
-          {systemHealth.map((item) => {
-            const serviceStatus = item.id === 'api'
-              ? healthSnapshot.apiStatus
-              : item.id === 'worker'
-                ? healthSnapshot.workerStatus
-                : undefined
-            const visibleDetail = serviceStatus
-              ? serviceStatus.state === 'ok' ? undefined : serviceStatusTooltip(serviceStatus)
-              : item.tone === 'positive' ? undefined : item.meta
+          {systemHealth.map(({ item, serviceStatus }) => {
+            const visibleDetail = serviceStatus ? serviceStatusTooltip(serviceStatus) : item.meta
 
             return (
               <div key={item.id} className="flex items-start justify-between gap-4 py-3">
@@ -302,7 +307,7 @@ export function OverviewPage() {
             )
           })}
         </div>
-      </section>
+      </section>}
     </div>
   )
 }

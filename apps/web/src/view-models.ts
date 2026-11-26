@@ -95,6 +95,7 @@ export interface PortfolioProjectVm {
 export interface PortfolioOverviewVm {
   projects: PortfolioProjectVm[]
   attentionItems: AttentionItemVm[]
+  /** Overview's Activity: each job's latest run that failed or is still working (`overviewActivityRuns`). */
   recentRuns: RunListItemVm[]
   systemHealth: SystemHealthCardVm[]
   emptyState?: {

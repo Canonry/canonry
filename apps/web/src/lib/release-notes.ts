@@ -34,6 +34,14 @@ export interface ReleaseNotes {
 // Stable, user-facing releases, newest first. The badge only features minor and major releases.
 const releases: { version: string; highlights: (audience: ReleaseAudience) => ReleaseHighlight[] }[] = [
   {
+    version: '7.123.0',
+    // Every dashboard shows Overview, hosted ones included.
+    highlights: () => [{
+      title: 'Overview shows gains too',
+      text: 'What changed now lists the queries that gained a mention or citation beside the ones that lost one, and names the projects that held steady. Activity shows only jobs that failed or are still running.',
+    }],
+  },
+  {
     version: '7.122.0',
     // Sending feedback needs write authority, and an operator who hid feedback
     // (`dashboard.showFeedback: false`) gets no pointer to it. A hosted

@@ -2038,16 +2038,16 @@
     padding-bottom: 0.5rem;
   }
 
-  .attention-list-scrollable {
-    max-height: 18rem;
-    overflow-y: auto;
-    padding-bottom: 0.25rem;
-  }
-
-  .compact-stack-scrollable {
-    max-height: 18rem;
-    overflow-y: auto;
-    padding-bottom: 0.25rem;
+  /* Side by side on wide screens, each column scrolls on its own. Stacked on
+     a phone, they grow with their rows: a nested scroll there cut the last
+     row off. */
+  @media (min-width: 64rem) {
+    .attention-list-scrollable,
+    .compact-stack-scrollable {
+      max-height: 18rem;
+      overflow-y: auto;
+      padding-bottom: 0.25rem;
+    }
   }
 
   /* Thin scrollbar for scrollable containers */

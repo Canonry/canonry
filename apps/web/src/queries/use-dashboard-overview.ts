@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
+import { OVERVIEW_ACTIVITY_EXCLUDED_KINDS, OVERVIEW_ACTIVITY_RUN_WINDOW, overviewActivityRuns, RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
   fetchProjectOverview,
   heyClient,
@@ -75,11 +75,13 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     },
   })
 
-  // Exclude per-URL inspections and routine traffic pulls before the five-job cap.
-  // Keep the sweep history above independent for measurement reads.
-  // Embeds deliberately permit only answer sweeps in run lists and details.
+  // Activity lists each job's latest run that failed or is still working, so
+  // it reads a window of recent jobs (per-URL inspections and routine traffic
+  // pulls left out) that `canonry overview --all` reads too. Keep the sweep
+  // history above independent for measurement reads. Embeds deliberately
+  // permit only answer sweeps in run lists and details.
   const activityQuery = useQuery({
-    ...getApiV1RunsOptions({ client: heyClient, query: { excludeKinds: [RunKinds['bing-inspect'], RunKinds['traffic-sync']], limit: 5 } }),
+    ...getApiV1RunsOptions({ client: heyClient, query: { excludeKinds: [...OVERVIEW_ACTIVITY_EXCLUDED_KINDS], limit: OVERVIEW_ACTIVITY_RUN_WINDOW } }),
     enabled: loadActivity,
     staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => query.state.data?.some(run =>
@@ -201,8 +203,7 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
 
     const built = buildDashboard(projectDataList, settingsQuery.data ?? null)
     if (loadActivity) {
-      built.portfolioOverview.recentRuns = (activityQuery.data ?? [])
-        .filter(run => run.trigger !== RunTriggers.probe && projectsById.has(run.projectId))
+      built.portfolioOverview.recentRuns = overviewActivityRuns((activityQuery.data ?? []).filter(run => projectsById.has(run.projectId)))
         .map(run => {
           const project = projectsById.get(run.projectId)!
           return toRunListItem(run, project.displayName || project.name)

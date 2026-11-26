@@ -414,9 +414,11 @@ import {
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
   type GetApiV1ProjectsByNameRunsData,
+  type GetApiV1RunsData,
   postApiV1ProjectsByNameResultsClear,
   postApiV1ProjectsByNameRuns,
   getApiV1ProjectsByNameRunsLatest,
+  getApiV1Runs,
   getApiV1RunsById,
   postApiV1RunsByIdCancel,
   postApiV1RunsByIdFill,
@@ -2512,6 +2514,21 @@ export class ApiClient {
         path: { name: project },
         // Filters arrive as free CLI strings; the server validates them against the enums.
         query: { limit, kind, status, excludeKind, excludeKinds, since } as GetApiV1ProjectsByNameRunsData['query'],
+      }),
+    )
+  }
+
+  /**
+   * Runs across every project the key can see (`GET /runs`), newest first.
+   * The server leaves probes out and reads the last 30 days unless `since`
+   * says otherwise; excluded kinds are dropped before `limit` applies.
+   */
+  async listAllRuns(query: { limit?: number; excludeKinds?: readonly string[]; since?: string } = {}): Promise<RunDto[]> {
+    return this.invoke<RunDto[]>(() =>
+      getApiV1Runs({
+        client: this.heyClient,
+        // Kinds arrive as strings; the server validates them against the enum.
+        query: { limit: query.limit, excludeKinds: query.excludeKinds ? [...query.excludeKinds] : undefined, since: query.since } as GetApiV1RunsData['query'],
       }),
     )
   }

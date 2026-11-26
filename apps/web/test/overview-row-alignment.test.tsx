@@ -155,11 +155,34 @@ test('a project with providerCoverage and one without it render the same number 
   expect(caption.textContent).toMatch(/gemini only/)
 })
 
+/** The Infrastructure section's rows, as `label: detail` lines. */
+function infrastructureRows(doc: Document): string[] {
+  const heading = [...doc.querySelectorAll('h2')].find(node => node.textContent === 'Infrastructure')
+  if (!heading) return []
+  return [...heading.closest('section')!.querySelectorAll('.divide-y > div')]
+    .map(row => `${row.querySelector('p')!.textContent}: ${row.querySelector('[title]')!.textContent}`)
+}
+
+const STALE_WORKER = { label: 'Worker', state: 'error' as const, detail: 'heartbeat stale · last seen 12m ago', version: 'phase-1', databaseConfigured: true }
+
+test('lists only the services that need a person, and leaves Infrastructure out when none do', async () => {
+  const healthy = await renderOverview()
+  expect(infrastructureRows(healthy)).toEqual([])
+  expect(healthy.body.textContent).not.toContain('Infrastructure')
+
+  const degraded = await renderOverview(fixture => { fixture.health.workerStatus = STALE_WORKER })
+  expect(infrastructureRows(degraded)).toEqual(['Worker: Needs attention'])
+})
+
 test('does not report unconfigured providers to a viewer whose settings are unavailable', async () => {
-  const doc = await renderOverview(fixture => { fixture.dashboard.settings.providerStatuses = [] }, true)
+  // A stale worker keeps the section on screen, so the provider row's absence means something.
+  const doc = await renderOverview(fixture => {
+    fixture.dashboard.settings.providerStatuses = []
+    fixture.health.workerStatus = STALE_WORKER
+  }, true)
+  expect(infrastructureRows(doc)).toEqual(['Worker: Needs attention'])
   expect(doc.body.textContent).not.toContain('None configured')
   expect(doc.body.textContent).not.toContain('0 of 0 configured')
-  expect(doc.body.textContent).toContain('Infrastructure')
 })
 
 test('shows non-brand server rates, names, and counts without mixing branded or unclassified answers', async () => {
@@ -199,16 +222,20 @@ test('shows an awaiting-baseline state rather than zero performance', async () =
 })
 
 
-test('shows MCP as a separate infrastructure row for viewers', async () => {
-  const doc = await renderOverview(fixture => {
+test('shows MCP as its own infrastructure row for viewers only when it is unavailable', async () => {
+  const available = await renderOverview(fixture => {
     fixture.health.apiStatus.mcp = { status: 'available' }
   }, true)
+  expect(infrastructureRows(available)).toEqual([])
+
+  const doc = await renderOverview(fixture => {
+    fixture.health.apiStatus.mcp = { status: 'unavailable' }
+  }, true)
+  expect(infrastructureRows(doc)).toEqual(['MCP: Unavailable'])
   const label = [...doc.querySelectorAll('p')].find(node => node.textContent === 'MCP')!
-  expect(label).toBeDefined()
   const row = label.parentElement!.parentElement!
-  expect(row.textContent).toContain('Available')
-  expect(row.textContent).not.toContain('API')
-  expect(row.querySelector('[title]')?.getAttribute('title')).toContain('not an individual client connection')
+  expect(row.textContent).toContain('The MCP transport is not fully available.')
+  expect(row.querySelector('[title]')?.getAttribute('title')).toContain('The MCP transport is not fully available.')
 })
 
 /**

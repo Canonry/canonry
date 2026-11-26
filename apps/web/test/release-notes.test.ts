@@ -17,6 +17,14 @@ const feedback = {
   }],
 }
 
+const overview = {
+  version: '7.123.0',
+  highlights: [{
+    title: 'Overview shows gains too',
+    text: 'What changed now lists the queries that gained a mention or citation beside the ones that lost one, and names the projects that held steady. Activity shows only jobs that failed or are still running.',
+  }],
+}
+
 it('features the Discord welcome invitation from its stable release through later builds', () => {
   for (const build of ['7.117.0', '7.117.0+custom-build', '7.117.1+custom-build', '7.121.1']) {
     expect(availableReleaseNotes(build)).toEqual([discord])
@@ -24,8 +32,11 @@ it('features the Discord welcome invitation from its stable release through late
 })
 
 it('adds the feedback note from 7.122.0, newest first, and carries it through later builds', () => {
-  for (const build of ['7.122.0', '7.122.3+custom-build', '8.0.0-rc.1']) {
+  for (const build of ['7.122.0', '7.122.3+custom-build']) {
     expect(availableReleaseNotes(build, operator)).toEqual([feedback, discord])
+  }
+  for (const build of ['7.123.0', '8.0.0-rc.1']) {
+    expect(availableReleaseNotes(build, operator)).toEqual([overview, feedback, discord])
   }
   // A prerelease of 7.122.0 has not shipped the note yet.
   expect(availableReleaseNotes('7.122.0-rc.1', operator)).toEqual([discord])
@@ -48,6 +59,10 @@ it('shows each note only to readers who can act on it', () => {
   expect(availableReleaseNotes('7.122.0', { ...operator, showFeedback: false })).toEqual([discord])
   expect(availableReleaseNotes('7.122.0', { ...operator, showResourceLinks: false })).toEqual([feedback])
   expect(availableReleaseNotes('7.122.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: false, showFeedback: true })).toEqual([])
+})
+
+it('shows the Overview note to every reader, hosted and read-only included', () => {
+  expect(availableReleaseNotes('7.123.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: false })).toEqual([overview])
 })
 
 it('excludes future, malformed or inapplicable release highlights', () => {

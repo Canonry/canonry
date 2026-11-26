@@ -28,10 +28,10 @@ import { measurementPlanV2Fixture, publishPlanV2, seedPlanV2Sweep } from './meas
 
 /**
  * Overview's "What changed" (`whatChanged` on GET /projects/:name/overview):
- * each signal counts a query once however many answers lost it, mentions and
- * citations are counted apart, and the rows say exactly what the dashboard
- * and `canonry overview` list. Simple and Advanced each have their own rule
- * for what an answer is compared with.
+ * each signal counts a query once per direction however many answers lost or
+ * gained it, mentions and citations are counted apart, and the rows say
+ * exactly what the dashboard and `canonry overview` list. Simple and Advanced
+ * each have their own rule for what an answer is compared with.
  */
 
 const FIRST = '2026-09-01T00:00:00.000Z'
@@ -64,7 +64,7 @@ async function readWhatChanged(project: string, query = ''): Promise<ProjectOver
   return whatChanged
 }
 
-const NOTHING_LOST = { queryCount: 0, queries: [], truncated: false }
+const NO_QUERIES = { queryCount: 0, queries: [], truncated: false }
 const NO_ACTIVE_RUNS = { count: 0, runIds: [] }
 
 /** The rows a project lists, as the server builds them. */
@@ -73,6 +73,12 @@ function lostMentionsRow(projectId: string, projectName: string, label: string, 
 }
 function lostCitationsRow(projectId: string, projectName: string, label: string, detail: string) {
   return { id: `attention_${projectId}_lost`, tone: 'negative', title: `${label} lost citations`, detail, actionLabel: 'Open project', href: `/projects/${projectName}` }
+}
+function gainedMentionsRow(projectId: string, projectName: string, label: string, detail: string) {
+  return { id: `attention_${projectId}_gained_mentions`, tone: 'positive', title: `${label} gained mentions`, detail, actionLabel: 'Open project', href: `/projects/${projectName}` }
+}
+function gainedCitationsRow(projectId: string, projectName: string, label: string, detail: string) {
+  return { id: `attention_${projectId}_gained_citations`, tone: 'positive', title: `${label} gained citations`, detail, actionLabel: 'Open project', href: `/projects/${projectName}` }
 }
 function activeRunsRow(projectId: string, label: string, detail: string) {
   return { id: `attention_${projectId}_active`, tone: 'neutral', title: `${label} has active runs`, detail, actionLabel: 'View runs', href: '/runs' }
@@ -120,6 +126,9 @@ describe('What changed: Simple projects', () => {
   function addAnswer(runId: string, queryId: string, answer: {
     mentioned: boolean
     cited: boolean
+    /** A stored citation state other than `cited` / `not-cited`, and the retrieval it records. */
+    citationState?: 'cited' | 'not-cited' | 'not-measured'
+    retrievalStatus?: 'used' | 'not-applicable'
     provider?: string
     location?: string | null
     answerText?: string
@@ -133,7 +142,8 @@ describe('What changed: Simple projects', () => {
       runId,
       queryId,
       provider: answer.provider ?? 'openai',
-      citationState: answer.cited ? 'cited' : 'not-cited',
+      citationState: answer.citationState ?? (answer.cited ? 'cited' : 'not-cited'),
+      retrievalStatus: answer.retrievalStatus ?? null,
       answerMentioned: answer.storedMentioned ?? answer.mentioned,
       mentionIdentity: answer.mentionIdentity ?? null,
       answerText: answer.answerText ?? (answer.mentioned ? 'Acme Coatings is the one to call.' : 'Other contractors lead here.'),
@@ -189,12 +199,85 @@ describe('What changed: Simple projects', () => {
         ],
         truncated: false,
       },
+      gainedMentions: NO_QUERIES,
+      gainedCitations: NO_QUERIES,
       activeRuns: NO_ACTIVE_RUNS,
       items: [
         lostMentionsRow(PROJECT_ID, 'acme', 'Acme Coatings', '1 query lost a mention in the latest check.'),
         lostCitationsRow(PROJECT_ID, 'acme', 'Acme Coatings', '2 queries lost a citation in the latest check.'),
       ],
     })
+  })
+
+  it('counts gains like losses, each query once per direction, so a query can lose on one engine and gain on another', async () => {
+    seedProject()
+    addQuery('q_found', 'best polyurea roof coating')
+    addQuery('q_swap', 'roof coating contractors')
+    addQuery('q_source', 'polyurea vs silicone roof coating')
+    addRun('run_1', FIRST)
+    addRun('run_2', SECOND)
+    // Newly mentioned on both engines, and newly cited on one.
+    addAnswer('run_1', 'q_found', { mentioned: false, cited: false })
+    addAnswer('run_1', 'q_found', { mentioned: false, cited: false, provider: 'gemini' })
+    addAnswer('run_2', 'q_found', { mentioned: true, cited: true })
+    addAnswer('run_2', 'q_found', { mentioned: true, cited: false, provider: 'gemini' })
+    // OpenAI dropped the mention while Gemini picked it up.
+    addAnswer('run_1', 'q_swap', { mentioned: true, cited: false })
+    addAnswer('run_1', 'q_swap', { mentioned: false, cited: false, provider: 'gemini' })
+    addAnswer('run_2', 'q_swap', { mentioned: false, cited: false })
+    addAnswer('run_2', 'q_swap', { mentioned: true, cited: false, provider: 'gemini' })
+    // Only the citation moved, at another location.
+    addAnswer('run_1', 'q_source', { mentioned: false, cited: false, location: 'Austin' })
+    addAnswer('run_2', 'q_source', { mentioned: false, cited: true, location: 'Austin' })
+
+    const whatChanged = await readWhatChanged('acme')
+    expect(whatChanged.lostMentions).toEqual({ queryCount: 1, queries: [simpleLost('roof coating contractors', 'q_swap', 'non-brand', ['openai'])], truncated: false })
+    expect(whatChanged.gainedMentions).toEqual({
+      queryCount: 2,
+      queries: [
+        simpleLost('best polyurea roof coating', 'q_found', 'non-brand', ['gemini', 'openai']),
+        simpleLost('roof coating contractors', 'q_swap', 'non-brand', ['gemini']),
+      ],
+      truncated: false,
+    })
+    expect(whatChanged.lostCitations).toEqual(NO_QUERIES)
+    expect(whatChanged.gainedCitations).toEqual({
+      queryCount: 2,
+      queries: [
+        simpleLost('best polyurea roof coating', 'q_found', 'non-brand', ['openai']),
+        simpleLost('polyurea vs silicone roof coating', 'q_source', 'non-brand', ['openai'], ['Austin']),
+      ],
+      truncated: false,
+    })
+    // One lost and two gained: the mentions row leans positive.
+    expect(whatChanged.items).toEqual([
+      { id: `attention_${PROJECT_ID}_mentions_changed`, tone: 'positive', title: 'Acme Coatings mentions changed', detail: '1 query lost a mention and 2 gained one in the latest check.', actionLabel: 'Open project', href: '/projects/acme' },
+      gainedCitationsRow(PROJECT_ID, 'acme', 'Acme Coatings', '2 queries gained a citation in the latest check.'),
+    ])
+  })
+
+  // As the evidence rows read it: an answer whose engine returned no sources
+  // was not checked for a citation, so it neither loses nor gains one.
+  it('moves no citation into or out of an answer without sources', async () => {
+    seedProject()
+    addQuery('q_dropped', 'best polyurea roof coating')
+    addQuery('q_returned', 'roof coating contractors')
+    addQuery('q_local', 'polyurea vs silicone roof coating')
+    addRun('run_1', FIRST)
+    addRun('run_2', SECOND)
+    addAnswer('run_1', 'q_dropped', { mentioned: false, cited: true })
+    addAnswer('run_2', 'q_dropped', { mentioned: false, cited: false, citationState: 'not-measured' })
+    // Stored not cited by an engine that ran no retrieval: also not measured.
+    addAnswer('run_1', 'q_returned', { mentioned: false, cited: false, retrievalStatus: 'not-applicable' })
+    addAnswer('run_2', 'q_returned', { mentioned: false, cited: true })
+    // Local never returns sources, whatever the row stores.
+    addAnswer('run_1', 'q_local', { mentioned: false, cited: false, provider: 'local' })
+    addAnswer('run_2', 'q_local', { mentioned: false, cited: true, provider: 'local' })
+
+    const whatChanged = await readWhatChanged('acme')
+    expect(whatChanged.lostCitations).toEqual(NO_QUERIES)
+    expect(whatChanged.gainedCitations).toEqual(NO_QUERIES)
+    expect(whatChanged.items).toEqual([])
   })
 
   it('compares each answer with its engine\'s own last answer, whatever that run\'s status, and never a probe', async () => {
@@ -225,7 +308,7 @@ describe('What changed: Simple projects', () => {
     expect(whatChanged.latestCheck).toEqual({ runIds: ['run_3'], createdAt: THIRD })
     expect(whatChanged.comparison).toEqual({ state: 'available', previousRunIds: ['run_2', 'run_1'] })
     expect(whatChanged.lostMentions).toEqual({ queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_skipped', 'non-brand', ['gemini'])], truncated: false })
-    expect(whatChanged.lostCitations).toEqual(NOTHING_LOST)
+    expect(whatChanged.lostCitations).toEqual(NO_QUERIES)
     expect(whatChanged.items).toEqual([lostMentionsRow(PROJECT_ID, 'acme', 'Acme Coatings', '1 query lost a mention in the latest check.')])
   })
 
@@ -270,7 +353,7 @@ describe('What changed: Simple projects', () => {
 
     expect(tenSweeps.lostMentions).toEqual(expected)
     expect(thirtySweeps.lostMentions).toEqual(expected)
-    expect(thirtySweeps.lostCitations).toEqual(NOTHING_LOST)
+    expect(thirtySweeps.lostCitations).toEqual(NO_QUERIES)
     expect(reads.take()).toBe(tenSweepReads)
   })
 
@@ -321,13 +404,14 @@ describe('What changed: Simple projects', () => {
     expect(whatChanged.comparison.state).toBe('available')
     expect(whatChanged.comparison.state === 'available' ? [...whatChanged.comparison.previousRunIds].sort() : []).toEqual(['run_fl_1', 'run_mi_1'])
     expect(whatChanged.lostMentions).toEqual({ queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_best', 'non-brand', ['openai'], ['florida'])], truncated: false })
-    expect(whatChanged.lostCitations).toEqual(NOTHING_LOST)
+    expect(whatChanged.gainedMentions).toEqual({ queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_best', 'non-brand', ['openai'], ['michigan'])], truncated: false })
+    expect(whatChanged.lostCitations).toEqual(NO_QUERIES)
 
     // The overview's location filter keeps only that location's answers.
     const michigan = await readWhatChanged('acme', '?location=michigan')
     expect(michigan.latestCheck).toEqual({ runIds: ['run_mi_2'], createdAt: SECOND })
-    expect(michigan.lostMentions).toEqual(NOTHING_LOST)
-    expect(michigan.items).toEqual([])
+    expect(michigan.lostMentions).toEqual(NO_QUERIES)
+    expect(michigan.items).toEqual([gainedMentionsRow(PROJECT_ID, 'acme', 'Acme Coatings', '1 query gained a mention in the latest check.')])
   })
 
   it('reads a mention as the evidence rows do: the answer text with the project\'s current names, and a wrong-subject verdict', async () => {
@@ -347,10 +431,10 @@ describe('What changed: Simple projects', () => {
     expect(whatChanged.lostMentions).toEqual({ queryCount: 1, queries: [simpleLost('roof coating near me', 'q_alias', 'non-brand', ['openai'])], truncated: false })
   })
 
-  it('reports nothing lost before a second check, or when the latest check lost nothing', async () => {
+  it('reports no change before a second check, and only gains when the latest check lost nothing', async () => {
     seedProject()
     addQuery('q_best', 'best polyurea roof coating')
-    const empty = { lostMentions: NOTHING_LOST, lostCitations: NOTHING_LOST, activeRuns: NO_ACTIVE_RUNS, items: [] }
+    const empty = { lostMentions: NO_QUERIES, lostCitations: NO_QUERIES, gainedMentions: NO_QUERIES, gainedCitations: NO_QUERIES, activeRuns: NO_ACTIVE_RUNS, items: [] }
 
     expect(await readWhatChanged('acme')).toEqual({
       mode: 'simple', latestCheck: null, comparison: { state: 'unavailable', reason: 'not-measured' }, ...empty,
@@ -365,8 +449,18 @@ describe('What changed: Simple projects', () => {
     // Gains are not losses.
     addRun('run_2', SECOND)
     addAnswer('run_2', 'q_best', { mentioned: true, cited: true })
+    const gained = { queryCount: 1, queries: [simpleLost('best polyurea roof coating', 'q_best', 'non-brand', ['openai'])], truncated: false }
     expect(await readWhatChanged('acme')).toEqual({
-      mode: 'simple', latestCheck: { runIds: ['run_2'], createdAt: SECOND }, comparison: { state: 'available', previousRunIds: ['run_1'] }, ...empty,
+      mode: 'simple',
+      latestCheck: { runIds: ['run_2'], createdAt: SECOND },
+      comparison: { state: 'available', previousRunIds: ['run_1'] },
+      ...empty,
+      gainedMentions: gained,
+      gainedCitations: gained,
+      items: [
+        gainedMentionsRow(PROJECT_ID, 'acme', 'Acme Coatings', '1 query gained a mention in the latest check.'),
+        gainedCitationsRow(PROJECT_ID, 'acme', 'Acme Coatings', '1 query gained a citation in the latest check.'),
+      ],
     })
 
     // An earlier check outside the overview's window is not compared.
@@ -408,7 +502,7 @@ describe('What changed: Simple projects', () => {
     expect(whatChanged.lostCitations.queryCount).toBe(26)
     expect(whatChanged.lostCitations.truncated).toBe(true)
     expect(whatChanged.lostCitations.queries.map(row => row.query)).toEqual(texts.slice(0, 25))
-    expect(whatChanged.lostMentions).toEqual(NOTHING_LOST)
+    expect(whatChanged.lostMentions).toEqual(NO_QUERIES)
     expect(whatChanged.items).toEqual([lostCitationsRow(PROJECT_ID, 'acme', 'Acme Coatings', '26 queries lost a citation in the latest check.')])
   })
 })
@@ -465,6 +559,7 @@ describe('What changed: Advanced projects', () => {
     gemini: { answerText: 'No property names are supplied.', cited: false },
   }
 
+  /** The Harbor Homes answer that moved, in either direction. */
   const HARBOR_LOST = {
     queryId: 'q-nearby',
     query: 'homes near harbor',
@@ -487,12 +582,31 @@ describe('What changed: Advanced projects', () => {
       comparison: { state: 'available', previousRunIds: ['run_1'] },
       lostMentions: { queryCount: 1, queries: [HARBOR_LOST], truncated: false },
       lostCitations: { queryCount: 1, queries: [HARBOR_LOST], truncated: false },
+      gainedMentions: NO_QUERIES,
+      gainedCitations: NO_QUERIES,
       activeRuns: NO_ACTIVE_RUNS,
       items: [
         lostMentionsRow(PROJECT_ID, 'northstar', 'Northstar', '1 query lost a mention in the latest check.'),
         lostCitationsRow(PROJECT_ID, 'northstar', 'Northstar', '1 query lost a citation in the latest check.'),
       ],
     })
+  })
+
+  it('counts each Property\'s gained mention and gained citation from the same transitions the change webhooks send', async () => {
+    const frozenPlan = measurementPlanV2Fixture()
+    const versionId = publish(frozenPlan)
+    sweep('run_1', { versionId, frozenPlan, createdAt: FIRST, nearby: NOTHING_NAMED })
+    sweep('run_2', { versionId, frozenPlan, createdAt: SECOND, nearby: NAMED_AND_CITED })
+
+    const whatChanged = await readWhatChanged('northstar')
+    expect(whatChanged.lostMentions).toEqual(NO_QUERIES)
+    expect(whatChanged.lostCitations).toEqual(NO_QUERIES)
+    expect(whatChanged.gainedMentions).toEqual({ queryCount: 1, queries: [HARBOR_LOST], truncated: false })
+    expect(whatChanged.gainedCitations).toEqual({ queryCount: 1, queries: [HARBOR_LOST], truncated: false })
+    expect(whatChanged.items).toEqual([
+      gainedMentionsRow(PROJECT_ID, 'northstar', 'Northstar', '1 query gained a mention in the latest check.'),
+      gainedCitationsRow(PROJECT_ID, 'northstar', 'Northstar', '1 query gained a citation in the latest check.'),
+    ])
   })
 
   it('compares nothing across a change of engines or models, and nothing before the first sweep', async () => {
@@ -508,8 +622,10 @@ describe('What changed: Advanced projects', () => {
       mode: 'advanced',
       latestCheck: { runIds: ['run_2'], createdAt: SECOND },
       comparison: { state: 'unavailable', reason: 'model-changed' },
-      lostMentions: NOTHING_LOST,
-      lostCitations: NOTHING_LOST,
+      lostMentions: NO_QUERIES,
+      lostCitations: NO_QUERIES,
+      gainedMentions: NO_QUERIES,
+      gainedCitations: NO_QUERIES,
       activeRuns: NO_ACTIVE_RUNS,
       items: [],
     })
