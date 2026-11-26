@@ -10,7 +10,11 @@ interface ReleaseHighlight {
 
 /** Who is reading. A release shows only the highlights this reader can act on. */
 export interface ReleaseAudience {
-  /** Community and guide links are allowed (`dashboard.showResourceLinks`). */
+  /**
+   * Community and guide links are allowed (`dashboard.showResourceLinks`). Hosted
+   * dashboards keep the release invitation even though their footer hides
+   * community links (#1546, `app-public-demo.test.tsx`).
+   */
   showResourceLinks: boolean
   /** A hosted engine dashboard (`dashboard.whatsNewOnly`): customer highlights only, no CLI or self-hosting steps. */
   whatsNewOnly: boolean
@@ -31,13 +35,17 @@ export interface ReleaseNotes {
 const releases: { version: string; highlights: (audience: ReleaseAudience) => ReleaseHighlight[] }[] = [
   {
     version: '7.122.0',
-    // Sending feedback needs write authority, hosted customers have no CLI, and
-    // an operator who hid feedback (`dashboard.showFeedback: false`) gets no pointer to it.
-    highlights: ({ whatsNewOnly, canWrite, showFeedback }) => !whatsNewOnly && canWrite && showFeedback ? [{
+    // Sending feedback needs write authority, and an operator who hid feedback
+    // (`dashboard.showFeedback: false`) gets no pointer to it. A hosted
+    // customer has no CLI but can still ask a connected agent (`canonry_feedback`).
+    highlights: ({ whatsNewOnly, canWrite, showFeedback }) => !canWrite || !showFeedback ? [] : [whatsNewOnly ? {
+      title: 'Send feedback from your agent',
+      text: 'Ask your AI agent to send feedback to the Canonry team. It replaces the Feedback button, and API keys are removed before anything is sent.',
+    } : {
       title: 'Send feedback from your agent',
       text: 'Ask your AI agent to send feedback to the Canonry team, or run this in a terminal. It replaces the Feedback button, and API keys are removed before anything is sent.',
       command: 'canonry feedback "what happened"',
-    }] : [],
+    }],
   },
   {
     version: '7.117.0',

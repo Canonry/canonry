@@ -31,15 +31,23 @@ it('adds the feedback note from 7.122.0, newest first, and carries it through la
   expect(availableReleaseNotes('7.122.0-rc.1', operator)).toEqual([discord])
 })
 
+const hostedFeedback = {
+  version: '7.122.0',
+  highlights: [{
+    title: 'Send feedback from your agent',
+    text: 'Ask your AI agent to send feedback to the Canonry team. It replaces the Feedback button, and API keys are removed before anything is sent.',
+  }],
+}
+
 it('shows each note only to readers who can act on it', () => {
-  // Hosted customers have no CLI, so they get the Discord invitation only.
-  expect(availableReleaseNotes('7.122.0', { ...operator, whatsNewOnly: true })).toEqual([discord])
+  // Hosted customers have no CLI, so their note names only the agent.
+  expect(availableReleaseNotes('7.122.0', { ...operator, whatsNewOnly: true })).toEqual([hostedFeedback, discord])
   // Sending feedback needs write authority.
   expect(availableReleaseNotes('7.122.0', { ...operator, canWrite: false })).toEqual([discord])
   // An operator who hid feedback (`dashboard.showFeedback: false`) gets no pointer to it.
   expect(availableReleaseNotes('7.122.0', { ...operator, showFeedback: false })).toEqual([discord])
   expect(availableReleaseNotes('7.122.0', { ...operator, showResourceLinks: false })).toEqual([feedback])
-  expect(availableReleaseNotes('7.122.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: true, showFeedback: true })).toEqual([])
+  expect(availableReleaseNotes('7.122.0', { showResourceLinks: false, whatsNewOnly: true, canWrite: false, showFeedback: true })).toEqual([])
 })
 
 it('excludes future, malformed or inapplicable release highlights', () => {
