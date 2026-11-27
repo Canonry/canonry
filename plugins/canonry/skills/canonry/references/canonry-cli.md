@@ -1329,7 +1329,7 @@ cnry ga status <project>                      # connected, propertyId, authMetho
 cnry ga properties <project>                  # list GA4 properties the connected account can read,
                                                   # with their numeric ids. OAuth connections only —
                                                   # the id cannot be derived from the domain or the grant
-cnry ga sync <project> [--days 30] [--only traffic|ai|social|search-landing]
+cnry ga sync <project> [--days 30] [--only traffic|ai|social|search-landing]   # MCP: canonry_ga_sync (ga toolkit)
                                                   # refresh from GA4 → DB; --only restricts which slice is replaced
                                                   # (search-landing = the Search Console landing-page snapshot)
                                                   # returns: synced, rowCount, aiReferralCount, socialReferralCount,

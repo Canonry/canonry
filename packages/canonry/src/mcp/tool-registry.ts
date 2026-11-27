@@ -11,6 +11,7 @@ import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/ca
 import { metricsWindowSchema, trendSurfaceSchema } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
+import { gaSyncOnlySchema } from '@canonry/canonry-contracts'
 import { bingConnectResponseDtoSchema, bingSetSiteResponseDtoSchema, bingSitesResponseDtoSchema, bingSiteSnapshotKindSchema, bingSiteUrlSchema, bingStatusDtoSchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
@@ -685,6 +686,14 @@ const gbpLocationSelectionInputSchema = z.object({
   project: projectNameSchema,
   locationName: z.string().min(1).regex(/^locations\//, 'locationName must be a Google resource name like "locations/12345"'),
   selected: z.boolean(),
+})
+
+const gaSyncInputSchema = z.object({
+  project: projectNameSchema,
+  days: z.number().int().positive().max(180).optional()
+    .describe('Days of history to refresh, 1 to 180. Defaults to 30. Days an earlier sync already settled are reused, not fetched again.'),
+  only: gaSyncOnlySchema.optional()
+    .describe('Refresh traffic plus one breakdown: ai, social or search-landing (traffic alone with traffic). Omit for the full sync.'),
 })
 
 const gbpSyncInputSchema = z.object({
@@ -2997,6 +3006,17 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/status'],
     handler: (client, input) => client.gaStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ga_sync',
+    title: 'Sync GA4 data',
+    description: 'Run a GA4 sync for a project now and wait for it to finish: traffic by landing page, daily totals, the overview windows, AI and social referrals, acquisition, lead events and the Search Console landing-page report, stored for every GA read. Calls GA4 for several reports; usually under a minute, a few minutes when GA4 is slow. It also runs daily as part of the data refresh, so trigger it when stored data is missing or stale (canonry_ga_status lastSyncedAt, or canonry_doctor ga.data.recent-data). Returns rows written, the effective days, and each measurement component\'s status; keptWindows names overview windows GA4 did not answer, whose earlier totals stay stored with their own dates.',
+    access: 'write',
+    tier: 'ga',
+    inputSchema: gaSyncInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/ga/sync'],
+    handler: (client, input) => client.gaSync(input.project, { days: input.days, only: input.only }),
   }),
   defineTool({
     name: 'canonry_ga_oauth_start',
