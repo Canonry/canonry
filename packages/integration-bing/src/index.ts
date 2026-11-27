@@ -41,6 +41,7 @@ export {
   bingKeywordMarket,
   bingPositionOrNull,
   isBlockingCrawlIssue,
+  bingThrottleCooldownRemainingMs,
   __resetBingThrottleCooldownForTest,
 } from './bing-client.js'
 export type { BingKeywordMarket } from './bing-client.js'
