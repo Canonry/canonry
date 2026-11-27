@@ -179,11 +179,12 @@ test('overview route keeps the dark dashboard class baseline stable', async () =
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classFor(html, '.page-header'),
     pageTitle: classFor(html, '.page-title'),
-    healthList: classFor(html, '.page-section > .divide-y'),
+    // Infrastructure lists only what needs a person; the fixture's services are healthy.
+    healthList: classOrNull(html, '.page-section > .divide-y'),
   }).toMatchInlineSnapshot(`
     {
       "appShell": "app-shell ",
-      "healthList": "divide-y divide-default border-y border-default",
+      "healthList": null,
       "pageContainer": "page-container",
       "pageHeader": "page-header",
       "pageShell": "page-shell",

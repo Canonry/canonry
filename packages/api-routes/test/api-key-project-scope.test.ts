@@ -238,6 +238,15 @@ describe('project-scoped API keys', () => {
     expect(pids).toEqual(new Set([projectAId]))
   })
 
+  it('GET /runs/attention lists ONLY the scoped project\'s jobs, and every project\'s for a full-instance key', async () => {
+    db.update(runs).set({ status: 'failed' }).run()
+    const scoped = await authed('GET', '/api/v1/runs/attention', SCOPED_KEY)
+    expect(scoped.statusCode).toBe(200)
+    expect((scoped.json() as { items: Array<{ run: { id: string } }> }).items.map(item => item.run.id)).toEqual([runAId])
+    const root = await authed('GET', '/api/v1/runs/attention', ROOT_KEY)
+    expect(new Set((root.json() as { items: Array<{ run: { id: string } }> }).items.map(item => item.run.id))).toEqual(new Set([runAId, runBId]))
+  })
+
   it('GET /runs returns ALL projects\' runs for a full-instance key', async () => {
     const res = await authed('GET', '/api/v1/runs', ROOT_KEY)
     const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))

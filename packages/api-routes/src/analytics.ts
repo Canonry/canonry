@@ -24,7 +24,7 @@ import { buildMentionShare, type MentionShareCompetitor } from '@canonry/canonry
 import { mentionShareCompetitors as mentionShareCompetitorsFor, projectQueryClassifier } from './mention-share-inputs.js'
 import { latestSweepRuns, planQueryClassesByRun, pooledRunIds, readCompetitorIdentityChangedAt, readCompetitorSetChangedAt } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
-import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
+import { isScopedRun, notProbeRun, resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 import { buildModelAttribution, buildServedModelAttribution } from './analytics-model-attribution.js'
 import {
   classifyModelEvidence, classifyServedModelEvidence, modelEvidenceMismatched, type ModelEvidenceValue,
@@ -36,8 +36,14 @@ import { competitorIdentityColumns } from './competitor-writes.js'
 // measured the plan. Folding its rows into a rate or a "latest sweep"
 // classification anyway would state a conclusion about questions nobody
 // answered — the same partial-denominator error run-coordinator and the
-// notifier already refuse to make. Planless runs (no manifest) are unaffected.
-export function measuredWhole(db: DatabaseClient, run: { id: string }): boolean {
+// notifier already refuse to make. A spot check (a list of queries, or a
+// slice of a plan) measured part of the basket on purpose, so it is never a
+// whole sweep either, planned or not.
+export function measuredWhole(
+  db: DatabaseClient,
+  run: Pick<typeof runs.$inferSelect, 'id' | 'queries' | 'measurementScope'>,
+): boolean {
+  if (isScopedRun(run)) return false
   const completeness = measurementRunCompleteness(db, run.id)
   return !completeness.planned || completeness.complete
 }
@@ -874,6 +880,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
       }
       if (requested.status !== RunStatuses.completed && requested.status !== RunStatuses.partial) {
         throw validationError(`Run "${requestedRunId}" is ${requested.status}; only completed or partial runs have source analytics.`)
+      }
+      if (isScopedRun(requested)) {
+        throw validationError(`Run "${requestedRunId}" is a spot check that measured only some queries, so it is excluded from source analytics.`)
       }
       if (!measuredWhole(app.db, requested)) {
         throw validationError(`Run "${requestedRunId}" did not fill every slot its measurement plan promised, so it is excluded from source analytics.`)

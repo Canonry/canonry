@@ -137,11 +137,14 @@ dashboard:
   showUpdateNotification: false
 ```
 
-`canonry serve --hide-feedback` and `canonry start --hide-feedback` hide the
-Feedback button in the top bar and the Feedback section in Settings. For a
-persistent setting, use `dashboard.showFeedback: false` in YAML or
-`CANONRY_DASHBOARD_SHOW_FEEDBACK=0` in the environment and restart the server.
-The command-line flag takes precedence over the environment, which overrides YAML.
+The dashboard has no feedback form; feedback goes through `canonry feedback` or
+the `canonry_feedback` MCP tool. `showFeedback: false` stops the dashboard
+pointing people to feedback, such as the What's new note about
+`canonry feedback`. `canonry serve --hide-feedback` and
+`canonry start --hide-feedback` do the same, as does
+`CANONRY_DASHBOARD_SHOW_FEEDBACK=0` in the environment; restart the server after
+changing it. The command-line flag takes precedence over the environment, which
+overrides YAML.
 
 The self-hosted navigation footer links to GitHub, Discord, X, and YouTube.
 Managed instances (`CANONRY_RUNTIME_MODE=cloud`) and the public demo show only

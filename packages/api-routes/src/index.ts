@@ -1125,6 +1125,8 @@ export type { WebhookDeliveryOptions, WebhookDeliveryResult } from './webhooks.j
 export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
 export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
+// A spot check (a list of queries, or a slice of a plan) is never a whole sweep.
+export { isScopedRun, notScopedRun } from './run-scope.js'
 // The read-time mention of stored answers, null when never checked; the notifier compares two.
 export { snapshotMentionObserver } from './helpers.js'
 // Per-Property mention and citation changes of one Advanced sweep, read through the overview's rule.

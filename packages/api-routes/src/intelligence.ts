@@ -2,7 +2,7 @@ import { eq, desc, and, inArray, like } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@canonry/canonry-db'
 import { notFound, validationError, RunKinds, RunStatuses, InsightActionGroups, insightActionGroupByType, type InsightDto, type HealthSnapshotDto } from '@canonry/canonry-contracts'
-import { notProbeRun, resolveProject } from './helpers.js'
+import { notProbeRun, notScopedRun, resolveProject } from './helpers.js'
 
 // Severity ordering for the insights `severity` filter (a MINIMUM-level gate:
 // `--severity high` returns high + critical). Mirrors InsightDto['severity'].
@@ -315,9 +315,10 @@ export async function intelligenceRoutes(app: FastifyInstance) {
         eq(runs.projectId, project.id),
         eq(runs.kind, RunKinds['answer-visibility']),
         inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
-        // Health-latest is the dashboard headline; probe runs must not
-        // displace the most recent real visibility sweep.
+        // Health-latest is the dashboard headline; probe runs and spot
+        // checks must not displace the most recent real visibility sweep.
         notProbeRun(),
+        notScopedRun(),
       ))
       .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
@@ -345,13 +346,16 @@ export async function intelligenceRoutes(app: FastifyInstance) {
       }
     }
 
+    // A spot check's health row describes its slice, never the project. A
+    // legacy row with no run joins nulls and passes.
     const fallback = app.db
-      .select()
+      .select({ health: healthSnapshots })
       .from(healthSnapshots)
-      .where(eq(healthSnapshots.projectId, project.id))
+      .leftJoin(runs, eq(runs.id, healthSnapshots.runId))
+      .where(and(eq(healthSnapshots.projectId, project.id), notScopedRun()))
       .orderBy(desc(healthSnapshots.createdAt))
       .limit(1)
-      .get()
+      .get()?.health
     if (!fallback) {
       return reply.send(emptyHealthSnapshot(project.id))
     }
@@ -367,14 +371,17 @@ export async function intelligenceRoutes(app: FastifyInstance) {
     const parsed = request.query.limit ? parseInt(request.query.limit, 10) : NaN
     const limit = Number.isNaN(parsed) ? 30 : Math.min(Math.max(parsed, 1), 100)
 
+    // A series of the project's health: a spot check's row would plot its
+    // slice as a whole-project point.
     const rows = app.db
-      .select()
+      .select({ health: healthSnapshots })
       .from(healthSnapshots)
-      .where(eq(healthSnapshots.projectId, project.id))
+      .leftJoin(runs, eq(runs.id, healthSnapshots.runId))
+      .where(and(eq(healthSnapshots.projectId, project.id), notScopedRun()))
       .orderBy(desc(healthSnapshots.createdAt))
       .limit(limit)
       .all()
 
-    return reply.send(rows.map(mapHealthSnapshotRow))
+    return reply.send(rows.map(row => mapHealthSnapshotRow(row.health)))
   })
 }

@@ -59,6 +59,18 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['activity'],
+    usage: 'canonry activity [--since <iso>] [--format json]',
+    options: {
+      since: { type: 'string' },
+    },
+    allowPositionals: false,
+    run: async (input) => {
+      const { showActivity } = await import('../commands/activity.js')
+      await showActivity({ since: getString(input.values, 'since'), format: input.format })
+    },
+  },
+  {
     path: ['overview'],
     usage: 'canonry overview <project>|--all [--location <label>] [--since <iso>] [--format json]',
     options: {

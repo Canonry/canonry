@@ -2978,6 +2978,27 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/runs/attention',
+    summary: 'List the jobs that need attention',
+    description: "Overview's Activity across the projects the key can see: each job's latest run, kept when it failed, finished partly, "
+      + 'was cancelled, or is still queued or running, newest first, with its project. A job is one project, run kind, location and source, '
+      + 'with spot checks apart from full sweeps, so a run elsewhere never hides a failure. Probes and per-URL inspections are left out. '
+      + '`since` bounds the runs read (default 30 days ago); a job with no run since then is not listed. Runs come without their '
+      + 'measurement manifests. Stored read: no provider calls.',
+    tags: ['runs'],
+    parameters: [{
+      name: 'since',
+      in: 'query',
+      description: 'Read runs created at or after this ISO 8601 timestamp. Defaults to 30 days ago.',
+      schema: stringSchema,
+    }],
+    responses: {
+      200: jsonResponse('Jobs that need attention returned.', 'RunsAttentionDto'),
+      400: errorResponse('`since` is not a valid timestamp.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/runs',
     summary: 'Trigger runs for all projects',
@@ -3978,6 +3999,27 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, notificationIdParameter],
     responses: {
       204: { description: 'Notification deleted.' },
+      404: errorResponse('Notification not found.'),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/api/v1/projects/{name}/notifications/{id}',
+    summary: 'Update a notification',
+    description: 'Changes an existing webhook in place: replaces its event list and/or turns it on or off. The URL and signing secret stay as they are; to send somewhere else, add a new webhook. Name at least one field.',
+    tags: ['notifications'],
+    parameters: [nameParameter, notificationIdParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/NotificationUpdateRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Notification updated.', 'NotificationDto'),
+      400: errorResponse('Invalid notification update.'),
       404: errorResponse('Notification not found.'),
     },
   },
@@ -7561,7 +7603,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:
-      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. Answers from an engine that returns no sources (a local model) are not measured for citation: every cited figure leaves them out of numerator and denominator and reports them in `citationNotMeasured` / `citationNotMeasuredQueries`, and a cited rate with nothing measured is null. whatChanged is the dashboard\'s "What changed": the queries that lost a mention and those that lost a citation in the latest check (each query once, the two signals counted apart), the AI Visibility runs in progress (probes excluded), and the rows the dashboard lists. Simple projects compare each engine\'s answer with its previous check of the same query and location; Advanced projects compare each Property\'s answer with the comparable previous sweep. Designed for the "how is project X doing?" question so agents can answer in one call.',
+      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. Answers from an engine that returns no sources (a local model) are not measured for citation: every cited figure leaves them out of numerator and denominator and reports them in `citationNotMeasured` / `citationNotMeasuredQueries`, and a cited rate with nothing measured is null. whatChanged is the dashboard\'s "What changed": the queries that lost or gained a mention and those that lost or gained a citation in the latest check (each query once per direction, the two signals counted apart; a query can lose on one engine and gain on another), the AI Visibility runs in progress (probes excluded), and the rows the dashboard lists. Simple projects compare each engine\'s answer with its previous check of the same query and location; Advanced projects compare each Property\'s answer with the comparable previous sweep. Designed for the "how is project X doing?" question so agents can answer in one call.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {

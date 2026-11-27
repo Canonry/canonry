@@ -80,52 +80,34 @@ describe('useDashboardOverview', () => {
     expect(overviewReads).toBe(1)
   })
 
-  test('keeps meaningful Activity jobs and failed sweeps visible behind routine traffic syncs', async () => {
+  test('shows the server\'s Activity for the projects it lists, named and with its window, apart from the sweep history', async () => {
     const beta = { ...metadataProject, id: 'beta-id', name: 'beta', displayName: 'Beta' }
     const run = (id: string, kind: RunDto['kind'], day: number, projectId = metadataProject.id): RunDto => ({
       id, projectId, kind, status: RunStatuses.completed, trigger: RunTriggers.manual,
       createdAt: `2026-02-${String(day).padStart(2, '0')}T00:00:00.000Z`,
     })
-    const runs: RunDto[] = [
+    const sweeps: RunDto[] = [
       { ...run('failed-sweep', RunKinds['answer-visibility'], 12), status: RunStatuses.failed },
-      run('audit', RunKinds['site-audit'], 11),
-      run('backlinks', RunKinds['backlink-extract'], 10, beta.id),
-      run('discovery', RunKinds['aeo-discover-probe'], 9),
-      { ...run('ads', RunKinds['google-ads-sync'], 8, beta.id), status: RunStatuses.running },
-      run('sitemap', RunKinds['inspect-sitemap'], 7),
       run('alpha-sweep', RunKinds['answer-visibility'], 6),
-      run('gsc', RunKinds['gsc-sync'], 5, beta.id),
       run('alpha-previous', RunKinds['answer-visibility'], 4),
       { ...run('beta-sweep', RunKinds['answer-visibility'], 3, beta.id), measurementPlanVersionId: 'published-plan' },
-      ...Array.from({ length: 6 }, (_, index) => ({
-        ...run(`audit-probe-${index}`, RunKinds['site-audit'], 11 + index), trigger: RunTriggers.probe,
-      })),
-      { ...run('sweep-probe', RunKinds['answer-visibility'], 17), trigger: RunTriggers.probe },
-      ...Array.from({ length: 500 }, (_, index) => run(`url-inspection-${index}`, RunKinds['bing-inspect'], 20)),
-      ...Array.from({ length: 10 }, (_, index) => ({
-        ...run(`routine-traffic-${index}`, RunKinds['traffic-sync'], 21, index % 2 ? beta.id : metadataProject.id),
-        trigger: RunTriggers.scheduled,
-        createdAt: new Date(Date.parse('2026-02-21T12:00:00.000Z') - index * 30 * 60_000).toISOString(),
-      })),
     ]
+    // The server has already picked each job's latest run that needs attention.
+    const activity = {
+      since: '2026-01-23T00:00:00.000Z',
+      items: [
+        { project: { id: metadataProject.id, name: metadataProject.name, displayName: 'Alpha' }, run: sweeps[0]! },
+        { project: { id: beta.id, name: beta.name, displayName: 'Beta' }, run: { ...run('ads', RunKinds['google-ads-sync'], 8, beta.id), status: RunStatuses.running } },
+        // A project this dashboard does not list is left out.
+        { project: { id: 'gone-id', name: 'gone', displayName: 'Gone' }, run: { ...run('gone-audit', RunKinds['site-audit'], 7, 'gone-id'), status: RunStatuses.failed } },
+      ],
+    }
     const restoreFetch = mockFetch((path) => {
       const url = new URL(path, 'http://localhost')
       if (/\/projects\/[^/]+\/overview$/.test(url.pathname)) return jsonResponse(null)
       if (url.pathname === '/api/v1/projects') return jsonResponse([metadataProject, beta])
-      if (url.pathname === '/api/v1/runs') {
-        const kind = url.searchParams.get('kind')
-        const excludedKinds = [
-          ...url.searchParams.getAll('excludeKind'),
-          ...url.searchParams.getAll('excludeKinds').flatMap(value => value.split(',')),
-        ]
-        const limit = Number(url.searchParams.get('limit') ?? 500)
-        return jsonResponse(runs
-          .filter(item => item.trigger !== RunTriggers.probe
-            && (!kind || item.kind === kind)
-            && !excludedKinds.includes(item.kind))
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-          .slice(0, limit))
-      }
+      if (url.pathname === '/api/v1/runs/attention') return jsonResponse(activity)
+      if (url.pathname === '/api/v1/runs' && url.searchParams.get('kind') === RunKinds['answer-visibility']) return jsonResponse(sweeps)
       return jsonResponse({ error: `unexpected ${path}` }, 404)
     })
     onTestFinished(restoreFetch)
@@ -136,11 +118,9 @@ describe('useDashboardOverview', () => {
       item.id, item.projectName, item.status,
     ])).toEqual([
       ['failed-sweep', 'Alpha', RunStatuses.failed],
-      ['audit', 'Alpha', RunStatuses.completed],
-      ['backlinks', 'Beta', RunStatuses.completed],
-      ['discovery', 'Alpha', RunStatuses.completed],
       ['ads', 'Beta', RunStatuses.running],
     ]))
+    expect(result.current.dashboard?.portfolioOverview.activitySince).toBe('2026-01-23T00:00:00.000Z')
     expect(result.current.dashboard?.projects.map(project => [
       project.project.name, project.visibilitySweeps.map(item => item.id),
     ])).toEqual([
@@ -157,16 +137,17 @@ describe('useDashboardOverview', () => {
       id: 'saved-sweep', projectId: metadataProject.id, kind: RunKinds['answer-visibility'],
       status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: '2026-02-01T00:00:00.000Z',
     }
-    const audit: RunDto = { ...sweep, id: 'saved-audit', kind: RunKinds['site-audit'], createdAt: '2026-02-02T00:00:00.000Z' }
+    const audit: RunDto = { ...sweep, id: 'saved-audit', kind: RunKinds['site-audit'], status: RunStatuses.failed, createdAt: '2026-02-02T00:00:00.000Z' }
+    const project = { id: metadataProject.id, name: metadataProject.name, displayName: metadataProject.displayName }
     const restoreFetch = mockFetch((path) => {
       const url = new URL(path, 'http://localhost')
       if (/\/projects\/[^/]+\/overview$/.test(url.pathname)) return jsonResponse(null)
       if (url.pathname === '/api/v1/projects') return jsonResponse([metadataProject])
-      if (url.pathname === '/api/v1/runs') {
-        if (url.searchParams.get('kind') === RunKinds['answer-visibility']) return jsonResponse([sweep])
+      if (url.pathname === '/api/v1/runs/attention') {
         if (failActivity) return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Activity unavailable' } }, 500)
-        return jsonResponse([audit])
+        return jsonResponse({ since: '2026-01-03T00:00:00.000Z', items: [{ project, run: audit }] })
       }
+      if (url.pathname === '/api/v1/runs' && url.searchParams.get('kind') === RunKinds['answer-visibility']) return jsonResponse([sweep])
       return jsonResponse({ error: `unexpected ${path}` }, 404)
     })
     onTestFinished(restoreFetch)

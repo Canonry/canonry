@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowRight, ChevronDown, X } from 'lucide-react'
 import { markReleaseRead, observeReleaseNotes } from '../../lib/installed-update.js'
-import type { ReleaseNotes } from '../../lib/release-notes.js'
+import type { ReleaseAudience, ReleaseNotes } from '../../lib/release-notes.js'
 import type { UpdateAvailable } from '../../view-models.js'
 import { Button } from '../ui/button.js'
 import { BrandIcon } from './FooterLinks.js'
@@ -28,26 +28,26 @@ function browserStorage(): Storage | undefined {
   try { return window.localStorage } catch { return undefined }
 }
 
-export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsNewOnly, availableUpdate }: {
+export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsNewOnly, canWrite, showFeedback, availableUpdate }: {
   build: { version: string }
   storageKey: string
-  showResourceLinks: boolean
-  whatsNewOnly: boolean
   availableUpdate?: ReactNode
-}) {
+} & ReleaseAudience) {
   const [notes, setNotes] = useState<ReturnType<typeof observeReleaseNotes>>({ releases: [], unread: false })
   const [opened, setOpened] = useState<ReleaseNotes[] | null>(null)
   const { version } = build
+  const audience: ReleaseAudience = { showResourceLinks, whatsNewOnly, canWrite, showFeedback }
 
   useEffect(() => {
-    const refresh = () => setNotes(observeReleaseNotes(browserStorage(), storageKey, version, showResourceLinks))
+    const reader: ReleaseAudience = { showResourceLinks, whatsNewOnly, canWrite, showFeedback }
+    const refresh = () => setNotes(observeReleaseNotes(browserStorage(), storageKey, version, reader))
     function sync(event: StorageEvent) {
       if (event.key === null || event.key === storageKey || event.key.startsWith(storageKey + ':')) refresh()
     }
     refresh()
     window.addEventListener('storage', sync)
     return () => window.removeEventListener('storage', sync)
-  }, [version, storageKey, showResourceLinks])
+  }, [version, storageKey, showResourceLinks, whatsNewOnly, canWrite, showFeedback])
 
   if (!opened && availableUpdate) return <>{availableUpdate}</>
   if (!notes.releases.length) return null
@@ -66,7 +66,7 @@ export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsN
         if (!markReleaseRead(storage, storageKey, release.version)) persisted = false
       }
     }
-    setNotes(observeReleaseNotes(persisted ? storage : undefined, storageKey, version, showResourceLinks))
+    setNotes(observeReleaseNotes(persisted ? storage : undefined, storageKey, version, audience))
   }
 
   return (
@@ -98,6 +98,11 @@ export function ReleaseNotesBadge({ build, storageKey, showResourceLinks, whatsN
                 <div key={highlight.text}>
                   {highlight.title && <h3 className="mb-1 text-label-14-strong text-primary">{highlight.title}</h3>}
                   <p className="text-copy-14 text-secondary">{highlight.text}</p>
+                  {highlight.command && (
+                    <code className="mt-2 block overflow-x-auto whitespace-nowrap rounded bg-bg-elevated px-2 py-1.5 text-label-12-mono text-primary">
+                      {highlight.command}
+                    </code>
+                  )}
                   {highlight.action && (
                     <Button asChild size="sm" className="mt-3">
                       <a href={highlight.action.href} target="_blank" rel="noopener noreferrer">

@@ -100,7 +100,7 @@ and requires explicit approval; preparing a summary does not authorize it.
 - Mention share (non-brand): <X>% (Δ<+/-Y>% from last week)   ← share-of-voice vs competitors; NEVER pooled with branded
 - Cited rate: <X>% (Δ<+/-Y>% from last week)          ← secondary signal; "not measured" when null, never 0%
 - Regressions: <N> new, <N> resolved (lead with lost mentions; note lost citations second)   ← latest check: the overview's whatChanged.lostMentions / lostCitations queryCount; comparison unavailable = not compared, never 0
-- Gains: <N> new mentions / <N> new citations
+- Gains: <N> new mentions / <N> new citations   ← latest check: whatChanged.gainedMentions / gainedCitations queryCount (absent from servers before 7.123.0)
 - Providers monitored: <N>
 
 ## Key Changes

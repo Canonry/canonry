@@ -95,7 +95,10 @@ export interface PortfolioProjectVm {
 export interface PortfolioOverviewVm {
   projects: PortfolioProjectVm[]
   attentionItems: AttentionItemVm[]
+  /** Overview's Activity: each job's latest run that failed or is still working (`GET /runs/attention`). */
   recentRuns: RunListItemVm[]
+  /** The start of the window Activity read; absent when it came from the sweep list (embeds, fixtures). */
+  activitySince?: string
   systemHealth: SystemHealthCardVm[]
   emptyState?: {
     title: string
@@ -331,6 +334,8 @@ export interface BingSettingsVm {
 
 export interface SettingsVm {
   providerStatuses: ProviderStatusVm[]
+  /** False when the settings read was not made, refused, or has not returned, so the empty `providerStatuses` says nothing. */
+  providersKnown?: boolean
   google: GoogleSettingsVm
   bing: BingSettingsVm
   selfHostNotes: string[]

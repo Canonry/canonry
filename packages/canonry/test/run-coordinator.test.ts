@@ -423,6 +423,37 @@ describe('RunCoordinator', () => {
     })
   })
 
+  describe('spot-check runs (a list of queries)', () => {
+    it('records the answers and sends run.completed, but derives nothing from them', async () => {
+      const { db } = createTempDb('coord-spot-check-')
+      const { projectId, runId } = seedFixture(db)
+      db.update(runs).set({ kind: 'answer-visibility', trigger: 'manual', queries: ['test query'] }).where(eq(runs.id, runId)).run()
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const intelSpy = vi.spyOn(service, 'analyzeAndPersist')
+      const aeroSpy = vi.fn(async () => {})
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service, undefined, aeroSpy)
+      const answersRecorded: string[] = []
+      const sentimentWoken: string[] = []
+      coordinator.onAnswersRecorded = (id) => { answersRecorded.push(id) }
+      coordinator.onSentimentCompleted = async (id) => { sentimentWoken.push(id) }
+
+      await coordinator.onRunCompleted(runId, projectId)
+
+      // Real answers: competitor-alias evidence and the completion webhook.
+      expect(answersRecorded).toEqual([runId])
+      expect(notifier.onRunCompleted).toHaveBeenCalledTimes(1)
+      expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+      // Nothing that would describe the slice as the project.
+      expect(intelSpy).not.toHaveBeenCalled()
+      expect(db.select().from(healthSnapshots).all()).toHaveLength(0)
+      expect(db.select().from(insights).all()).toHaveLength(0)
+      expect(sentimentWoken).toEqual([])
+      expect(aeroSpy).not.toHaveBeenCalled()
+    })
+  })
+
   it('runs GBP intelligence for a gbp-sync run and wakes Aero with the insight count', async () => {
     const { db } = createTempDb('coord-gbp-')
     const now = new Date().toISOString()
