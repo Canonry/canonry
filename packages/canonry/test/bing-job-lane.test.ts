@@ -138,6 +138,17 @@ describe('Bing job lane', () => {
       domain, apiKey, siteUrl: `https://${domain}/`, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     })
 
+    it('rejects, never throws, when the key lookup fails, so the route that queued the run is unaffected', async () => {
+      const config = { apiUrl: 'http://localhost:4100', database: '/tmp/test.db', apiKey: 'cnry_test' } as CanonryConfig
+      const broken = { select: () => { throw new Error('database is locked') } } as unknown as typeof db
+      const work = vi.fn(async () => 'ran')
+
+      let pending: Promise<string> | undefined
+      expect(() => { pending = runBingJob(broken, config, 'any-project', 'sync', work) }).not.toThrow()
+      await expect(pending).rejects.toThrow('database is locked')
+      expect(work).not.toHaveBeenCalled()
+    })
+
     it('queues two projects on one Bing key, and runs a project without a connection at once', async () => {
       const alpha = project('alpha.example')
       const beta = project('beta.example')

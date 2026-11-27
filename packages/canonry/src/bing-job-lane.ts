@@ -98,9 +98,10 @@ export function bingApiKeyForProject(db: DatabaseClient, config: CanonryConfig, 
 /**
  * Runs a project's Bing job in its key's lane. A project with no Bing
  * connection has no lane to wait in: the job runs at once and fails with its
- * own "not connected" message.
+ * own "not connected" message. Async so a failed key lookup rejects like the
+ * job itself would, instead of throwing into the route that queued the run.
  */
-export function runBingJob<T>(
+export async function runBingJob<T>(
   db: DatabaseClient,
   config: CanonryConfig,
   projectId: string,
@@ -109,7 +110,7 @@ export function runBingJob<T>(
   deps: { sleep?: SleepFn } = {},
 ): Promise<T> {
   const apiKey = bingApiKeyForProject(db, config, projectId)
-  return apiKey ? runInBingLane(apiKey, kind, work, deps) : work()
+  return apiKey ? await runInBingLane(apiKey, kind, work, deps) : await work()
 }
 
 /** Test seam: forget every lane. */
