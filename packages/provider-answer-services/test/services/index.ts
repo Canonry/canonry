@@ -1,6 +1,7 @@
 import type { ConformanceFixtures } from '../conformance.js'
 import { CLORO_CONFORMANCE_FIXTURES } from './cloro/fixtures.js'
 import { EXA_CONFORMANCE_FIXTURES } from './exa/fixtures.js'
+import { GOANYAPI_CONFORMANCE_FIXTURES } from './goanyapi/fixtures.js'
 import { PARALLEL_CONFORMANCE_FIXTURES } from './parallel/fixtures.js'
 
 /**
@@ -11,6 +12,7 @@ import { PARALLEL_CONFORMANCE_FIXTURES } from './parallel/fixtures.js'
  */
 export const SERVICE_CONFORMANCE_FIXTURES: readonly ConformanceFixtures[] = [
   EXA_CONFORMANCE_FIXTURES,
+  GOANYAPI_CONFORMANCE_FIXTURES,
   PARALLEL_CONFORMANCE_FIXTURES,
   CLORO_CONFORMANCE_FIXTURES,
 ]
