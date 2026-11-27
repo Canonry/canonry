@@ -176,6 +176,8 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set(withLegacyAgentReadinessPa
   '/api/v1/projects/:name/visibility-report',
   '/api/v1/projects/:name/visibility-stats',
   '/api/v1/runs',
+  // Overview's Activity: the seeded runs' jobs that failed or are still running.
+  '/api/v1/runs/attention',
   '/api/v1/runs/:id',
   '/api/v1/session',
 ]))

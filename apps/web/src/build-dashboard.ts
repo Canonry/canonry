@@ -1,5 +1,5 @@
 import type { ProjectDto, InsightDto, MentionShareBreakdownDto, ProjectOverviewDto, QueryClassifier, RunErrorDto, RunKind } from '@canonry/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine, isWhatChangedActiveRun, portfolioWhatChangedItems } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, compileQueryClassifier, effectiveBrandNames, formatRunErrorOneLine, isWhatChangedActiveRun, overviewActivityRuns, portfolioWhatChangedItems } from '@canonry/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -851,7 +851,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
             actionLabel: 'Open setup',
             href: '/setup',
           }],
-      recentRuns: allRuns.slice(0, 5),
+      recentRuns: overviewActivityRuns(allRuns),
       systemHealth: [
         { id: 'api', label: 'API', tone: 'positive', detail: 'Connected', meta: 'Real-time data' },
         { id: 'provider', label: 'Gemini', tone: 'positive', detail: 'Configured', meta: 'Provider active' },
@@ -888,6 +888,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
 /** Instance settings as the dashboard shows them; a read that was refused or not made lists no providers. */
 export function buildSettingsVm(apiSettings?: ApiSettings | null): SettingsVm {
   return {
+    providersKnown: apiSettings != null,
     providerStatuses: (apiSettings?.providers ?? []).map(p => {
       // Present only for an install administrator: the connection's revision and stored last test.
       const connection = apiSettings?.providerConnections?.find(entry => entry.name === p.name)

@@ -195,7 +195,7 @@ export const UI_ROUTE_FIXED_CHILDREN: ReadonlySet<string> = new Set([
   'ads/connection', 'ads/conversions', 'ads/delivery-diagnostics', 'ads/files', 'ads/geo', 'ads/insights',
   'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self', 'users/invitations',
   'locations/default', 'locations/discover', 'notifications/events', 'operations/logs', 'providers/reload', 'queries/generate',
-  'queries/replace-preview', 'runs/latest', 'snapshots/diff',
+  'queries/replace-preview', 'runs/attention', 'runs/latest', 'snapshots/diff',
 ])
 
 const PARAM_SEGMENT = /^\{[a-z]+\}$/i

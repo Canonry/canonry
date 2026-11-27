@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createDemoServer } from '../src/demo-server.js'
-import { seoContextSchema, seoProfileListSchema, seoOverviewSchema, seoRunDetailSchema, seoKeywordMetricsListSchema, seoMarketRankingListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
+import { runsAttentionDtoSchema, seoContextSchema, seoProfileListSchema, seoOverviewSchema, seoRunDetailSchema, seoKeywordMetricsListSchema, seoMarketRankingListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
 
 const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-integration-'))
 let app: Awaited<ReturnType<typeof createDemoServer>>
@@ -110,6 +110,13 @@ describe('populated demo integration', () => {
     const integrity = await app.inject(`/api/v1/projects/summit-roofing/conversion-tracking/contracts/${contracts[0].id}/integrity`)
     expect(integrity.statusCode, integrity.body).toBe(200)
     expect(integrity.json().assessment.contract.id).toBe(contracts[0].id)
+    expect(network).not.toHaveBeenCalled()
+  })
+  // The public demo's Overview reads Activity here; every seeded job finished.
+  it('answers Overview Activity with no job needing attention', async () => {
+    const response = await app.inject('/api/v1/runs/attention')
+    expect(response.statusCode, response.body).toBe(200)
+    expect(runsAttentionDtoSchema.parse(response.json()).items).toEqual([])
     expect(network).not.toHaveBeenCalled()
   })
   it('denies webhook secret exports to the public demo viewer', async () => {

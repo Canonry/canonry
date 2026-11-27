@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, expect, it } from 'vitest'
 import { ReleaseNotesBadge } from '../src/components/layout/ReleaseNotesBadge.js'
 
-const props = { storageKey: 'release-notes-test', showResourceLinks: true, whatsNewOnly: false }
+const props = { storageKey: 'release-notes-test', showResourceLinks: true, whatsNewOnly: false, canWrite: true, showFeedback: true }
 const current = { version: '7.117.0' }
 const patch = { version: '7.117.1' }
 const unread = 'What’s new, unread release notes'
@@ -64,4 +64,22 @@ it('keeps an available update ahead of the notes and opens only after the offer 
   view.rerender(<ReleaseNotesBadge {...props} build={current} />)
   expect(screen.getByRole('button', { name: unread })).toBeTruthy()
   expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('shows the feedback note’s command on its own line, and leaves it out for viewers who cannot send feedback', () => {
+  const operator = render(<ReleaseNotesBadge {...props} build={{ version: '7.122.0' }} />)
+  fireEvent.click(screen.getByRole('button', { name: unread }))
+  const notes = within(open())
+  expect(notes.getByRole('heading', { name: 'Send feedback from your agent' })).toBeTruthy()
+  expect(notes.getByText('canonry feedback "what happened"').tagName).toBe('CODE')
+  // A first visit opens only the newest applicable note.
+  expect(notes.getByText('v7.122.0')).toBeTruthy()
+  expect(notes.queryByRole('link', { name: 'Join our Discord' })).toBeNull()
+  operator.unmount()
+  localStorage.clear()
+
+  render(<ReleaseNotesBadge {...props} canWrite={false} build={{ version: '7.122.0' }} />)
+  fireEvent.click(screen.getByRole('button', { name: unread }))
+  expect(within(open()).queryByRole('heading', { name: 'Send feedback from your agent' })).toBeNull()
+  expect(within(open()).getByRole('link', { name: 'Join our Discord' })).toBeTruthy()
 })

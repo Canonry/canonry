@@ -1,4 +1,4 @@
-import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, trafficUnrecognizedAgentsQuerySchema, type TrafficUnrecognizedAgentsQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
+import { credentialTextProblem, formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, trafficUnrecognizedAgentsQuerySchema, type TrafficUnrecognizedAgentsQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
   BrowserAgentRequestKind,
   CloudflareQueueDrainStopReason,
@@ -69,15 +69,32 @@ function requireCloudflareQueueOption(
   })
 }
 
+/**
+ * Refuses a credential that cannot be sent as given: two tokens on two lines
+ * (a file appended to with `>>`), a stray space, a control character. Sent
+ * anyway, it fails inside `fetch` with an error that quotes the whole header,
+ * secret included. The message names the problem and never the value.
+ */
+function assertCredentialText(
+  project: string,
+  value: string,
+  label: string,
+  code: string,
+  options: { allowSpaces?: boolean } = {},
+): void {
+  const problem = credentialTextProblem(value, label, options)
+  if (problem) throw new CliError({ code, message: problem, displayMessage: `Error: ${problem}`, details: { project } })
+}
+
 function readCloudflareQueueApiToken(project: string, tokenFile: string): string {
+  let apiToken: string
   try {
     const stat = fs.lstatSync(tokenFile)
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new Error('not a regular file')
     }
-    const apiToken = fs.readFileSync(tokenFile, 'utf-8').trim()
+    apiToken = fs.readFileSync(tokenFile, 'utf-8').trim()
     if (!apiToken) throw new Error('file is empty')
-    return apiToken
   } catch (error) {
     const message = errorMessage(error)
     throw new CliError({
@@ -87,6 +104,8 @@ function readCloudflareQueueApiToken(project: string, tokenFile: string): string
       details: { project, tokenFile },
     })
   }
+  assertCredentialText(project, apiToken, 'Cloudflare API token in --api-token-file', 'TRAFFIC_CLOUDFLARE_QUEUE_TOKEN_INVALID')
+  return apiToken
 }
 
 export async function trafficConnectCloudflare(project: string, opts: {
@@ -468,6 +487,15 @@ export async function trafficConnectWordpress(project: string, opts: {
       details: { project },
     })
   }
+  // WordPress shows Application Passwords in groups separated by spaces, so
+  // spaces are fine; a second line is not.
+  assertCredentialText(
+    project,
+    applicationPassword,
+    opts.appPasswordFile && !opts.appPassword ? 'WordPress application password in --app-password-file' : 'WordPress application password',
+    'TRAFFIC_WP_APP_PASSWORD_INVALID',
+    { allowSpaces: true },
+  )
 
   const client = getClient()
   const result: TrafficSourceDto = await client.trafficConnectWordpress(project, {
@@ -600,6 +628,9 @@ export async function trafficConnectVercel(project: string, opts: {
         details: { project, tokenFile: opts.tokenFile },
       })
     }
+  }
+  if (token) {
+    assertCredentialText(project, token, opts.tokenFile && !opts.token ? 'Vercel token in --token-file' : 'Vercel token', 'TRAFFIC_VERCEL_TOKEN_INVALID')
   }
   if (!token) {
     throw new CliError({

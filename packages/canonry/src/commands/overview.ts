@@ -3,19 +3,21 @@ import {
   formatPercent,
   portfolioWhatChangedItems,
   RatioUnits,
-  WHAT_CHANGED_ALL_CLEAR_DETAIL,
+  whatChangedAllClearDetail,
   type MentionShareDto,
   type OverviewWhatChangedQueryDto,
   type OverviewWhatChangedSignalDto,
   type ProjectDto,
   type ProjectOverviewDto,
   type ProjectOverviewWhatChangedDto,
+  type RunsAttentionDto,
   type ScoreSummaryDto,
   type VisibilityReportRate,
 } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR, isMachineFormat } from '../cli-error.js'
 import { citedBase } from '../snapshot-cell.js'
+import { activityLines } from './activity.js'
 import { runAdmissionLines } from './run.js'
 
 export interface ShowOverviewOpts {
@@ -81,7 +83,7 @@ function readFailure(err: unknown): ReadFailure {
  * project is named as couldn't be loaded (an `UnreadProjectOverview` in its
  * place in JSON), never counted as clear. Once everything is printed the
  * command fails with `OVERVIEW_INCOMPLETE`, so exit 0 still means every
- * element is a full overview.
+ * element is a full overview, and in text output that Activity was read.
  */
 export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
   const client = createApiClient()
@@ -95,11 +97,20 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
     return
   }
 
-  const settled = await Promise.allSettled(
-    projects.map(p =>
-      client.getProjectOverview(p.name, { location: opts.location, since: opts.since }),
+  const machine = isMachineFormat(opts.format)
+  // The dashboard's Activity, read with the same `since`. JSON stays the list
+  // of overviews; `canonry activity --format json` returns Activity itself.
+  const [settled, activity] = await Promise.all([
+    Promise.allSettled(
+      projects.map(p =>
+        client.getProjectOverview(p.name, { location: opts.location, since: opts.since }),
+      ),
     ),
-  )
+    machine
+      ? Promise.resolve(null)
+      : client.getRunsAttention({ since: opts.since })
+        .then((read): ActivityRead => ({ activity: read }), (err: unknown): ActivityRead => ({ failure: readFailure(err) })),
+  ])
   const reads = projects.map((project, index): PortfolioRead => {
     const outcome = settled[index]!
     return outcome.status === 'fulfilled'
@@ -107,18 +118,30 @@ export async function showAllOverviews(opts: ShowOverviewOpts): Promise<void> {
       : { project, failure: readFailure(outcome.reason) }
   })
 
-  if (isMachineFormat(opts.format)) {
+  if (machine) {
     const entries = reads.map((read): ProjectOverviewDto | UnreadProjectOverview => 'overview' in read
       ? read.overview
       : { project: read.project, error: { code: read.failure.code, message: read.failure.message } })
     console.log(JSON.stringify(entries, null, 2))
   } else {
-    renderPortfolio(reads)
+    renderPortfolio(reads, activity)
   }
-  throwIfAnyUnread(reads)
+  throwIfIncomplete(reads, activity)
 }
 
-function renderPortfolio(reads: readonly PortfolioRead[]): void {
+type ActivityRead = { activity: RunsAttentionDto } | { failure: ReadFailure }
+
+/** The dashboard's Activity: each job's latest run that failed or is still working. */
+function printActivity(activity: ActivityRead): void {
+  console.log('\nActivity:')
+  if ('failure' in activity) {
+    console.log(`  Couldn't be loaded: ${activity.failure.message}`)
+    return
+  }
+  for (const line of activityLines(activity.activity)) console.log(`  ${line}`)
+}
+
+function renderPortfolio(reads: readonly PortfolioRead[], activity: ActivityRead | null): void {
   // Compact table: one row per project. Picks the headline numbers
   // operators usually want to scan at portfolio level. Each cell is
   // truncated to its column width so multi-word score values like
@@ -161,19 +184,25 @@ function renderPortfolio(reads: readonly PortfolioRead[]): void {
       console.log(`  ${item.title}: ${item.detail}`)
     }
   }
+  if (activity !== null) printActivity(activity)
   console.log()
 }
 
 /** Exit 1, or 2 when a retry may help, once the readable overviews are printed. */
-function throwIfAnyUnread(reads: readonly PortfolioRead[]): void {
+function throwIfIncomplete(reads: readonly PortfolioRead[], activity: ActivityRead | null): void {
   const unread = reads.flatMap(read => 'failure' in read ? [read] : [])
-  if (unread.length === 0) return
+  const activityFailure = activity !== null && 'failure' in activity ? activity.failure : null
+  if (unread.length === 0 && activityFailure === null) return
   const names = unread.map(read => read.project.name)
+  const failures = [...unread.map(read => read.failure), ...(activityFailure ? [activityFailure] : [])]
   throw new CliError({
     code: 'OVERVIEW_INCOMPLETE',
-    message: `${unread.length} of ${reads.length} project overviews couldn't be loaded: ${names.join(', ')}`,
-    details: { projects: names },
-    exitCode: unread.some(read => read.failure.system) ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR,
+    message: [
+      ...(unread.length > 0 ? [`${unread.length} of ${reads.length} project overviews couldn't be loaded: ${names.join(', ')}`] : []),
+      ...(activityFailure ? [`Activity couldn't be loaded: ${activityFailure.message}`] : []),
+    ].join('; '),
+    details: { projects: names, ...(activityFailure ? { activity: activityFailure.code } : {}) },
+    exitCode: failures.some(failure => failure.system) ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR,
   })
 }
 
@@ -187,8 +216,8 @@ const COMPARISON_UNAVAILABLE_TEXT: Record<Extract<ProjectOverviewWhatChangedDto[
   'unreadable': 'not compared: the previous sweep could not be read.',
 }
 
-/** One lost query: its class, then where it was lost (engines, locations, and for Advanced the Properties and markets). */
-function lostQueryLine(row: OverviewWhatChangedQueryDto): string {
+/** One changed query: its class, then where it changed (engines, locations, and for Advanced the Properties and markets). */
+function changedQueryLine(row: OverviewWhatChangedQueryDto): string {
   const where = [row.providers.join(', ')]
   const locations = row.locations.filter((location): location is string => location !== null)
   if (locations.length > 0) where.push(`at ${locations.join(', ')}`)
@@ -198,10 +227,10 @@ function lostQueryLine(row: OverviewWhatChangedQueryDto): string {
   return `      - ${row.query}${queryClass} — ${where.join(' · ')}`
 }
 
-function printLostQueries(label: string, signal: OverviewWhatChangedSignalDto): void {
-  if (signal.queryCount === 0) return
+function printChangedQueries(label: string, signal: OverviewWhatChangedSignalDto | undefined): void {
+  if (signal === undefined || signal.queryCount === 0) return
   console.log(`    ${label}:`)
-  for (const row of signal.queries) console.log(lostQueryLine(row))
+  for (const row of signal.queries) console.log(changedQueryLine(row))
   if (signal.truncated) console.log(`      … ${signal.queryCount - signal.queries.length} more not listed`)
 }
 
@@ -210,11 +239,13 @@ function printWhatChanged(whatChanged: ProjectOverviewWhatChangedDto): void {
   const { comparison, items } = whatChanged
   const status = comparison.state === 'unavailable'
     ? COMPARISON_UNAVAILABLE_TEXT[comparison.reason]
-    : items.length === 0 ? WHAT_CHANGED_ALL_CLEAR_DETAIL : null
+    : items.length === 0 ? whatChangedAllClearDetail(whatChanged) : null
   console.log(status === null ? '\n  What changed:' : `\n  What changed: ${status}`)
   for (const item of items) console.log(`    ${item.title}: ${item.detail}`)
-  printLostQueries('Lost mentions', whatChanged.lostMentions)
-  printLostQueries('Lost citations', whatChanged.lostCitations)
+  printChangedQueries('Lost mentions', whatChanged.lostMentions)
+  printChangedQueries('Gained mentions', whatChanged.gainedMentions)
+  printChangedQueries('Lost citations', whatChanged.lostCitations)
+  printChangedQueries('Gained citations', whatChanged.gainedCitations)
 }
 
 /** Pad-or-truncate a cell to fit its column without bleeding. Leaves at

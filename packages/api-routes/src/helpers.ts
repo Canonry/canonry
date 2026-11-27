@@ -36,6 +36,10 @@ export function notProbeRun(): SQL {
   return ne(runs.trigger, RunTriggers.probe)
 }
 
+// Spot checks: run-scope.ts has no Fastify dependency, so stored-evidence
+// readers that scripts also load can use it without this module.
+export { isScopedRun, notScopedRun } from './run-scope.js'
+
 /** The host-only claim consumed when its scheduler calls a sync endpoint. */
 export type ScheduledSyncClaim = (projectName: string, kind: RunKind, sourceId?: string) => boolean
 

@@ -8,6 +8,7 @@ import {
 } from '../api.js'
 import {
   getApiV1ProjectsOptions,
+  getApiV1RunsAttentionOptions,
   getApiV1RunsOptions,
   getApiV1SettingsOptions,
 } from '@canonry/canonry-api-client/react-query'
@@ -75,14 +76,16 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     },
   })
 
-  // Exclude per-URL inspections and routine traffic pulls before the five-job cap.
-  // Keep the sweep history above independent for measurement reads.
+  // Activity is the server's list of jobs that need attention (`GET
+  // /runs/attention`), the same one `canonry activity` and MCP read: only
+  // those runs come back, without manifests, so polling while one runs stays
+  // light. Keep the sweep history above independent for measurement reads.
   // Embeds deliberately permit only answer sweeps in run lists and details.
   const activityQuery = useQuery({
-    ...getApiV1RunsOptions({ client: heyClient, query: { excludeKinds: [RunKinds['bing-inspect'], RunKinds['traffic-sync']], limit: 5 } }),
+    ...getApiV1RunsAttentionOptions({ client: heyClient }),
     enabled: loadActivity,
     staleTime: RUNS_STALE_MS,
-    refetchInterval: (query) => query.state.data?.some(run =>
+    refetchInterval: (query) => query.state.data?.items.some(({ run }) =>
       run.status === RunStatuses.running || run.status === RunStatuses.queued) ? 3000 : RUNS_STALE_MS,
   })
 
@@ -201,12 +204,10 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
 
     const built = buildDashboard(projectDataList, settingsQuery.data ?? null)
     if (loadActivity) {
-      built.portfolioOverview.recentRuns = (activityQuery.data ?? [])
-        .filter(run => run.trigger !== RunTriggers.probe && projectsById.has(run.projectId))
-        .map(run => {
-          const project = projectsById.get(run.projectId)!
-          return toRunListItem(run, project.displayName || project.name)
-        })
+      built.portfolioOverview.recentRuns = (activityQuery.data?.items ?? [])
+        .filter(({ project }) => projectsById.has(project.id))
+        .map(({ project, run }) => toRunListItem(run, project.displayName || project.name))
+      built.portfolioOverview.activitySince = activityQuery.data?.since
     }
     return built
   }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, includeOverviews, allProjectOverviewsLoaded, projectOverviewQueries, projects, allRuns, loadActivity, activityQuery.data])

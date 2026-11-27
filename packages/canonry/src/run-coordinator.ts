@@ -15,7 +15,7 @@ import {
   type RunKind,
   describeError,
 } from '@canonry/canonry-contracts'
-import { measurementRunCompleteness } from '@canonry/canonry-api-routes'
+import { isScopedRun, measurementRunCompleteness } from '@canonry/canonry-api-routes'
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
@@ -123,6 +123,21 @@ export class RunCoordinator {
     ) {
       try { await this.onAnswersRecorded(runId, projectId) }
       catch (err) { log.error('answers-recorded.failed', { runId, projectId, error: describeError(err) }) }
+    }
+
+    // A spot check (a list of queries, or a slice of a plan) measured a few
+    // queries on purpose. Its answers are real, so the evidence hook above
+    // ran and `run.completed` still goes out, but nothing is derived from it:
+    // insights, a health row, sentiment work or an Aero wake-up would each
+    // describe a 2-query check as though it were the project.
+    if (kind === RunKinds['answer-visibility'] && runRow && isScopedRun(runRow)) {
+      log.info('spot-check.skip-derived', { runId, projectId })
+      try {
+        await this.notifier.onRunCompleted(runId, projectId)
+      } catch (err) {
+        log.error('notifier.failed', { runId, error: describeError(err) })
+      }
+      return
     }
 
     // A plan run that did not fill every slot its manifest promised has not

@@ -48,8 +48,10 @@ covering that work; an existing explicit authorization remains valid.
 - **What changed in the latest check (both types):** quote the overview's
   `whatChanged`, the counts the dashboard's What changed card shows, rather
   than recounting answers. `lostMentions` and `lostCitations` each count the
-  queries that lost that signal (`queryCount`; `queries` lists at most 25,
-  with `truncated: true` when there are more) and stay separate. Read
+  queries that lost that signal, and `gainedMentions` / `gainedCitations` the
+  queries that gained it (`queryCount`; `queries` lists at most 25, with
+  `truncated: true` when there are more). The four stay separate, and one
+  query can lose on one engine and gain on another. Read
   `comparison` first. When its `state` is `unavailable`, nothing was
   compared, so a 0 is unknown, not stable: say why from its `reason`.
   `not-measured` there means the project has no completed check yet; it says
@@ -79,8 +81,8 @@ covering that work; an existing explicit authorization remains valid.
     population. These conditioned reads provide counts, not competitive share
     of voice. Per-Property named-instead lists sample weak Properties.
   - What changed: the overview's `whatChanged` for the latest check, as the
-    dashboard card shows it (each lost query with its Properties and
-    markets). For movement per Property, `canonry_measurement_changes` once
+    dashboard card shows it (each lost or gained query with its Properties
+    and markets). For movement per Property, `canonry_measurement_changes` once
     per class, with its `distribution` and `withinNoise`; the noise rule
     below applies before calling a Property's movement a loss.
   - Which metros have the biggest gaps: the compact portfolio summary's

@@ -87,7 +87,14 @@ export const CLAUDE_RETRIEVAL_CONTRACT: ClaudeRetrievalContract =
  * https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported
  */
 export const CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE: ReadonlySet<string> =
-  new Set(["claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"]);
+  new Set([
+    "claude-fable-5-2",
+    "claude-mythos-5-2",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+  ]);
 
 /** True when `model` is one of {@link CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE}. */
 export function claudeModelRejectsForcedToolChoice(model: string): boolean {

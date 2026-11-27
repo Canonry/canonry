@@ -34,19 +34,25 @@ const CLAUDE_SEARCH_AND_BATCH = {
  * id. Claude only; other providers are priced through config.yaml overrides.
  *
  * Verified 2026-09-24 against Anthropic's model table
- * (https://platform.claude.com/docs/en/about-claude/pricing). A cache read is
+ * (https://platform.claude.com/docs/en/about-claude/pricing); Claude Fable 5.2,
+ * Claude Mythos 5.2, Claude Sonnet 5.5 and Claude Mythos 5.1 added 2026-11-25
+ * from the same table. A cache read is
  * priced at the listed rate where the table lists one and at 0.1× input
  * otherwise; a cache write at 1.25× input (see `estimateAnswerCostMicros`).
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, Readonly<Record<string, ModelPrice>>>> = {
   claude: {
+    'claude-fable-5-2': { inputPerMTok: 8, outputPerMTok: 40, cachedInputPerMTok: 0.2, ...CLAUDE_SEARCH_AND_BATCH },
+    'claude-mythos-5-2': { inputPerMTok: 8, outputPerMTok: 40, cachedInputPerMTok: 0.2, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-opus-5-5': { inputPerMTok: 4, outputPerMTok: 20, cachedInputPerMTok: 0.2, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-fable-5-1': { inputPerMTok: 10, outputPerMTok: 50, cachedInputPerMTok: 0.25, ...CLAUDE_SEARCH_AND_BATCH },
+    'claude-mythos-5-1': { inputPerMTok: 10, outputPerMTok: 50, cachedInputPerMTok: 0.25, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-fable-5': { inputPerMTok: 10, outputPerMTok: 50, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-opus-5': { inputPerMTok: 5, outputPerMTok: 25, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-opus-4-8': { inputPerMTok: 5, outputPerMTok: 25, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-opus-4-7': { inputPerMTok: 5, outputPerMTok: 25, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-opus-4-6': { inputPerMTok: 5, outputPerMTok: 25, ...CLAUDE_SEARCH_AND_BATCH },
+    'claude-sonnet-5-5': { inputPerMTok: 2, outputPerMTok: 10, cachedInputPerMTok: 0.1, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-sonnet-5': { inputPerMTok: 2, outputPerMTok: 10, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-sonnet-4-6': { inputPerMTok: 3, outputPerMTok: 15, ...CLAUDE_SEARCH_AND_BATCH },
     'claude-haiku-4-5': { inputPerMTok: 1, outputPerMTok: 5, ...CLAUDE_SEARCH_AND_BATCH },

@@ -1794,3 +1794,98 @@ test('a disconnected GA4 keeps the range picker and the AI traffic history on th
   expect(screen.getByRole('heading', { name: 'AI traffic history', level: 2 })).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'Traffic by channel' })).toBeNull()
 })
+
+/**
+ * A source whose syncs keep failing (an expired token answered every sync with
+ * HTTP 403) holds its watermark still, and the days after it came back as 0.
+ * The chart drew them as crawlers stopping. The API now marks them unmeasured
+ * and names `recordedThrough`; the chart bands them like the stretch before
+ * recording began, and the latest-day strip says so instead of reading 0.
+ */
+test('AI traffic history bands the days after the last sync as not measured', async () => {
+  const days = ['2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20']
+  // Two unmeasured edges: recording began on Nov 14, and the last sync was Nov 17.
+  const measured = (i: number) => i >= 2 && i <= 5
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 480, crawlerContentHits: 480, aiUserFetchHits: 12, aiReferralHits: 8, aiReferralLandedHits: 8 },
+        series: {
+          granularity: 'day', coverageStart: '2026-11-14T00:00:00.000Z', recordedThrough: '2026-11-17T21:01:15.344Z',
+          partialBuckets: ['2026-11-17'],
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map((bucket, i) => ({
+            bucket, crawlerHits: measured(i) ? 120 : 0, crawlerContentHits: measured(i) ? 120 : 0,
+            aiUserFetchHits: measured(i) ? 3 : 0, aiReferralHits: measured(i) ? 2 : 0, aiReferralLandedHits: measured(i) ? 2 : 0,
+            measured: measured(i),
+          })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'error' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  const stopped = new Date(Date.UTC(2026, 10, 17)).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
+  expect(await screen.findByText(`No new data since ${stopped}.`, { exact: false })).toBeTruthy()
+  expect(screen.getByText('Not measured.')).toBeTruthy()
+  // The strip no longer reads the unmeasured day as zero crawls.
+  const strip = screen.getByText('Latest day (UTC)').parentElement as HTMLElement
+  expect(within(strip).queryByText('pages crawled')).toBeNull()
+  expect(within(strip).queryByText('still filling')).toBeNull()
+
+  // Both edges are banded, on the machines chart and on the server visits panel.
+  const bands = screen.getAllByTestId('reference-area').map((band) => [band.getAttribute('data-from'), band.getAttribute('data-to'), band.textContent])
+  expect(bands).toEqual([
+    ['2026-11-12', '2026-11-13', 'not measured'],
+    ['2026-11-18', '2026-11-20', 'not measured'],
+    ['2026-11-12', '2026-11-13', 'not measured'],
+    ['2026-11-18', '2026-11-20', 'not measured'],
+  ])
+  // GA4 kept counting on its own, so its view carries no server band.
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getAllByTestId('reference-area')).toHaveLength(2)
+})
+
+test('AI traffic history says recording stopped when the whole window is past the last sync', async () => {
+  const days = ['2026-11-18', '2026-11-19', '2026-11-20']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0 },
+        series: {
+          granularity: 'day', coverageStart: '2026-05-21T22:00:00.000Z', recordedThrough: '2026-11-17T21:01:15.344Z',
+          partialBuckets: [], trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map((bucket) => ({ bucket, crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, measured: false })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'error' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={4320} />
+    </QueryClientProvider>,
+  )
+
+  const stopped = new Date(Date.UTC(2026, 10, 17)).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
+  expect(await screen.findByText(`No AI activity recorded, and no new data since ${stopped}.`)).toBeTruthy()
+  // Not the measured-empty message, which would claim the window was measured.
+  expect(screen.queryByText('No AI activity recorded in this period.')).toBeNull()
+})

@@ -19,7 +19,7 @@ import { GatewayStore } from '../src/store.js'
 interface TokenPair { access_token: string; refresh_token: string; token_type: string; scope: string }
 interface RpcMessage { result?: Record<string, unknown>; error?: { code: number; message: string }; id?: number }
 interface McpConnection { endpoint: string; token: string; protocol: string; sessionId?: string }
-interface AuthorizationAttempt { browser: Browser; verifier: string; state: string; upstream: URL; interaction: URL }
+interface AuthorizationAttempt { browser: Browser; verifier: string; state: string; upstream: URL; interaction: URL; resource: string }
 
 /** Keep explicit listener restarts independent of Node's shared HTTP socket pool. */
 function fixtureFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
@@ -185,12 +185,13 @@ describe('gateway with two real isolated Canonry engines', () => {
       tx.insert(measurementPlans).values({ projectId: project.id, activeVersionId: versionId, createdAt, updatedAt: createdAt }).run()
     })
   }
-  async function begin(tenantId: string): Promise<AuthorizationAttempt> {
+  async function begin(tenantId: string, ownAddress = false): Promise<AuthorizationAttempt> {
     const browser = new Browser()
     const verifier = randomBytes(48).toString('base64url')
     const state = randomBytes(24).toString('base64url')
     const authorize = new URL(`${issuer}/oauth/authorize`)
-    authorize.search = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: callback, resource: `${issuer}/mcp`, scope: 'read offline_access', state, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url') }).toString()
+    const resource = ownAddress ? `${issuer}/mcp/${tenantId}` : `${issuer}/mcp`
+    authorize.search = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: callback, resource, scope: 'read offline_access', state, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url') }).toString()
     const initial = await browser.request(authorize)
     const interaction = redirect(initial, authorize)
     const selection = await browser.request(interaction)
@@ -199,8 +200,10 @@ describe('gateway with two real isolated Canonry engines', () => {
     expect(text).toContain('read-only access')
     expect(text).not.toContain('tenant-alpha')
     expect(text).not.toContain('tenant-beta')
+    // A workspace's own address fills in its workspace; the form cannot change it.
+    if (ownAddress) expect(JSDOM.fragment(text).querySelector('#workspace')?.getAttribute('value')).toBe(tenantId)
     const start = new URL(`${interaction.pathname}/start`, issuer)
-    const selected = await browser.post(start, { csrf: csrf(text), tenant: tenantId, approve: 'yes' })
+    const selected = await browser.post(start, { csrf: csrf(text), tenant: ownAddress ? '' : tenantId, approve: 'yes' })
     expect(selected.status).toBe(200)
     const handoff = JSDOM.fragment(await selected.text())
     const refresh = handoff.querySelector('meta[http-equiv="refresh"]')?.getAttribute('content')
@@ -208,7 +211,7 @@ describe('gateway with two real isolated Canonry engines', () => {
     const upstream = new URL(refresh.slice('0;url='.length))
     expect(upstream.origin).toBe(config.tenants.find(tenant => tenant.id === tenantId)?.origin)
     expect(handoff.querySelector('a')?.getAttribute('href')).toBe(upstream.toString())
-    return { browser, verifier, state, upstream, interaction }
+    return { browser, verifier, state, upstream, interaction, resource }
   }
   async function signIn(attempt: AuthorizationAttempt, instance: SyntheticMcpInstance, user = instance.user): Promise<URL> {
     expect(attempt.upstream.origin).toBe(instance.origin)
@@ -253,13 +256,13 @@ describe('gateway with two real isolated Canonry engines', () => {
     }
     throw new Error('OAuth redirect limit exceeded')
   }
-  async function token(fields: Record<string, string>): Promise<Response> {
-    return fixtureFetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: clientId, resource: `${issuer}/mcp`, ...fields }) })
+  async function token(fields: Record<string, string>, resource = `${issuer}/mcp`): Promise<Response> {
+    return fixtureFetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: clientId, resource, ...fields }) })
   }
-  async function login(id: string, instance: SyntheticMcpInstance, user = instance.user): Promise<TokenPair> {
-    const attempt = await begin(id)
+  async function login(id: string, instance: SyntheticMcpInstance, user = instance.user, ownAddress = false): Promise<TokenPair> {
+    const attempt = await begin(id, ownAddress)
     const code = await complete(attempt, await signIn(attempt, instance, user))
-    const response = await token({ grant_type: 'authorization_code', redirect_uri: callback, code, code_verifier: attempt.verifier })
+    const response = await token({ grant_type: 'authorization_code', redirect_uri: callback, code, code_verifier: attempt.verifier }, attempt.resource)
     expect(response.status).toBe(200)
     const tokens = await response.json() as TokenPair
     expect(tokens.access_token).toBeTruthy()
@@ -414,6 +417,33 @@ describe('gateway with two real isolated Canonry engines', () => {
       expect(rejected.message.error?.code).toBe(-32602)
     }
   }, 120_000)
+
+  it('binds a workspace address to its workspace: its tokens work only at that address', async () => {
+    const metadata = await fixtureFetch(`${issuer}/.well-known/oauth-protected-resource/mcp/alpha`)
+    expect(await metadata.json()).toMatchObject({ resource: `${issuer}/mcp/alpha`, authorization_servers: [issuer] })
+    const own = await login('alpha', alpha, alpha.user, true)
+    const shared = await login('beta', beta)
+    const projects = await projectList(await connect(`${issuer}/mcp/alpha`, own.access_token))
+    expect(projects).toContain('tenant-alpha')
+    expect(projects).not.toContain('tenant-beta')
+    const refusals: Array<[string, string]> = [
+      [`${issuer}/mcp`, own.access_token], [`${issuer}/mcp/beta`, own.access_token],
+      [`${issuer}/mcp/beta`, shared.access_token], [`${issuer}/mcp/alpha`, shared.access_token],
+    ]
+    for (const [endpoint, bearer] of refusals) {
+      const refused = await rpc({ endpoint, token: bearer, protocol: '2025-11-25' }, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'gateway-integration', version: '1.0.0' } })
+      expect(refused.status, endpoint).toBe(401)
+    }
+    expect((await projectList(await connect(`${issuer}/mcp`, shared.access_token))).includes('tenant-beta')).toBe(true)
+    const refreshed = await token({ grant_type: 'refresh_token', refresh_token: own.refresh_token }, `${issuer}/mcp/alpha`)
+    expect(refreshed.status).toBe(200)
+    const next = await refreshed.json() as TokenPair
+    expect(await projectList(await connect(`${issuer}/mcp/alpha`, next.access_token, '2026-07-28'))).toContain('tenant-alpha')
+    const disconnected = await fixtureFetch(`${issuer}/disconnect`, { method: 'POST', headers: { authorization: `Bearer ${next.access_token}` } })
+    expect(disconnected.status).toBe(200)
+    const after = await rpc({ endpoint: `${issuer}/mcp/alpha`, token: next.access_token, protocol: '2025-11-25' }, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'gateway-integration', version: '1.0.0' } })
+    expect(after.status).toBe(401)
+  })
 
   it('reads current instance authority once for each HTTP request across both MCP transports', async () => {
     const tokens = await login('alpha', alpha)

@@ -1,5 +1,14 @@
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getBoolean, getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { usageError } from '../cli-error.js'
+
+const UPDATE_USAGE = 'canonry notify update <project> <id> [--events <list> | --add-events <list> --remove-events <list>] [--enable | --disable] [--format json]'
+
+/** A comma-separated event list, or undefined when the flag was not given. */
+function eventList(value: string | undefined): string[] | undefined {
+  if (value === undefined) return undefined
+  return value.split(',').map(entry => entry.trim()).filter(Boolean)
+}
 
 export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -62,6 +71,50 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['notify', 'update'],
+    usage: UPDATE_USAGE,
+    options: {
+      events: stringOption(),
+      'add-events': stringOption(),
+      'remove-events': stringOption(),
+      enable: { type: 'boolean' },
+      disable: { type: 'boolean' },
+    },
+    run: async (input) => {
+      const { updateNotification } = await import('../commands/notify.js')
+      const project = requireProject(input, 'notify.update', UPDATE_USAGE)
+      const id = requirePositional(input, 1, {
+        command: 'notify.update',
+        usage: UPDATE_USAGE,
+        message: 'notification ID is required',
+      })
+      const enable = getBoolean(input.values, 'enable')
+      const disable = getBoolean(input.values, 'disable')
+      if (enable && disable) {
+        throw usageError(`Error: use --enable or --disable, not both\nUsage: ${UPDATE_USAGE}`, {
+          message: 'use --enable or --disable, not both',
+          details: { command: 'notify.update', usage: UPDATE_USAGE },
+        })
+      }
+      const events = eventList(getString(input.values, 'events'))
+      const addEvents = eventList(getString(input.values, 'add-events'))
+      const removeEvents = eventList(getString(input.values, 'remove-events'))
+      if (!events && !addEvents && !removeEvents && !enable && !disable) {
+        throw usageError(`Error: name a change: --events, --add-events, --remove-events, --enable or --disable\nUsage: ${UPDATE_USAGE}`, {
+          message: 'name a change: --events, --add-events, --remove-events, --enable or --disable',
+          details: { command: 'notify.update', usage: UPDATE_USAGE },
+        })
+      }
+      await updateNotification(project, id, {
+        events,
+        addEvents,
+        removeEvents,
+        ...(enable ? { enabled: true } : disable ? { enabled: false } : {}),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['notify', 'test'],
     usage: 'canonry notify test <project> <id> [--format json]',
     run: async (input) => {
@@ -77,12 +130,12 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['notify'],
-    usage: 'canonry notify <add|list|remove|test|events> [project]',
+    usage: 'canonry notify <add|list|update|remove|test|events> [project]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'notify',
-        usage: 'canonry notify <add|list|remove|test|events> [project]',
-        available: ['add', 'list', 'remove', 'test', 'events'],
+        usage: 'canonry notify <add|list|update|remove|test|events> [project]',
+        available: ['add', 'list', 'update', 'remove', 'test', 'events'],
       })
     },
   },
