@@ -653,7 +653,9 @@ describe('GA4 retry on transient errors', () => {
     const settled = verifyConnectionWithToken('fake-token', '123456').catch((e: unknown) => e)
     await vi.runAllTimersAsync()
     expect(await settled).toMatchObject({ name: 'TimeoutError' })
-    expect(fetchSpy).toHaveBeenCalledTimes(GA4_MAX_TIMEOUT_RETRIES + 1)
+    // Two waits, not the four a 5xx gets.
+    expect(GA4_MAX_TIMEOUT_RETRIES).toBe(1)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 
   it('keeps the full retry budget for server errors after a timeout', async () => {

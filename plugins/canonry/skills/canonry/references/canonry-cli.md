@@ -835,7 +835,7 @@ Use `cnry notify events --target server` for the connected server's current even
 **Urgent health alerts** (`health.urgent`, `health.urgent-resolved`) carry only the problems a person has to act on now, for a channel people watch. A check marks its own result `urgent` (it shows as `urgent: true` in `cnry doctor --format json`):
 
 - the website is down (`site.reachability.down`, `site.reachability.refused-address`);
-- GA4 or Search Console data is stale: syncs run and have brought nothing new for 5 days (GA4) or 7 (Search Console) (`ga.data.stale`, `gsc.data.stale`), or the data is that old and nothing has synced for 8 days or more (`ga.data.not-syncing`, `gsc.data.not-syncing`). A project that syncs weekly or by hand is not urgent in between;
+- GA4 or Search Console data is stale: syncs run and have brought nothing new for 5 days (GA4) or 7 (Search Console) (`ga.data.stale`, `gsc.data.stale`), the data is that old and the latest sync failed (`ga.data.sync-failing`, `gsc.data.sync-failing`, which quote the sync's error; before that age the same codes warn), or the data is that old and nothing has synced for 8 days or more (`ga.data.not-syncing`, `gsc.data.not-syncing`). A project that syncs weekly or by hand is not urgent in between;
 - a sync keeps failing (`<integration>.sync.repeated-failures`), including when the cause is a failed authorization: the alert then quotes the authorization check's explanation.
 
 `health.urgent` is sent when an urgent problem starts. A problem already reported is not repeated, and an alert no webhook accepted is sent again on the next pass. `health.urgent-resolved` is sent when the reported problems have cleared; a check that was skipped or errored does not count as cleared. The scheduled health pass (every 6 hours) and the website check (every 10 minutes) report separately, so a data problem and an outage each get their own resolved message.
@@ -1432,6 +1432,8 @@ cnry ga coverage <project>                    # per-page overlay: {landingPage, 
 `--window` is rolling from now, so it can never name a calendar month. Pass `--start` / `--end` (inclusive, `YYYY-MM-DD`) for a calendar range; explicit dates win over `--window`. An unrecognised `--window` value is now REJECTED with a validation error rather than silently returning the full history under the label the caller asked for.
 
 Every read command queries persisted DB rows, so a stale `lastSyncedAt` means the response is stale — always check `ga status` before drawing conclusions, and re-`ga sync` if the data is older than the analysis window. Use `--only ai`, `--only social` or `--only search-landing` to refresh just one slice when iterating.
+
+A GA4 report gets 60 seconds per attempt, and a request that runs out its time is tried once more. When an overview window's report (usually 90 or 180 days) still does not answer, the sync keeps that window's earlier totals, with the dates they cover, and stores everything else; `keptWindows` in the JSON (and a line in the text output) names each such window and GA4's error. The sync fails only when no window answers, since the window reports name the property's reporting time zone.
 
 `ga sync` reuses matching Search Console landing-page snapshots for up to one hour, fetching missing or stale windows. Property, reporting zone, exact dates and report definition must match; errors are retried and reused snapshots keep their original sync time. A new 180-day window is a full GA4 report, preserving distinct users and native totals.
 

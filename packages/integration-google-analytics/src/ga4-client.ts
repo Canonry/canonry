@@ -263,8 +263,8 @@ function isRetryableGa4Error(err: unknown): boolean {
 }
 
 async function withGa4Retry<T>(fn: () => Promise<T>, errLabel: string): Promise<T> {
-  // Timeouts draw on a smaller budget: each one has already waited out a full
-  // request timeout, and the same report rarely answers on the third wait.
+  // Timeouts draw on a smaller budget (GA4_MAX_TIMEOUT_RETRIES): each one has
+  // already waited out a full request timeout.
   let timeoutRetries = 0
   return withRetry(fn, {
     maxRetries: GA4_MAX_RETRIES,
