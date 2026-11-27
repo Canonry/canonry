@@ -1,9 +1,9 @@
 import type { ResolvedEmbedConfig } from '@canonry/canonry-contracts'
-import { embedProjectTabsError, normalizeIdTokens, parseOriginList, splitList } from '@canonry/canonry-contracts'
+import { embedProjectTabsError, normalizeEmbedProjectTabs, normalizeIdTokens, parseOriginList, splitList } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
 const DEFAULT_EMBED_PROJECT_TABS = ['overview']
-export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo'] as const
+export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'agent-readiness'] as const
 
 export function unsupportedEmbedProjectTabs(projectTabs: readonly string[] | undefined): string[] {
   if (!projectTabs) return []
@@ -31,7 +31,8 @@ export function unsupportedEmbedProjectTabs(projectTabs: readonly string[] | und
  *    lowercased + de-duped; an empty list collapses to `undefined` (= all
  *    views) so an empty allowlist never silently bricks every embed.
  *  - `projectTabs`: `CANONRY_EMBED_PROJECT_TABS` when set, else
- *    `config.embed.projectTabs`, lowercased + de-duped. Empty/missing defaults
+ *    `config.embed.projectTabs`, lowercased + de-duped, with the renamed
+ *    `technical-aeo` key read as `agent-readiness`. Empty/missing defaults
  *    to `overview` in embed mode so the client-facing iframe starts locked
  *    down rather than exposing every project tab.
  *  - `theme`: `config.embed.theme` only (no env form).
@@ -57,7 +58,7 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
     env.CANONRY_EMBED_PROJECT_TABS !== undefined
       ? splitList(env.CANONRY_EMBED_PROJECT_TABS)
       : splitList(embed?.projectTabs)
-  const projectTabs = normalizeIdTokens(rawProjectTabs) ?? (enabled ? DEFAULT_EMBED_PROJECT_TABS : undefined)
+  const projectTabs = normalizeEmbedProjectTabs(rawProjectTabs) ?? (enabled ? DEFAULT_EMBED_PROJECT_TABS : undefined)
   const projectTabsError = enabled ? embedProjectTabsError(projectTabs) : undefined
   if (projectTabsError) throw new Error(projectTabsError)
 

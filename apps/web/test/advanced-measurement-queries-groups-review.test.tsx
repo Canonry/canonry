@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import {
   AdvancedMeasurementGroupsStep,
@@ -153,6 +153,13 @@ test('opens Query creation only when the library is empty', () => {
   expect(screen.getAllByText('Add queries').find(element => element.tagName === 'SUMMARY')?.closest('details')?.open).toBe(true)
 })
 
+function queryPatternField() {
+  const field = screen.getByLabelText('Query pattern')
+  const details = field.closest('details')
+  if (details && !details.open) fireEvent.click(details.querySelector('summary')!)
+  return field
+}
+
 test('shows Property scope before dependent query patterns and previews cross-product impact', () => {
   const { props } = renderQueries({ onCreateQueries: vi.fn() })
   const scope = screen.getByLabelText('Apply to').closest('fieldset')
@@ -160,7 +167,7 @@ test('shows Property scope before dependent query patterns and previews cross-pr
 
   expect(scope?.compareDocumentPosition(creation!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   expect(screen.getByText(/2 new, 0 already assigned/)).toBeTruthy()
-  const apply = screen.getByRole('button', { name: 'Assign 1 query to every location (2)' })
+  const apply = screen.getByRole('button', { name: 'Assign 1 query to every Property (2)' })
   expect(apply.className).toContain('min-h-11')
   expect(apply.className).toContain('bg-accent')
   expect(screen.getByRole('button', { name: 'Continue' }).className).toContain('border')
@@ -214,14 +221,14 @@ test('supports bulk query selection through the live audience control', () => {
   const { props } = renderQueries()
 
   expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('all')
-  expect(screen.queryByText('Specific locations')).toBeNull()
+  expect(screen.queryByText('Specific Properties')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Select all shown queries' }))
   expect(props.onSelectedQueryIdsChange).toHaveBeenCalledWith(queries.map(query => query.id))
   fireEvent.click(screen.getByRole('button', { name: 'Clear query selection' }))
   expect(props.onSelectedQueryIdsChange).toHaveBeenLastCalledWith([])
 })
 
-test('uses one audience control for every location, groups, and the Specific locations escape hatch', () => {
+test('uses one audience control for every Property, groups, and the Specific Properties escape hatch', () => {
   const onAudienceChange = vi.fn()
   const onApplySelectedQueries = vi.fn()
   const metroGroups: AdvancedMeasurementGroup[] = [
@@ -293,7 +300,7 @@ test('keeps selected queries visible and disables assignment when the server imp
   })
 
   expect(screen.getByRole('alert').textContent).toContain('Could not calculate assignment impact.')
-  expect(screen.getByRole('button', { name: 'Assign 1 query to every location (2)' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('button', { name: 'Assign 1 query to every Property (2)' })).toHaveProperty('disabled', true)
   expect((screen.getByLabelText('Select query Harbor House events') as HTMLInputElement).checked).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Retry impact' }))
   expect(onRetryAssignmentImpact).toHaveBeenCalledTimes(1)
@@ -402,7 +409,7 @@ test('writes one query per selected Property from a pattern, paired to it', () =
     onCreateAndPairQuestions,
   })
 
-  fireEvent.change(screen.getByLabelText('Query pattern'), {
+  fireEvent.change(queryPatternField(), {
     target: { value: 'apartments near {property}' },
   })
 
@@ -426,7 +433,7 @@ test('states how many assignments the pattern will create', () => {
     onCreateAndPairQuestions: vi.fn(),
   })
 
-  fireEvent.change(screen.getByLabelText('Query pattern'), {
+  fireEvent.change(queryPatternField(), {
     target: { value: 'apartments near {property}' },
   })
 
@@ -489,7 +496,7 @@ test('blocks writes and navigation while another setup change is saving', () => 
 test('asks for a placeholder rather than writing the same query repeatedly', () => {
   renderQueries({ queries: [], selectedQueryIds: [], onCreateQueries: vi.fn() })
 
-  fireEvent.change(screen.getByLabelText('Query pattern'), {
+  fireEvent.change(queryPatternField(), {
     target: { value: 'best apartments' },
   })
 
@@ -576,7 +583,7 @@ test('places competitors only in groups and uses one clear continuation action',
 
   const { props } = renderGroups({ groupDraft: emptyGroupDraft })
   expect(screen.getByText('rival.example')).toBeTruthy()
-  expect(screen.getByText(/used only in this group's competitor report/i)).toBeTruthy()
+  expect(screen.getByText('rival.example').closest('tr')?.textContent).toContain('Waterfront venues')
 
   expect(screen.queryByRole('button', { name: 'Skip groups' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -587,13 +594,13 @@ test('places competitors only in groups and uses one clear continuation action',
   expect(screen.getByRole('button', { name: 'Continue without groups' })).toBeTruthy()
 })
 
-test('collapses group Properties and exposes optional actions for saved groups', () => {
+test.each([2, 11])('keeps a %i-Property group chooser proportional and exposes saved group actions', count => {
   const onEditGroup = vi.fn()
   const onRemoveGroup = vi.fn()
-  renderGroups({ onEditGroup, onRemoveGroup })
+  renderGroups({ onEditGroup, onRemoveGroup, properties: [...properties, ...manyProperties.slice(0, count - properties.length)] })
 
-  const propertyChooser = screen.getByText('1 of 2 Properties selected').closest('details')
-  expect(propertyChooser?.open).toBe(false)
+  const propertyChooser = screen.getByText(`1 of ${count} Properties selected`).closest('details')
+  expect(propertyChooser?.open).toBe(count <= 10)
   fireEvent.click(screen.getByRole('button', { name: 'Edit Waterfront venues' }))
   expect(onEditGroup).toHaveBeenCalledWith(groups[0])
   fireEvent.click(screen.getByRole('button', { name: 'Remove Waterfront venues' }))
@@ -630,6 +637,7 @@ test('reviews CSV group rows before applying only matched memberships', () => {
     },
   })
 
+  fireEvent.click(screen.getByText('Import groups from CSV', { selector: 'summary' }))
   expect(screen.getByText('1 matched · 1 group ready · 1 needs attention')).toBeTruthy()
   expect(screen.getByRole('table', { name: 'Groups and memberships ready to apply' }).textContent).toContain('DallasCreate group11')
   fireEvent.click(screen.getByText('Review CSV rows (2)'))
@@ -719,6 +727,7 @@ test('pages CSV exceptions and requires the final page to be reviewed before ski
     },
   })
 
+  fireEvent.click(screen.getByText('Import groups from CSV', { selector: 'summary' }))
   fireEvent.click(screen.getByText('Fix 52 rows before applying'))
   const acknowledgement = screen.getByRole('checkbox', { name: 'I reviewed the exceptions and understand that 52 rows will be skipped.' }) as HTMLInputElement
   expect(acknowledgement.disabled).toBe(true)
@@ -889,7 +898,7 @@ test('keeps large review lists bounded and reveals them fifty at a time', () => 
 test('leaves the single unpublished-changes banner to the surrounding setup shell', () => {
   renderReview()
 
-  expect(screen.queryByText('Unpublished changes')).toBeNull()
+  expect(screen.queryByText('Draft')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
 })
 
@@ -949,7 +958,11 @@ test('review states why assignments outrun queries, and never puts a button name
 
   // One query applied to a group writes one assignment per Property in it, so
   // 1 query and 3 assignments is correct and needs saying.
-  expect(screen.getByText(/Queries applied to groups create one assignment for every Property in each group/)).toBeTruthy()
+  const help = 'An assignment pairs one query with one Property. Applying a query to a group creates one assignment per Property. 1 query produces 3 assignments here.'
+  expect(screen.queryByText(help)).toBeNull()
+  const trigger = within(screen.getByRole('columnheader', { name: /^Assignments/ })).getByRole('button', { name: help })
+  fireEvent.focus(trigger)
+  expect(screen.getByText(help)).toBeTruthy()
 })
 
 test('the assignment impact slot keeps a reserved height so ticking a box cannot move the table', () => {

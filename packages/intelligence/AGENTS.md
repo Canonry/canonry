@@ -14,7 +14,7 @@ Pure analysis library for computing intelligence insights from run data. Takes r
 | `src/health.ts` | Computes overall and per-provider citation health metrics |
 | `src/causes.ts` | Root cause analysis for regressions (competitor displacement, etc.) |
 | `src/insights.ts` | Transforms raw analysis into user-facing insight objects |
-| `src/observation-coverage.ts` | `observedKeys(run, keyOf)` — what a run actually measured, so a missing snapshot row is never read as "not cited". See "Absence is not a negative observation" below. |
+| `src/observation-coverage.ts` | `observedKeys(run, keyOf)` — what a run actually measured about citation, so a missing snapshot row, or one whose citation was not measured (`cited === null`), is never read as "not cited". See "Absence is not a negative observation" below. |
 | `src/insight-severity.ts` | `classifyRegressionSeverity({ gscImpressions, recurrenceCount })` — pure tiering rule. Caller supplies the signals (lookups happen in `IntelligenceService`); rule lives here so the dashboard, CLI, and Aero classify identically. |
 | `src/query-categorize.ts` | `buildBrandTokens()` + `categorizeQueryByIntent()` — brand/lead-gen/industry/other classifier. Uses contracts' exact approved-alias matcher across spacing/hyphenation variants; suffix stripping and fuzzy/edit-distance attribution are forbidden. |
 | `src/competitor-landscape-history.ts` | Stored-evidence competitor aggregation. Global pins intentionally reinterpret history; competitors frozen only in an old Advanced revision match answer text only in snapshots from that revision. Stored classifications retain exact-host identity until deterministic registrable-domain aggregation. |
@@ -57,6 +57,13 @@ run, so the current run must have.
 
 Measured against a baseline sweep where one provider errored, skipping this
 produced 6 false insights for a site where nothing had changed.
+
+`Snapshot.cited` is tri-state: `null` is an answer whose engine returns no
+sources (a local model), so it observed nothing about citation. It counts like
+a missing row for every citation detector (`observedKeys` leaves it out, and
+detectors read `cited === true` / `=== false`, never `!cited`), it never
+extends or starts a persistent-gap streak, and health leaves it out of every
+cited rate (`citationNotMeasured`) while still counting it for mention.
 
 `detectRegressions` and `detectPersistentGaps` are correct by construction —
 the first iterates the current run's rows and requires a prior CITED

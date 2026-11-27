@@ -53,19 +53,3 @@ export function clearOnboardingDraft(scope: string): void {
     // Reset still clears the form when storage is unavailable.
   }
 }
-
-export function markOnboardingScanSkipped(projectName: string): void {
-  try {
-    window.sessionStorage.setItem(storageKey(`scan-skipped:${projectName}`), 'true')
-  } catch {
-    // This is a local navigation preference, never evidence of a scan result.
-  }
-}
-
-export function wasOnboardingScanSkipped(projectName: string): boolean {
-  try {
-    return window.sessionStorage.getItem(storageKey(`scan-skipped:${projectName}`)) === 'true'
-  } catch {
-    return false
-  }
-}

@@ -8,7 +8,6 @@ import { expect, test } from 'vitest'
 import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@canonry/canonry-contracts'
 import { createClient, migrate, apiKeys, notifications, projects, queries, runs, measurementPlanDrafts } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import { shouldSkipAuth } from '../src/auth.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
 function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
@@ -39,8 +38,9 @@ function insertApiKey(db: ReturnType<typeof createClient>, rawKey = `cnry_${cryp
   return rawKey
 }
 
-test('auth protects non-public routes while keeping public exceptions reachable', async () => {
+test.each(['/api/v1', '/projects/team/api/v1'])('auth distinguishes registered routes under %s', async (prefix) => {
   const { app, tmpDir } = buildApp({
+    routePrefix: prefix,
     getGoogleAuthConfig: () => ({ clientId: 'google-client-id', clientSecret: 'google-client-secret' }),
     googleConnectionStore: {
       listConnections: () => [],
@@ -53,31 +53,39 @@ test('auth protects non-public routes while keeping public exceptions reachable'
   await app.ready()
 
   try {
-    const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects' })
+    const listRes = await app.inject({ method: 'GET', url: `${prefix}/projects` })
     expect(listRes.statusCode).toBe(401)
     expect(JSON.parse(listRes.body).error.code).toBe('AUTH_REQUIRED')
 
     const runRes = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/probe/runs',
+      url: `${prefix}/projects/probe/runs`,
       payload: {},
     })
     expect(runRes.statusCode).toBe(401)
 
-    expect(shouldSkipAuth('/api/v1/projects/probe/traffic/cloudflare/ingest')).toBe(true)
-    expect(shouldSkipAuth('/api/v1/projects/probe/traffic/cloudflare/ingest/extra')).toBe(false)
+    // The ingest handler checks a source credential itself.
+    const ingest = await app.inject({
+      method: 'POST', url: `${prefix}/projects/probe/traffic/cloudflare/ingest`,
+      headers: { authorization: 'Bearer unknown-source-credential' }, payload: {},
+    })
+    expect(ingest.statusCode).toBe(401)
+    expect(ingest.json().error.code).toBe('AUTH_REQUIRED')
 
-    const openApiRes = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    const openApiRes = await app.inject({ method: 'GET', url: `${prefix}/openapi.json` })
     expect(openApiRes.statusCode).toBe(200)
 
-    const callbackRes = await app.inject({ method: 'GET', url: '/api/v1/google/callback' })
+    const callbackRes = await app.inject({ method: 'GET', url: `${prefix}/google/callback` })
     expect(callbackRes.statusCode).toBe(400)
 
     // The Google Ads / GTM callback is also public ONLY at its exact signed
     // callback endpoint; a missing state reaches its verifier (400), not the
     // auth middleware (401).
-    const marketingCallbackRes = await app.inject({ method: 'GET', url: '/api/v1/google-marketing/callback' })
+    const marketingCallbackRes = await app.inject({ method: 'GET', url: `${prefix}/google-marketing/callback` })
     expect(marketingCallbackRes.statusCode).toBe(400)
+
+    const confirmation = await app.inject({ method: 'POST', url: `${prefix}/google-marketing/callback/confirm/pending` })
+    expect(confirmation.statusCode).toBe(401)
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -308,10 +316,6 @@ test('scoped keys may reuse saved OpenRouter routes but need settings.write to i
     expect(configured.statusCode, configured.body).toBe(200)
     const assignSaved = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/measurement-plan/draft/actions/apply-assignments', headers: { ...writerHeaders, 'idempotency-key': 'route-assign-saved', 'if-match': target.json().etag as string }, payload: assignment })
     expect(assignSaved.statusCode, assignSaved.body).toBe(200)
-    const savedRun = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/runs', headers: writerHeaders, payload: { providers: [route] } })
-    expect(savedRun.statusCode, savedRun.body).toBe(201)
-    expect(db.select().from(runs).all()).toHaveLength(1)
-    db.update(runs).set({ status: 'completed', finishedAt: new Date().toISOString() }).run()
 
     const compile = async () => app.inject({
       method: 'POST',
@@ -329,6 +333,11 @@ test('scoped keys may reuse saved OpenRouter routes but need settings.write to i
     })
     expect(firstPublish.statusCode, firstPublish.body).toBe(200)
     expect(firstPublish.json()).toMatchObject({ published: true, active: { revision: 1 } })
+
+    const savedRun = await app.inject({ method: 'POST', url: '/api/v1/projects/route-authority/runs', headers: writerHeaders, payload: { providers: [route] } })
+    expect(savedRun.statusCode, savedRun.body).toBe(201)
+    expect(db.select().from(runs).all()).toHaveLength(1)
+    db.update(runs).set({ status: 'completed', finishedAt: new Date().toISOString() }).run()
 
     const narrowed = await app.inject({
       method: 'PATCH',
@@ -966,19 +975,6 @@ test('a project whose name ends in an auth-skip suffix still requires authentica
   await app.ready()
 
   try {
-    // Create a project named "session": `GET /projects/session` ends with the
-    // same suffix as the legacy dashboard-password session route in the auth
-    // skip list. The detail route must NOT become unauthenticated.
-    expect(shouldSkipAuth('/api/v1/session')).toBe(true)
-    expect(shouldSkipAuth('/api/v1/session/setup')).toBe(true)
-    expect(shouldSkipAuth('/api/v1/projects/session')).toBe(false)
-    // Fastify decodes static segments before matching, so an encoded segment
-    // still reaches the project detail route.
-    expect(shouldSkipAuth('/api/v1/%70rojects/session')).toBe(false)
-    // `openapi.json` is a public root suffix but also a valid project name.
-    expect(shouldSkipAuth('/api/v1/openapi.json')).toBe(true)
-    expect(shouldSkipAuth('/api/v1/projects/openapi.json')).toBe(false)
-
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',

@@ -1,9 +1,13 @@
 import type { CanonryConfig, CloudRunConnectionConfigEntry } from './config.js'
 
-function ensureConnections(config: CanonryConfig): CloudRunConnectionConfigEntry[] {
-  if (!config.cloudRun) config.cloudRun = {}
-  if (!config.cloudRun.connections) config.cloudRun.connections = []
-  return config.cloudRun.connections
+type PersistCloudRun = (patch: Pick<CanonryConfig, 'cloudRun'>) => void
+
+function saveConnections(config: CanonryConfig, connections: CloudRunConnectionConfigEntry[], persist?: PersistCloudRun) {
+  const cloudRun = connections.length ? { ...config.cloudRun, connections } : undefined
+  // A failed disk write must leave the previously saved credentials live.
+  persist?.({ cloudRun })
+  if (cloudRun) config.cloudRun = cloudRun
+  else delete config.cloudRun
 }
 
 export function listCloudRunConnections(config: CanonryConfig): CloudRunConnectionConfigEntry[] {
@@ -20,22 +24,20 @@ export function getCloudRunConnection(
 export function upsertCloudRunConnection(
   config: CanonryConfig,
   connection: CloudRunConnectionConfigEntry,
+  persist?: PersistCloudRun,
 ): CloudRunConnectionConfigEntry {
-  const connections = ensureConnections(config)
+  const connections = [...listCloudRunConnections(config)]
   const index = connections.findIndex((c) => c.projectName === connection.projectName)
-
-  if (index === -1) {
-    connections.push(connection)
-    return connection
-  }
-
-  connections[index] = connection
+  if (index === -1) connections.push(connection)
+  else connections[index] = connection
+  saveConnections(config, connections, persist)
   return connection
 }
 
 export function removeCloudRunConnection(
   config: CanonryConfig,
   projectName: string,
+  persist?: PersistCloudRun,
 ): boolean {
   const connections = config.cloudRun?.connections
   if (!connections?.length) return false
@@ -43,10 +45,6 @@ export function removeCloudRunConnection(
   const next = connections.filter((c) => c.projectName !== projectName)
   if (next.length === connections.length) return false
 
-  if (!config.cloudRun) return false
-  config.cloudRun.connections = next
-  if (next.length === 0) {
-    delete config.cloudRun
-  }
+  saveConnections(config, next, persist)
   return true
 }

@@ -23,10 +23,7 @@ Database writes, source lifecycle, leases, and traffic normalization remain in
   deterministic and no test calls Cloudflare.
 - **Bounded pull.** Cloudflare accepts at most 100 messages per pull and a
   visibility timeout up to 12 hours. Validate both before issuing a request.
-- **Bounded retries.** A request times out after 30 seconds by default. Retry
-  429 and 5xx responses at most three times, and cap each exponential or
-  `Retry-After` delay at 30 seconds so the caller can stay within its source
-  lease.
+- **Bounded retries.** A request times out after 30 seconds by default. The client retries HTTP 429, HTTP 5xx, and transport failures up to three times by default. It caps each exponential or `Retry-After` delay at 30 seconds to keep the request within the source lease. Aborts and request timeouts stop the retry loop.
 - **Content-aware decoding.** JSON bodies can be direct JSON text or base64.
   Base64 JSON uses strict UTF-8 decoding before parsing. Bytes bodies are
   base64-decoded. Text bodies remain the plain UTF-8 strings from Cloudflare.

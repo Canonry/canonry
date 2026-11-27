@@ -49,6 +49,25 @@ const REVIEWED_DATA_STATEMENTS: ReadonlyMap<number, readonly RegExp[]> = new Map
   [200, [
     /^UPDATE raw_event_samples SET event_type = 'ai_user_fetch' WHERE event_type = 'ai-user-fetch'$/i,
   ]],
+  // v211 only fills its own new nullable column, from v207's applied time, on
+  // sources holding referral rows written before v207. Older binaries never
+  // read the column, so a rollback ignores it.
+  [211, [
+    /^UPDATE traffic_sources SET ai_referral_older_count_until = \( SELECT strftime\('[^']+', applied_at\) FROM _migrations WHERE version = 207 \) WHERE EXISTS \( SELECT 1 FROM ai_referral_events_hourly r WHERE r\.source_id = traffic_sources\.id AND r\.created_at < \(SELECT strftime\('[^']+', applied_at\) FROM _migrations WHERE version = 207\) \)$/i,
+  ]],
+  // v213 rebuilds only these two tables to admit 180d, preserving all columns,
+  // defaults, indexes and project/run cascades. Older writers still use 7d,
+  // 28d or 90d and omit the nullable report_definition column. The migration
+  // upgrade/replay test in ga-search-landing-migration.test.ts proves retained
+  // figures, provenance, uniqueness and cascades. INSERT must copy the same
+  // named columns verbatim; do not allow arbitrary transforms or other tables.
+  [213, [
+    /^DROP TABLE IF EXISTS ga_search_landing_(windows|pages)_v213$/i,
+    /^CREATE TABLE ga_search_landing_(windows|pages)_v213 \(.+\)$/i,
+    /^INSERT INTO ga_search_landing_(windows|pages)_v213 \(( [a-z_, ]+ )\) SELECT\2FROM ga_search_landing_\1$/i,
+    /^DROP TABLE ga_search_landing_(windows|pages)$/i,
+    /^ALTER TABLE ga_search_landing_(windows|pages)_v213 RENAME TO ga_search_landing_\1$/i,
+  ]],
 ])
 
 test(`every migration after v${DOWNGRADE_BASELINE} has additive schema or reviewed data changes (downgrade-safe)`, () => {
@@ -200,6 +219,27 @@ const RUN_HOOK_ALLOWLIST: ReadonlySet<number> = new Set([
   // handlers no longer null the ledger rows. Idempotent: a table without the
   // key is skipped.
   165,
+  // v221 makes NO schema change: it moves crawler rows whose sampled user
+  // agent is Claude-SearchBot from bot_id `anthropic-claudebot` to
+  // `claude-searchbot` (with their provenance sidecar rows) and relabels the
+  // matching crawler samples' classifier JSON. Downgrade-safe: `bot_id` is
+  // free text that every binary reads and reports as stored, never mapping it
+  // back to a rule, so an older binary reads a moved row like any other bot's;
+  // its ingest writes new Claude-SearchBot hits under `anthropic-claudebot`
+  // again, which is the pre-upgrade behavior. It uses run() because the
+  // statement allowlist is schema-shaped, and because a legacy database that
+  // resumes past the migrations creating these tables must skip the move.
+  // Idempotent: the source rows are deleted after the copy, so a rerun
+  // selects nothing, and the copy adds into an existing row instead of failing.
+  221,
+  // v222 adds a nullable column in statements[] and uses run() only to fill
+  // it, on sources holding a hosted browser agent's hours. Downgrade-safe:
+  // older binaries never read `ai_user_fetch_older_count_until`, and the
+  // column is nullable so an older writer's INSERT that omits it succeeds. It
+  // uses run() because the statement allowlist is schema-shaped, and because a
+  // legacy database that resumes past the migrations creating the hourly
+  // tables must skip the stamp. Idempotent: it only fills a NULL stamp.
+  222,
 ])
 
 test(`migrations after v${DOWNGRADE_BASELINE} define no run() hook unless explicitly allowlisted`, () => {

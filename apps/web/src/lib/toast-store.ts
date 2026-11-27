@@ -12,6 +12,12 @@ export type ToastAction =
     label: string
     intent: 'go-to-runs'
   }
+  | {
+    label: string
+    intent: 'view-seo-refresh'
+    projectName: string
+    runId: string
+  }
 
 export interface Toast {
   id: string

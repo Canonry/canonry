@@ -1,5 +1,12 @@
+import { CitationStates, type CitationState } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
+
+const CITATION_STATE_LABEL: Record<CitationState, string> = {
+  [CitationStates.cited]: 'cited',
+  [CitationStates['not-cited']]: 'not-cited',
+  [CitationStates['not-measured']]: 'citation not measured',
+}
 
 export async function searchProject(
   project: string,
@@ -20,7 +27,7 @@ export async function searchProject(
   }
   for (const hit of result.hits) {
     if (hit.kind === 'snapshot') {
-      console.log(`  [snapshot] ${hit.query} (${hit.provider}, ${hit.citationState}) — ${hit.matchedField}`)
+      console.log(`  [snapshot] ${hit.query} (${hit.provider}, ${CITATION_STATE_LABEL[hit.citationState]}) — ${hit.matchedField}`)
       console.log(`    ${hit.snippet}`)
       console.log(`    run=${hit.runId}  at ${hit.createdAt}`)
     } else {

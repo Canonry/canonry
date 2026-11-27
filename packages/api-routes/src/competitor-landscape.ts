@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   auditLog,
@@ -41,7 +41,7 @@ import {
   type CompetitorLandscapeResponse,
 } from '@canonry/canonry-contracts'
 import { buildCompetitorLandscapeHistory, type CompetitorLandscapeIdentity, type CompetitorLandscapeSurfaceClass } from '@canonry/canonry-intelligence'
-import { notProbeRun, resolveProject } from './helpers.js'
+import { notProbeRun, notScopedRun, resolveProject } from './helpers.js'
 import { buildMentionShareInputs, observedCompetitorNames, projectQueryClassifier } from './mention-share-inputs.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { draftRow, parseStoredAuthoring } from './measurement-draft-repo.js'
@@ -262,8 +262,9 @@ export function latestSweepRuns(db: DatabaseClient, projectId: string): Array<ty
     eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
     notProbeRun(),
-    // A scoped spot check is never the latest sweep.
-    isNull(runs.measurementScope),
+    // A spot check (a list of queries, or a slice of a plan) is never the
+    // latest sweep.
+    notScopedRun(),
   )).orderBy(desc(runs.createdAt), desc(runs.id)).all()
   for (const group of groupRunsByCreatedAt(candidates)) {
     const whole = group.filter(run => measurementRunCompleteness(db, run.id).complete)

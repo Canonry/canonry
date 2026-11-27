@@ -1,5 +1,5 @@
 /**
- * How Site Health writes a crawled page in a list cell.
+ * How Agent Readiness writes a crawled page in a list cell.
  *
  * Every URL in one scan usually shares the crawl root's host, so repeating
  * `https://example.com/` in front of each row costs a column of width and
@@ -56,6 +56,39 @@ export function displayPagePath(
   const parsed = new URL(url)
   const path = `${parsed.pathname}${parsed.search}${parsed.hash}`
   return path === '' ? '/' : path
+}
+
+/**
+ * The site a URL belongs to, as scans name sites: its host without `www.`.
+ * Null when the URL cannot be parsed.
+ */
+export function siteOfUrl(url: string | null | undefined): string | null {
+  const host = siteHostFromUrl(url)
+  return host ? bareHost(host) : null
+}
+
+/**
+ * A page on another site the scan covered, split for display: that site's
+ * host, then the path. Null for a page on the scan's main site, for a host the
+ * scan did not cover, and for every page of a single-site scan, which all keep
+ * their existing display.
+ */
+export function otherSiteAddress(
+  url: string | null | undefined,
+  rootHost: string | null | undefined,
+  siteHosts: readonly string[],
+): { site: string; path: string } | null {
+  if (!url || siteHosts.length < 2 || isSameSiteUrl(url, rootHost)) return null
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  const host = bareHost(parsed.hostname)
+  if (!siteHosts.some((site) => bareHost(site) === host)) return null
+  const path = `${parsed.pathname}${parsed.search}${parsed.hash}`
+  return { site: host, path: path === '' ? '/' : path }
 }
 
 /**

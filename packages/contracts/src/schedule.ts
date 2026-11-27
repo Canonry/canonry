@@ -12,8 +12,8 @@ import { providerNameSchema } from './provider.js'
  * - `backlinks-sync` — re-probe Common Crawl for the latest hyperlink-graph release and, when a newer rolling
  *   window is published, run the workspace-level release sync (which auto-extracts per-project backlinks for
  *   projects with `autoExtractBacklinks`). Workspace-global: no `sourceId`, no `providers`.
- * - `site-audit` — Technical AEO: crawl the project's sitemap and audit every reachable page across the
- *   aeo-audit ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
+ * - `site-audit` — Agent Readiness: crawl the project's sitemap and audit every reachable page across the
+ *   audit engine ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
  * - `ads-sync` — OpenAI Advertiser API (ChatGPT ads) pull: entity snapshots + daily paid-performance
  *   rollups for the project's connected ad account. No `sourceId`, no `providers`.
  * - `seo-sync`: paid SEO data refresh, one refresh per saved SEO profile, admitted under the host's SEO
@@ -40,6 +40,33 @@ export const calendarRecurrenceSchema = z.object({
 }).strict()
 export type CalendarRecurrence = z.infer<typeof calendarRecurrenceSchema>
 
+/**
+ * The checks a scheduled Agent Readiness audit scan runs on top of the full-site crawl.
+ * The defaults match a manual scan run without flags: no dead-link check, no
+ * location checks, agent integration checks on. A weekly deep scan turns the
+ * first two on.
+ */
+export const siteAuditScheduleChecksSchema = z.object({
+  /** Request every internal link target and report the ones that fail. */
+  checkDeadLinks: z.boolean(),
+  /** Location and service-area checks. */
+  includeGeo: z.boolean(),
+  /** Agent integration checks (MCP server card, A2A agent card, and the like). */
+  includeAgentSkills: z.boolean(),
+}).strict()
+export type SiteAuditScheduleChecks = z.infer<typeof siteAuditScheduleChecksSchema>
+
+export const DEFAULT_SITE_AUDIT_SCHEDULE_CHECKS: SiteAuditScheduleChecks = Object.freeze({
+  checkDeadLinks: false,
+  includeGeo: false,
+  includeAgentSkills: true,
+})
+
+/** A site-audit schedule's checks, filling anything unset (or a row from before the column) with the defaults. */
+export function siteAuditScheduleChecks(stored: Partial<SiteAuditScheduleChecks> | null | undefined): SiteAuditScheduleChecks {
+  return { ...DEFAULT_SITE_AUDIT_SCHEDULE_CHECKS, ...(stored ?? {}) }
+}
+
 // --- DTOs ---
 
 export const scheduleDtoSchema = z.object({
@@ -56,6 +83,8 @@ export const scheduleDtoSchema = z.object({
   providers: z.array(providerNameSchema).default([]),
   /** Traffic-source UUID for `kind === 'traffic-sync'` schedules. Null otherwise. */
   sourceId: z.string().nullable().optional(),
+  /** What each scheduled scan checks, for `kind === 'site-audit'` schedules. Null otherwise. */
+  siteAudit: siteAuditScheduleChecksSchema.nullable().optional(),
   lastRunAt: z.string().nullable().optional(),
   nextRunAt: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -84,6 +113,25 @@ export function nextScheduleUpdatedAt(previous: string | undefined, nowMs = Date
     : nowMs).toISOString()
 }
 
+/** Timing-only preview. It does not validate credentials, enable recurrence, or start work. */
+export const schedulePreviewRequestSchema = z.object({
+  preset: z.string().min(1).optional(),
+  cron: z.string().min(1).optional(),
+  recurrence: calendarRecurrenceSchema.optional(),
+  timezone: z.string().optional().default('UTC'),
+}).refine(
+  data => [data.preset, data.cron, data.recurrence].filter(value => value !== undefined).length === 1,
+  { message: 'Exactly one of "preset", "cron", or "recurrence" must be provided' },
+)
+export type SchedulePreviewRequest = z.infer<typeof schedulePreviewRequestSchema>
+export const schedulePreviewDtoSchema = z.object({
+  cronExpr: z.string(),
+  recurrence: calendarRecurrenceSchema.nullable(),
+  timezone: z.string(),
+  nextRunAt: z.string().datetime().nullable(),
+})
+export type SchedulePreviewDto = z.infer<typeof schedulePreviewDtoSchema>
+
 export const scheduleUpsertRequestSchema = z.object({
   /** Run kind. Defaults to 'answer-visibility' so existing callers don't have to change. */
   kind: schedulableRunKindSchema.optional(),
@@ -95,6 +143,12 @@ export const scheduleUpsertRequestSchema = z.object({
   providers: z.array(providerNameSchema).optional().default([]),
   /** Required when kind === 'traffic-sync'. Forbidden for other kinds. Validated server-side. */
   sourceId: z.string().optional(),
+  /**
+   * Scan checks for kind === 'site-audit' only; unset fields take the defaults.
+   * Omit to keep the schedule's current checks (so enabling, pausing or moving
+   * a schedule never drops them); null goes back to the defaults.
+   */
+  siteAudit: siteAuditScheduleChecksSchema.partial().strict().nullable().optional(),
   /**
    * Optimistic concurrency guard. A timestamp updates only that exact version;
    * null creates only while the schedule is absent. Omit for legacy behavior.

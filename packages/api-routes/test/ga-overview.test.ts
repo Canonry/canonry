@@ -5,13 +5,14 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, gaDailyTotals, gaTrafficWindowSummaries, gaWindowMetrics, migrate } from '@canonry/canonry-db'
-import { gaOverviewResponseSchema, GaOverviewPeriods, type GaOverviewWindow } from '@canonry/canonry-contracts'
+import { createClient, measurementPlans, measurementPlanVersions, gaDailyTotals, gaSyncCoverage, gaTrafficSnapshots, runs, gaTrafficWindowSummaries, gaWindowMetrics, migrate } from '@canonry/canonry-db'
+import { canonicalMeasurementPlanV2Json, calendarDateRange, shiftIsoCalendarDate, gaOverviewResponseSchema, GaOverviewPeriods, type GaOverviewWindow } from '@canonry/canonry-contracts'
 import * as gaModule from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
 import { buildGaOverview, type GaOverviewDailyRow, type GaOverviewPeriodRow } from '../src/ga-overview.js'
 import { dailyTotals } from './ga-sync-fixtures.js'
+import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
 /**
  * The GA4 overview: GA4's own totals for a window and the period before it,
@@ -229,8 +230,28 @@ describe('GET /projects/:name/ga/overview', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns all 180 days with the preceding 180-day comparison', async () => {
+    const current = { startDate: '2026-04-26', endDate: '2026-10-22' }
+    const previous = { startDate: '2025-10-28', endDate: '2026-04-25' }
+    insertPeriod(ctx, '180d', GaOverviewPeriods.current, period(current, { sessions: 24000 }))
+    insertPeriod(ctx, '180d', GaOverviewPeriods.previous, period(previous, { sessions: 20000 }))
+    insertDay(ctx, day('2026-04-26', { sessions: 150 }))
+    insertDay(ctx, day('2025-10-28', { sessions: 100 }))
+    insertDay(ctx, day('2026-10-22', { sessions: 250 }))
+    insertDay(ctx, day('2026-04-25', { sessions: 200 }))
+
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/overview/ga/overview?window=180d' })
+    expect(response.statusCode).toBe(200)
+    const overview = gaOverviewResponseSchema.parse(response.json())
+    expect(overview).toMatchObject({ window: '180d', current, previous, totals: { sessions: 24000 }, previousTotals: { sessions: 20000 }, changePct: { sessions: 20 } })
+    expect(overview.days).toHaveLength(180)
+    expect(overview.days[0]).toMatchObject({ date: '2026-04-26', previousDate: '2025-10-28', values: { sessions: 150 }, previousValues: { sessions: 100 } })
+    expect(overview.days.at(-1)).toMatchObject({ date: '2026-10-22', previousDate: '2026-04-25', values: { sessions: 250 }, previousValues: { sessions: 200 } })
   })
 
   it('returns the stored window: its totals, the change, and both periods by day', async () => {
@@ -313,6 +334,7 @@ describe('GA4 sync stores the overview', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
     await ctx.app.close()
     fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
   })
@@ -341,7 +363,7 @@ describe('GA4 sync stores the overview', () => {
   }
 
   it('stores every daily figure, nulls kept, and both periods of each window', async () => {
-    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000 })
+    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000, '180d': 38000 })
 
     const response = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
     expect(response.statusCode).toBe(200)
@@ -355,6 +377,8 @@ describe('GA4 sync stores the overview', () => {
 
     const periods = ctx.db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, ctx.projectId)).all()
     expect(periods.map(row => [row.windowKey, row.period, row.sessions, row.engagementSeconds]).sort()).toEqual([
+      ['180d', 'current', 38000, 90000],
+      ['180d', 'previous', 37900, null],
       ['30d', 'current', 6400, 90000],
       ['30d', 'previous', 6300, null],
       ['7d', 'current', 1600, 90000],
@@ -365,14 +389,124 @@ describe('GA4 sync stores the overview', () => {
   })
 
   it('replaces the window rows on the next sync instead of adding to them', async () => {
-    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000 })
+    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000, '180d': 38000 })
     await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
     vi.restoreAllMocks()
-    stubSync({ '7d': 1700, '30d': 6500, '90d': 19100 })
+    stubSync({ '7d': 1700, '30d': 6500, '90d': 19100, '180d': 38100 })
     await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
 
     const periods = ctx.db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, ctx.projectId)).all()
-    expect(periods).toHaveLength(6)
-    expect(periods.filter(row => row.period === GaOverviewPeriods.current).map(row => row.sessions).sort()).toEqual([1700, 19100, 6500])
+    expect(periods).toHaveLength(8)
+    expect(periods.filter(row => row.period === GaOverviewPeriods.current).map(row => row.sessions).sort()).toEqual([1700, 19100, 38100, 6500])
   })
+
+  it.each([30, 60])('reuses %i fetched days while extending to 90 and 180, preserving old rows and empty-day coverage', async (initialDays) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T16:00:00Z'))
+    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000, '180d': 38000 })
+    // The 60-day case exercises the same sync through an Advanced portfolio.
+    if (initialDays === 60) {
+      const plan = measurementPlanV2Fixture()
+      ctx.db.insert(measurementPlanVersions).values({ id: 'advanced-plan', projectId: ctx.projectId, revision: 1, canonicalJson: canonicalMeasurementPlanV2Json(plan), checksum: '1'.repeat(64), schemaVersion: 2, compiledChecksum: plan.compiledChecksum, createdAt: SYNCED_AT }).run()
+      ctx.db.insert(measurementPlans).values({ projectId: ctx.projectId, activeVersionId: 'advanced-plan', createdAt: SYNCED_AT, updatedAt: SYNCED_AT }).run()
+    }
+    let endDate = '2026-11-06'
+    const bounds = (days: number) => ({ startDate: shiftIsoCalendarDate(endDate, -days), endDate })
+    vi.mocked(gaModule.fetchAggregateSummary).mockImplementation(async (_t, _p, days = 30) => ({
+      periodStart: bounds(days).startDate, periodEnd: endDate, totalSessions: 10, totalOrganicSessions: 4, totalUsers: 8,
+    }))
+    vi.mocked(gaModule.fetchWindowMetrics).mockImplementation(async (_t, _p, windowKey) => ({
+      windowKey,
+      current: period({ startDate: '2026-05-10', endDate: '2026-11-05' }),
+      previous: period({ startDate: '2025-11-11', endDate: '2026-05-09' }),
+    }))
+    let count = 10
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockImplementation(async (_t, _p, days = 30, range = bounds(days)) =>
+      calendarDateRange(range.startDate, range.endDate)
+        .filter(date => date !== '2026-10-10') // A successful empty day is still covered.
+        .map(date => ({ date, landingPage: '/', sessions: count, users: 8, organicSessions: 4 })))
+    vi.mocked(gaModule.fetchDailyTotals).mockImplementation(async (_t, _p, _days, options) => ({
+      ...dailyTotals([]), ...(options?.dateRange ?? { startDate: '2025-11-11', endDate }), rows: [],
+    }))
+    vi.mocked(gaModule.fetchAcquisitionByChannel).mockImplementation(async (_t, _p, days = 180, options) => ({
+      ...(options?.dateRange ?? bounds(days)), rows: [],
+    }))
+    const sync = async (days: number) => {
+      const response = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days } })
+      expect(response.statusCode, response.body).toBe(200)
+    }
+    await sync(initialDays)
+    count = 20
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    vi.mocked(gaModule.fetchDailyTotals).mockClear()
+    vi.mocked(gaModule.fetchAcquisitionByChannel).mockClear()
+    await sync(90)
+    const firstMissingEnd = initialDays === 30 ? '2026-10-06' : '2026-09-06'
+    expect(vi.mocked(gaModule.fetchTrafficByLandingPage).mock.calls.map(call => call[3])).toEqual([
+      { startDate: '2026-08-08', endDate: firstMissingEnd },
+      { startDate: '2026-10-24', endDate },
+    ])
+    expect(vi.mocked(gaModule.fetchDailyTotals).mock.calls.map(call => call[3]?.dateRange)).toEqual([
+      { startDate: '2026-10-24', endDate },
+    ])
+    expect(vi.mocked(gaModule.fetchAcquisitionByChannel).mock.calls.map(call => call[3]?.dateRange)).toEqual([
+      { startDate: '2026-10-24', endDate },
+    ])
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    await sync(180)
+    expect(vi.mocked(gaModule.fetchTrafficByLandingPage).mock.calls.map(call => call[3])).toEqual([
+      { startDate: '2026-05-10', endDate: '2026-08-07' },
+      { startDate: '2026-10-24', endDate },
+    ])
+    const stored = ctx.db.select().from(gaTrafficSnapshots).all()
+    expect(stored).toHaveLength(180) // 181 inclusive dates, one quiet day.
+    expect(stored.find(row => row.date === '2026-10-15')?.sessions).toBe(10)
+    expect(stored.find(row => row.date === '2026-11-05')?.sessions).toBe(20)
+    expect(stored.find(row => row.date === '2026-05-10')?.sessions).toBe(20)
+    expect(ctx.db.select().from(gaSyncCoverage).all().find(row => row.component === 'traffic' && row.date === '2026-10-10')).toMatchObject({ settled: true, propertyId: '123456' })
+
+    // Failed backfill must leave both old values and coverage unchanged.
+    ctx.db.delete(gaSyncCoverage).where(eq(gaSyncCoverage.date, '2026-06-01')).run()
+    const beforeFailure = ctx.db.select().from(gaSyncCoverage).all().length
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockRejectedValueOnce(new gaModule.GA4ApiError('provider unavailable', 502))
+    const failed = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 180 } })
+    expect(failed.statusCode).toBe(500)
+    expect(ctx.db.select().from(gaSyncCoverage).all()).toHaveLength(beforeFailure)
+    expect(ctx.db.select().from(gaTrafficSnapshots).all()).toHaveLength(180)
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    await sync(180)
+    expect(vi.mocked(gaModule.fetchTrafficByLandingPage).mock.calls[0]?.[3]).toEqual({ startDate: '2026-06-01', endDate: '2026-06-01' })
+
+    // Previously immature days must be fetched once more as they leave the overlap.
+    vi.setSystemTime(new Date('2026-11-07T16:00:00Z'))
+    endDate = '2026-11-07'
+    vi.mocked(gaModule.fetchAggregateSummary).mockResolvedValue({ periodStart: '2026-05-11', periodEnd: '2026-11-07', totalSessions: 10, totalOrganicSessions: 4, totalUsers: 8 })
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    await sync(180)
+    expect(vi.mocked(gaModule.fetchTrafficByLandingPage).mock.calls.map(call => call[3])).toEqual([{ startDate: '2026-10-24', endDate: '2026-11-07' }])
+
+    // Removing a run removes its rows and their proof of coverage together.
+    const cached = ctx.db.select().from(gaTrafficSnapshots).all().find(row => row.date === '2026-06-02')!
+    ctx.db.delete(runs).where(eq(runs.id, cached.syncRunId!)).run()
+    expect(ctx.db.select().from(gaSyncCoverage).all().some(row => row.component === 'traffic' && row.date === '2026-06-02')).toBe(false)
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    await sync(180)
+    expect(vi.mocked(gaModule.fetchTrafficByLandingPage).mock.calls[0]?.[3]).toEqual({ startDate: '2026-05-11', endDate: '2026-05-31' })
+
+    // A reporting-zone change changes what every calendar day means.
+    const windowReport = vi.mocked(gaModule.fetchWindowMetrics).getMockImplementation()!
+    vi.mocked(gaModule.fetchWindowMetrics).mockImplementation(async (...args) => ({ ...await windowReport(...args), timeZone: 'America/New_York' }))
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    await sync(180)
+    expect(gaModule.fetchTrafficByLandingPage).toHaveBeenCalledExactlyOnceWith('fake-token', '123456', 180, { startDate: '2026-05-11', endDate })
+
+    // Monthly reconciliation intentionally stops reusing old receipts.
+    vi.setSystemTime(new Date('2026-12-08T16:00:00Z'))
+    endDate = '2026-12-08'
+    vi.mocked(gaModule.fetchAggregateSummary).mockResolvedValue({ periodStart: '2026-06-11', periodEnd: endDate, totalSessions: 10, totalOrganicSessions: 4, totalUsers: 8 })
+    vi.mocked(gaModule.fetchTrafficByLandingPage).mockClear()
+    await sync(180)
+    expect(gaModule.fetchTrafficByLandingPage).toHaveBeenCalledExactlyOnceWith('fake-token', '123456', 180, { startDate: '2026-06-11', endDate })
+  })
+
 })

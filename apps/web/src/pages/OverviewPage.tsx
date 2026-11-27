@@ -1,15 +1,15 @@
+import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
+import { formatDate, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { SentimentOverviewMetric, showsSentimentOverview } from '../components/project/SentimentSection.js'
-import { Sparkline } from '../components/shared/Sparkline.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { toneFromRunStatus } from '../lib/tone-helpers.js'
-import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { CHECKING_HEALTH_SNAPSHOT, buildSystemHealthCards, serviceStatusTooltip, systemHealthNeedingAttention } from '../lib/health-helpers.js'
+import { isEmbed } from '../api.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { RunDetailLink } from '../components/shared/RunDetailLink.js'
@@ -20,59 +20,58 @@ import type { PortfolioProjectVm } from '../view-models.js'
 function OverviewProjectCard({
   project,
   sentimentColumn,
+  competitorsSet,
 }: {
   project: PortfolioProjectVm
-  /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Pressure line up across rows. */
+  /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Competitor pressure line up across rows. */
   sentimentColumn: boolean
+  /**
+   * Whether the project tracks any competitors, from the same overview read as
+   * its pressure figure; undefined when unknown. With none, the API's "None"
+   * would read as no threat rather than nothing to compare.
+   */
+  competitorsSet: boolean | undefined
 }) {
+  const coverage = project.mentionPopulations?.find(population => population.queryClass === 'non-brand')?.mentionCoverage
+  const otherPopulations = project.mentionPopulations?.filter(population => population.queryClass !== 'non-brand' && population.answerCount > 0) ?? []
+  const counts = coverage?.numerator != null && coverage.denominator != null ? `${coverage.numerator} of ${coverage.denominator} answers` : 'Not measured'
+  const caption = project.providerCoverage ? `${counts} · ${project.providerCoverage}` : counts
   return (
     <div className={`project-row relative${sentimentColumn ? ' project-row-with-sentiment' : ''}`}>
-      <div className="project-row-chart">
-        <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
-      </div>
       <div className="project-row-primary">
         <Link
           to="/projects/$projectName"
           params={{ projectName: project.project.name }}
           className="after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
         >
-          <p className="project-name">{project.project.name}</p>
+          <p className="project-name">{project.project.displayName || project.project.name}</p>
           <p className="project-domain">{project.project.canonicalDomain}</p>
         </Link>
-        <p className="project-insight">{project.insight}</p>
+        {otherPopulations.map(population => <details key={population.queryClass} className="relative z-10 mt-2 w-fit text-copy-13 text-secondary">
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{population.queryClass === 'branded' ? 'Branded queries' : 'Unclassified queries'}</summary>
+          <p className="mt-1">{population.mentionCoverage.rate === null ? 'Not measured' : formatPercent(population.mentionCoverage.rate, RatioUnits.fraction)}<span className="sr-only"> · {population.queryClass} queries</span>{population.mentionCoverage.numerator !== null && population.mentionCoverage.denominator !== null ? ` · ${population.mentionCoverage.numerator} of ${population.mentionCoverage.denominator} answers` : ''}</p>
+        </details>)}
       </div>
       <div className="project-row-stat">
         <div className="metric-inline-block">
-          <p className="metric-inline-label">Mentioned</p>
-          <p className={`metric-inline-value ${project.mentionTone === 'caution' ? 'text-caution-400' : ''}`}>{project.hasMeasurement === false ? 'Not measured' : formatPercent(project.mentionScore, RatioUnits.percent)}</p>
-          {/* `providerCoverage` is only set when the sweep covered a SUBSET of
-              configured providers, and it is why the tone shifted to caution:
-              the score above is built on incomplete data and is not comparable
-              to a full sweep. It therefore keeps the caution tone and takes the
-              caption slot outright — folding it into the faint delta text would
-              bury a data-validity caveat, and appending it would just truncate.
-              The query counts it displaces are still on `project.insight`. */}
+          <p className="metric-inline-label">Mentioned · non-brand</p>
+          <p className={`metric-inline-value${project.providerCoverage ? ' text-caution-400' : ''}`}>{coverage?.rate == null ? 'Not measured' : formatPercent(coverage.rate, RatioUnits.fraction)}<span className="sr-only"> · non-brand queries</span></p>
           <p
             className={`metric-inline-caption${project.providerCoverage ? ' text-caution' : ''}`}
-            title={project.providerCoverage}
+            title={caption}
           >
-            {project.providerCoverage
-              ? <><span className="sr-only">Partial check: </span>{project.providerCoverage}</>
-              : project.mentionDelta}
+            {project.providerCoverage && <span className="sr-only">Partial check: </span>}{caption}
           </p>
         </div>
       </div>
       <div className="project-row-stat">
         <div className="metric-inline-block">
-          {/* `aria-label` does NOT work here: a bare <p> has role `paragraph`,
-              which does not support an accessible name, so screen readers are
-              free to ignore it and most do. The visually-hidden span is what
-              actually carries "competitor" to assistive tech. */}
-          <p className="metric-inline-label">
-            <span aria-hidden="true">Pressure</span>
-            <span className="sr-only">Competitor pressure</span>
-          </p>
-          <p className="metric-inline-value">{project.hasMeasurement === false ? 'Not measured' : project.competitorPressureLabel}</p>
+          <p className="metric-inline-label">Competitor pressure</p>
+          {/* A state, not a figure: the smaller label preset keeps it on one
+              line in the 9rem column. */}
+          {project.hasMeasurement !== false && competitorsSet === false
+            ? <p className="metric-inline-value text-label-14 text-secondary">No competitors set</p>
+            : <p className="metric-inline-value">{project.hasMeasurement === false ? 'Not measured' : project.competitorPressureLabel}</p>}
           {/* Empty caption slot, always rendered (not conditionally omitted) so
               this cell keeps the same three-row template as the "Mentioned"
               cell above — that's what keeps the two VALUES on a shared
@@ -103,14 +102,22 @@ export function OverviewPage() {
   // no server-rendered dashboard to fall back on, so it always takes the
   // skeleton branch first and hit this on every cold load.
   const enableLiveStatus = !contextDashboard
-  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health, Boolean(safeDashboard) && !isLoading)
+  // TanStack Query clears a failed read's error while it retries, so keep the
+  // failure on screen until data arrives. Otherwise each retry, the polling
+  // ones included, swaps it for the skeleton and drops focus from Retry.
+  const [loadFailed, setLoadFailed] = useState(false)
+  useEffect(() => {
+    if (safeDashboard) setLoadFailed(false)
+    else if (isError) setLoadFailed(true)
+  }, [isError, safeDashboard])
 
-  if (isError && !safeDashboard) {
+  if ((isError || loadFailed) && !safeDashboard) {
     return (
       <div className="page-container">
         <div className="page-header">
           <div className="page-header-left">
-            <h1 className="page-title">All projects unavailable</h1>
+            <h1 className="page-title">Overview unavailable</h1>
             <p className="page-subtitle">Canonry could not load the project list.</p>
           </div>
         </div>
@@ -150,33 +157,43 @@ export function OverviewPage() {
   }
 
   const model = safeDashboard.portfolioOverview
-  const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
   const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
-  const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
-    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first check.' }
-    : item)
+  // Each project's tracked competitors come from the same overview read as
+  // its pressure figure, one row per competitor the project tracks.
+  const competitorsByProject = new Map(safeDashboard.projects.map(entry => [entry.project.id, entry.competitors]))
+  // "What changed" rows arrive built from each project's overview `whatChanged`
+  // and the run list's runs in progress (`build-dashboard.ts`).
+  const attentionItems = model.attentionItems
 
-  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
-  const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
+  // Infrastructure shows only what needs a person; Settings lists every service.
+  const systemHealth = systemHealthNeedingAttention(
+    buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings),
+    healthSnapshot,
+  )
 
   return (
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
-          <h1 className="page-title">All projects</h1>
+          <h1 className="page-title">Overview</h1>
           <p className="page-subtitle">Visibility across all projects.</p>
         </div>
       </div>
 
       {model.projects.length > 0 ? (
         <div className="project-list project-list-scrollable">
-          {model.projects.map((project) => (
-            <OverviewProjectCard
-              key={project.project.id}
-              project={project}
-              sentimentColumn={sentimentColumn}
-            />
-          ))}
+          {model.projects.map((project) => {
+            const competitors = competitorsByProject.get(project.project.id)
+            return (
+              <OverviewProjectCard
+                key={project.project.id}
+                project={project}
+                sentimentColumn={sentimentColumn}
+                competitorsSet={competitors ? competitors.length > 0 : undefined}
+              />
+            )
+          })}
         </div>
       ) : (
         <Card className="surface-card empty-card">
@@ -195,7 +212,6 @@ export function OverviewPage() {
           <section className="overview-secondary-section">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">Needs attention</p>
                 <h2 className="section-title-sm">What changed</h2>
               </div>
             </div>
@@ -233,7 +249,6 @@ export function OverviewPage() {
         <section className="overview-secondary-section">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Recent runs</p>
               <h2 className="section-title-sm">Activity</h2>
             </div>
           </div>
@@ -250,35 +265,32 @@ export function OverviewPage() {
                 <RunDetailLink key={run.id} run={run} projectName={model.projects.find(project => project.project.id === run.projectId)?.project.name} className="compact-run">
                   <div>
                     <p className="compact-run-title">{run.projectName}</p>
-                    <p className="compact-run-detail">{run.summary}</p>
+                    {/* Each location's sweep is its own job, so its row names the location. */}
+                    <p className="compact-run-detail">{run.location ? `${run.summary} · ${run.location}` : run.summary}</p>
                   </div>
                   <StatusBadge status={run.status} />
                 </RunDetailLink>
               ))
             ) : (
-              <p className="supporting-copy">Run history appears here after the first launch.</p>
+              <p className="supporting-copy">
+                {model.activitySince ? `No failed or running jobs since ${formatDate(model.activitySince)}.` : 'No failed or running jobs.'}
+                {/* An embed may not allow the Runs view. */}
+                {!isEmbed() && <> <Link to="/runs" className="text-link">All runs</Link></>}
+              </p>
             )}
           </div>
         </section>
       </div>
 
-      <section className="page-section">
+      {systemHealth.length > 0 && <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">System health</p>
             <h2 className="section-title-sm">Infrastructure</h2>
           </div>
         </div>
         <div className="divide-y divide-default border-y border-default">
-          {systemHealth.map((item) => {
-            const serviceStatus = item.id === 'api'
-              ? healthSnapshot.apiStatus
-              : item.id === 'worker'
-                ? healthSnapshot.workerStatus
-                : undefined
-            const visibleDetail = serviceStatus
-              ? serviceStatus.state === 'ok' ? undefined : serviceStatusTooltip(serviceStatus)
-              : item.tone === 'positive' ? undefined : item.meta
+          {systemHealth.map(({ card: item, serviceStatus }) => {
+            const visibleDetail = serviceStatus ? serviceStatusTooltip(serviceStatus) : item.meta
 
             return (
               <div key={item.id} className="flex items-start justify-between gap-4 py-3">
@@ -293,7 +305,7 @@ export function OverviewPage() {
             )
           })}
         </div>
-      </section>
+      </section>}
     </div>
   )
 }

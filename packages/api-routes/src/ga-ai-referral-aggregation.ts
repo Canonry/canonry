@@ -19,7 +19,7 @@ import { aiEngineDailySeries } from './ga-referral-groups.js'
  * The dimensions are not disjoint. `session`, `first_user` and `manual_utm`
  * are three overlapping lenses on the same visit, fetched as three separate
  * GA4 reports. Only one lens may contribute to a tuple's total; this module
- * keeps the lens reporting the most sessions.
+ * keeps the `session` lens (see `pickWinningAttributionDimension`).
  *
  * Both ways of getting this wrong have shipped in this codebase:
  *
@@ -110,27 +110,20 @@ function emptyAiCounts() {
 }
 
 /**
- * GA4's session-scoped lens is the one whose totals match its own channel
- * report, so it wins a tie. Without an explicit rule the winner depended on map
- * insertion order, which is row order out of SQLite, so an equal-sessions tie
- * could silently change the reported medium between runs.
+ * The lens AI sessions are counted under: GA4's session-scoped source, the one
+ * its own AI Assistant channel and acquisition reports use, so Canonry's AI
+ * session figures match GA4's and the monthly client report's.
  */
 export const AI_ATTRIBUTION_PREFERRED_DIMENSION = 'session'
 
 export function pickWinningAttributionDimension(
   sessionsByDimension: ReadonlyMap<string, number>,
 ): string | undefined {
-  let winner: string | undefined
-  let winnerSessions = -1
-  for (const [dimension, sessions] of sessionsByDimension) {
-    const beatsOnCount = sessions > winnerSessions
-    const winsTie = sessions === winnerSessions && dimension === AI_ATTRIBUTION_PREFERRED_DIMENSION
-    if (beatsOnCount || winsTie) {
-      winnerSessions = sessions
-      winner = dimension
-    }
-  }
-  return winner
+  // Session lens only. The largest lens used to win, which let `first_user`
+  // count a returning visitor's later visits from search or direct as AI
+  // visits, reading a few percent above GA4 and the report (one October:
+  // 95 against 90). A tuple with no session-lens rows is not an AI session.
+  return sessionsByDimension.has(AI_ATTRIBUTION_PREFERRED_DIMENSION) ? AI_ATTRIBUTION_PREFERRED_DIMENSION : undefined
 }
 
 /**

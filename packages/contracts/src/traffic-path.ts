@@ -47,7 +47,8 @@ const INFRA_BASENAMES = new Set(['xmlrpc.php', 'wp-cron.php'])
 
 // Static-asset extensions. A crawler fetching these is pulling sub-resources,
 // not reading a page. Mirrors the set the issue calls out plus the common
-// remainder (fonts, modern image formats, media, source maps).
+// remainder (fonts, modern image formats, media, source maps, web app
+// manifests).
 const ASSET_EXTENSIONS = new Set([
   'css',
   'js',
@@ -81,6 +82,7 @@ const ASSET_EXTENSIONS = new Set([
   'flac',
   'm4a',
   'wasm',
+  'webmanifest',
 ])
 
 // Document extensions that DO represent a real page read, so a path that

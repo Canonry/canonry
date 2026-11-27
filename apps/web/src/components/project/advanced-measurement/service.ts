@@ -38,6 +38,7 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitor,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarket,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertTarget,
 } from '@canonry/canonry-api-client'
 
@@ -132,6 +133,7 @@ export interface AdvancedMeasurementService {
   removeAssignment(projectName: string, etag: string, targetKeys: string[], queryId: string): Promise<DraftMutationResponse>
   excludeTarget(projectName: string, etag: string, targetKey: string): Promise<DraftMutationResponse>
   upsertTarget(projectName: string, etag: string, target: MeasurementDraftAuthoring['targets'][number]): Promise<DraftMutationResponse>
+  upsertMarket(projectName: string, etag: string, market: NonNullable<MeasurementDraftAuthoring['reportingScopes']>[number]): Promise<DraftMutationResponse>
   upsertGroup(projectName: string, etag: string, group: {
     stableKey: string
     label: string
@@ -263,6 +265,12 @@ export const advancedMeasurementService: AdvancedMeasurementService = {
     path: { name: projectName },
     headers: mutationHeaders(etag),
     body: { target },
+  })),
+  upsertMarket: (projectName, etag, market) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertMarket({
+    client: heyClient,
+    path: { name: projectName },
+    headers: mutationHeaders(etag),
+    body: { market },
   })),
   upsertGroup: (projectName, etag, group) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup({
     client: heyClient,

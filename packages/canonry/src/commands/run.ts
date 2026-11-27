@@ -1,6 +1,5 @@
 import { type ApiClient, createApiClient } from '../client.js'
 import {
-  CitationStates,
   MentionIdentities,
   OUTSTANDING_PROVIDER_BATCH_STATUSES,
   ProviderBatchStatuses,
@@ -13,6 +12,7 @@ import {
   type ProviderBatchSummaryDto,
   type ProviderDispatchMode,
   type RunAdmissionDto,
+  type RunPreviewDto,
   type RunCompletenessDto,
   type RunDetailDto,
   type RunDto,
@@ -21,9 +21,38 @@ import {
 } from '@canonry/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
+import { SNAPSHOT_CELL_LEGEND, citationGlyph, mentionGlyph } from '../snapshot-cell.js'
 
 function getClient() {
   return createApiClient()
+}
+
+/** Preview only the default full manual sweep, without reserving work or calling an engine. */
+export async function previewRun(project: string, format?: string): Promise<void> {
+  const preview = await getClient().previewRun(project)
+  if (format === 'jsonl') {
+    emitJsonl([preview])
+    return
+  }
+  if (format === 'json') {
+    console.log(JSON.stringify(preview, null, 2))
+    return
+  }
+  const reasons: Record<NonNullable<RunPreviewDto['blockedReason']>, string> = {
+    'unpublished-plan': 'Publish the Advanced Measurement draft first.',
+    'no-queries': 'Add queries first.',
+    'no-provider': 'Connect an answer provider first.',
+    'providers-failing': 'Fix the held provider accounts first.',
+    'run-in-progress': `A sweep is already active (${preview.activeRunId}).`,
+  }
+  console.log(`Sweep preview: ${project}${preview.revision === null ? '' : ` · published revision ${preview.revision}`}`)
+  console.log(`  ${preview.queryCount} queries${preview.assignmentCount === null ? '' : ` · ${preview.assignmentCount} assignments`}`)
+  for (const population of preview.queryClasses) console.log(`  ${population.queryCount} ${population.queryClass} queries${population.assignmentCount === null ? '' : ` · ${population.assignmentCount} assignments`}`)
+  console.log(`  ${preview.requestCount} runnable requests · ${preview.expectedRequestCount} planned answers`)
+  for (const engine of preview.engines) console.log(`  ${engine.provider}${engine.models.length ? ` (${engine.models.join(', ')})` : ''}: ${engine.requestCount} requests${engine.available ? '' : ' · unavailable'}`)
+  for (const location of preview.locations) console.log(`  Location: ${location.location ?? 'No location'} · ${location.requestCount} requests`)
+  for (const [provider, held] of Object.entries(preview.admission.providers)) console.log(`  Held: ${providerAccountStreakLine(provider, held)}`)
+  console.log(preview.blockedReason === null ? '  Ready to start.' : `  ${reasons[preview.blockedReason]}`)
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])
@@ -574,6 +603,10 @@ export function printRunDetail(run: RunDetailDto): void {
   if (run.createdAt) console.log(`  Created:  ${run.createdAt}`)
   const skipped = Object.entries(run.skippedProviders ?? {})
   for (const [provider, streak] of skipped) console.log(`  Skipped:  ${providerAccountStreakLine(provider, streak)}`)
+  // A run still going: the engines failing so far, before `error` reports them.
+  for (const [provider, failure] of Object.entries(run.providerFailures ?? {})) {
+    console.log(`  Failing:  ${provider}: ${failure.failedQueries} ${failure.failedQueries === 1 ? 'query' : 'queries'} failed${failure.stopped ? ', no longer called this run' : ''}. ${failure.message}`)
+  }
   if (run.error) {
     if (run.error.message) console.log(`  Error:    ${run.error.message}`)
     if (run.error.providers) {
@@ -592,17 +625,13 @@ export function printRunDetail(run: RunDetailDto): void {
   }
   if (run.usage && run.usage.length > 0) printUsageTable(run.usage)
   if (run.snapshots && run.snapshots.length > 0) {
-    console.log(`\n  Snapshots: ${run.snapshots.length}  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
+    console.log(`\n  Snapshots: ${run.snapshots.length}  ${SNAPSHOT_CELL_LEGEND}`)
     let differentSubject = 0
     for (const s of run.snapshots) {
-      const citationGlyph = s.citationState === CitationStates.cited ? 'C' : 'c'
-      const mentionGlyph = typeof s.answerMentioned === 'boolean'
-        ? (s.answerMentioned ? 'M' : 'm')
-        : '–'
       const modelLabel = s.model ? ` (${s.model})` : ''
       const ruledOut = s.mentionIdentity === MentionIdentities['wrong-subject']
       if (ruledOut) differentSubject++
-      console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}${ruledOut ? '  · different subject' : ''}`)
+      console.log(`    [${citationGlyph(s.citationState)}${mentionGlyph(s.answerMentioned)}]  ${s.provider}${modelLabel}  ${s.query}${ruledOut ? '  · different subject' : ''}`)
     }
     if (differentSubject > 0) {
       console.log('  · different subject: the answer uses your name, but sentiment found it is about something else, so it is not counted as mentioned.')

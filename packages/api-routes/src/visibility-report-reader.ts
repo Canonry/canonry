@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto'
 import {
   rateOverChecked,
+  rateOverCheckedAnswers,
   visibilityReportResponseSchema,
   VisibilityReportScopeErrorReasons,
   type RetrievalStatus,
@@ -85,6 +86,13 @@ export interface VisibilityReportObservationInput {
   unknownMentionTargetKeys?: readonly string[]
   citedTargetKeys: readonly string[]
   citationComplete: boolean
+  /**
+   * False when the answer's engine returns no sources (a local model with no
+   * web access): whether it cites a Property was never measured. Such an
+   * answer is in no citation figure and is never "sources partly saved".
+   * Absent means measured.
+   */
+  citationMeasured?: boolean
   /** Whether the provider ran a retrieval step; null for legacy frames that never recorded it. */
   retrievalStatus?: RetrievalStatus | null
   competitorMentionDomains: readonly string[]
@@ -223,7 +231,7 @@ interface CursorEnvelope {
 
 const ALL_CLASSES: readonly VisibilityReportPopulationClass[] = ['branded', 'non-brand', 'unknown']
 
-function locationMatches(location: string | null, selected: VisibilityReportLocationSelection): boolean {
+export function locationMatches(location: string | null, selected: VisibilityReportLocationSelection): boolean {
   if (selected.kind === 'all') return true
   if (selected.kind === 'none') return location === null
   return location !== null && normalizeText(location) === normalizeText(selected.value)
@@ -233,7 +241,7 @@ function selectedClasses(value: VisibilityReportReaderSelection['queryClass']): 
   return value === 'all' ? ALL_CLASSES : [value]
 }
 
-function unavailable(reason: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable'): VisibilityReportRate {
+function unavailable(reason: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured'): VisibilityReportRate {
   return { numerator: null, denominator: null, rate: null, reason }
 }
 
@@ -395,9 +403,12 @@ function targetValues(
     : [targetKey]
   const eligible = targetKeys.filter(key => targets.get(key)?.mentionEligible === true)
   const observation = candidate.observation
-  const citation = observation && targetKeys.some(key => observation.citedTargetKeys.includes(key))
-    ? true
-    : observation?.citationComplete && targetKeys.length > 0 ? false : null
+  // An engine with no sources measured no citation, whatever the capture flag says.
+  const citation = observation?.citationMeasured === false
+    ? null
+    : observation && targetKeys.some(key => observation.citedTargetKeys.includes(key))
+      ? true
+      : observation?.citationComplete && targetKeys.length > 0 ? false : null
   const mentionComplete = observation !== null && (observation.mentionComplete ?? observation.answerText !== null)
   if (!observation || !mentionComplete || eligible.length === 0) {
     return {
@@ -440,8 +451,14 @@ function citationRate(candidates: readonly Candidate[], isCited: (candidate: Can
   if (candidates.length === 0) return unavailable('no-population')
   let numerator = 0
   let unchecked = 0
+  let citationNotMeasured = 0
   for (const candidate of candidates) {
     if (candidate.observation === null) return unavailable('evidence-incomplete')
+    // No sources returned: never a miss, and never "partly saved" either.
+    if (candidate.observation.citationMeasured === false) {
+      citationNotMeasured++
+      continue
+    }
     if (!candidate.observation.citationComplete) {
       unchecked++
       continue
@@ -450,7 +467,8 @@ function citationRate(candidates: readonly Candidate[], isCited: (candidate: Can
     if (cited === null) return unavailable('evidence-incomplete')
     if (cited) numerator++
   }
-  return rateOverChecked(numerator, candidates.length, unchecked, 'unchecked') ?? unavailable('evidence-incomplete')
+  return rateOverCheckedAnswers(numerator, candidates.length, { unchecked, citationNotMeasured })
+    ?? unavailable(citationNotMeasured === candidates.length ? 'citation-not-measured' : 'evidence-incomplete')
 }
 
 function targetCitationRate(
@@ -522,22 +540,32 @@ function targetPresence(
   // as in the rate (`unchecked`) its captured links are not counted either: with
   // no citation seen on a checked answer the Property's citation outcome is
   // unknown (`notMeasured`), never "not cited", matching the kernel's outcomes.
-  const citations = scoped.map((candidate, index) => candidate.observation?.citationComplete === false ? null : values[index]!.citation)
+  // An answer whose engine returns no sources says nothing about citation, so
+  // it is dropped here rather than read as unknown: one checked answer next to
+  // it still decides the Property's citation outcome.
+  const citations = scoped.flatMap((candidate, index) => candidate.observation?.citationMeasured === false
+    ? []
+    : [candidate.observation?.citationComplete === false ? null : values[index]!.citation])
   const anyKnown = (signals: readonly (boolean | null)[]): boolean | null => (
     signals.includes(true) ? true : signals.length === 0 || signals.includes(null) ? null : false
   )
   const mention = anyKnown(values.map(value => value.mention))
   const citation = anyKnown(citations)
+  const everyAnswerSaved = scoped.length > 0 && scoped.every(candidate => candidate.observation !== null)
+  // Every answer was saved and none carried sources: the citation was never measured.
+  const noSourcesOnly = mention !== null && citation === null && everyAnswerSaved
+    && scoped.every(candidate => candidate.observation?.citationMeasured === false)
   return {
     targetKey,
     mention,
     citation,
     identityAmbiguous: values.some(value => value.mentionUnavailableReason === 'identity-ambiguous'),
-    // Every answer was saved, so an unknown citation can only come from an
-    // answer whose source list was partly saved. With the mention measured,
-    // that is the one reason this Property reads not measured.
-    uncheckedOnly: mention !== null && citation === null && scoped.length > 0
-      && scoped.every(candidate => candidate.observation !== null),
+    // Every answer was saved and some carried sources, so an unknown citation
+    // can only come from an answer whose source list was partly saved. With
+    // the mention measured, that is the one reason this Property reads not
+    // measured.
+    uncheckedOnly: mention !== null && citation === null && everyAnswerSaved && !noSourcesOnly,
+    noSourcesOnly,
   }
 }
 
@@ -566,7 +594,9 @@ function outcomeCounts(rows: readonly ReturnType<typeof targetPresence>[]) {
  * beside it. Undefined when every answer's sources were fully saved.
  */
 function uncheckedSourceEvidence(rows: readonly Candidate[]): VisibilityReportQueryRow['uncheckedSources'] {
-  const unchecked = rows.filter(candidate => candidate.observation !== null && !candidate.observation.citationComplete)
+  const unchecked = rows.filter(candidate => candidate.observation !== null
+    && candidate.observation.citationMeasured !== false
+    && !candidate.observation.citationComplete)
   if (unchecked.length === 0) return undefined
   const cited = unchecked.map(candidate => {
     const edgeTargets = new Set(candidate.edges.map(edge => edge.targetKey))
@@ -612,6 +642,7 @@ function summary(
     eligibleTargets.some(row => row.mention === null && row.identityAmbiguous) ? 'identity-ambiguous' : 'evidence-incomplete',
   )
   const notMeasuredUnchecked = targetRows.filter(row => row.uncheckedOnly).length
+  const notMeasuredNoSources = targetRows.filter(row => row.noSourcesOnly).length
   return {
     queryCount: base.queryCount,
     answerCount: base.answerCount,
@@ -620,6 +651,7 @@ function summary(
     propertyReach,
     outcomes: outcomeCounts(targetRows),
     ...(notMeasuredUnchecked > 0 ? { notMeasuredUnchecked } : {}),
+    ...(notMeasuredNoSources > 0 ? { notMeasuredNoSources } : {}),
   }
 }
 
@@ -696,6 +728,7 @@ function evidenceRows(candidates: readonly Candidate[], definition: VisibilityRe
         mentioned: signals.mention,
         ...(signals.mentionUnavailableReason === undefined ? {} : { mentionUnavailableReason: signals.mentionUnavailableReason }),
         cited: signals.citation,
+        ...(observation.citationMeasured === false ? { citationUnavailableReason: 'citation-not-measured' as const } : {}),
         // Answer bodies are intentionally limited to the stable query-key
         // drill-in. A query-id is enough to locate an evidence page, but it
         // is not a client-side invitation to enumerate every answer body.
@@ -796,7 +829,17 @@ function breakdown(
         citationCoverage: citations,
       }
     }).sort((left, right) => compareText(left.label, right.label) || compareText(left.id, right.id))
-  return { properties, groups }
+  const providers = [...new Set(candidates.map(candidate => candidate.slot.provider))].sort(compareText).map(provider => {
+    const metrics = coverageSummary(candidates.filter(candidate => candidate.slot.provider === provider), definition, targets)
+    return {
+      provider,
+      queryCount: metrics.queryCount,
+      answerCount: metrics.answerCount,
+      mentionCoverage: metrics.mentionCoverage,
+      citationCoverage: metrics.citationCoverage,
+    }
+  })
+  return { properties, groups, providers }
 }
 
 function fingerprint(value: unknown): string {
@@ -911,8 +954,8 @@ function filterOptions(definition: VisibilityReportDefinitionInput, selection: V
   return { providers, models, locations }
 }
 
-/** One continuity rule for trend boundaries and the change since the previous sweep. */
-function pairContinuity(previous: VisibilityReportRunInput, current: VisibilityReportRunInput) {
+/** One continuity rule for trend boundaries, the change since the previous sweep, and Overview's What changed. */
+export function pairContinuity(previous: VisibilityReportRunInput, current: VisibilityReportRunInput) {
   const currentLegacy = current.definition.provenance.kind === 'legacy-simple'
   const previousLegacy = previous.definition.provenance.kind === 'legacy-simple'
   if (currentLegacy || previousLegacy) return 'legacy-unknown' as const
@@ -1193,6 +1236,8 @@ export function visibilityComparisonPopulation(run: VisibilityReportRunInput, se
       answerMentioned: signals.mention,
       mentionApplicable: candidate.edges.some(edge => targets.get(edge.targetKey)?.mentionEligible === true),
       citation: citationForCoverage(candidate, targets),
+      // Its own state in the monthly compare: never an unknown capture.
+      citationNotMeasured: candidate.observation!.citationMeasured === false,
       retrievalStatus: candidate.observation!.retrievalStatus ?? null,
       answerText: candidate.observation!.answerText,
       competitorDomains: [...new Set(candidate.edges.flatMap(edge => edge.competitorDomains))],

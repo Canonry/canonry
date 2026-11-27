@@ -188,6 +188,118 @@ describe('ga human output — percentages', () => {
     expect(out).toContain('  SOCIAL REFERRAL SOURCES')
   })
 
+  it('ga traffic prints social platforms in the server rank order with its rates', async () => {
+    const platform = (label: string, platformId: string, sessions: number, conversions: number, display: string, rank: number | null, enoughSessions: boolean) => ({
+      key: platformId,
+      platform: platformId as 'facebook',
+      label,
+      sessions,
+      organicSessions: 0,
+      paidSessions: sessions,
+      share: 0.3,
+      conversions,
+      conversionsPerThousandSessions: null,
+      conversionsPerThousandSessionsDisplay: display,
+      enoughSessions,
+      rank,
+      paid: { sessions, conversions, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: display },
+      organic: { sessions: 0, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '—' },
+      channelGroups: ['Paid Other'],
+      sources: [],
+    })
+    const block = {
+      status: 'ready' as const,
+      unavailableReason: null,
+      sessions: 3200,
+      sharePct: 32,
+      sharePctDisplay: '32.0%',
+      paidSessions: 1500,
+      paidShare: 0.47,
+      conversions: 26,
+      conversionRateAvailable: true,
+      conversionRateUnavailableReason: null,
+      countedEventNames: ['purchase'],
+      minSessions: 1000,
+      site: { sessions: 10000, conversions: 56, conversionsPerThousandSessions: 5.6, conversionsPerThousandSessionsDisplay: '5.6' },
+      platforms: [
+        platform('Facebook', 'facebook', 1600, 6, '3.7', 2, true),
+        platform('Instagram', 'instagram', 1200, 12, '9.9', 1, true),
+        platform('ShopMy', 'shopmy', 400, 8, '20.0', null, false),
+      ],
+      daily: { series: [], otherCount: 0, days: [] },
+    }
+    gaTraffic.mockResolvedValue(traffic({ socialPlatformPerformance: block }))
+    const out = await lines(() => showGaTraffic('p', {}))
+    const start = out.indexOf('  SOCIAL PLATFORMS BY CONVERSIONS (every GA4 channel)')
+    expect(start).toBeGreaterThan(-1)
+    expect(out.slice(start, start + 8)).toEqual([
+      '  SOCIAL PLATFORMS BY CONVERSIONS (every GA4 channel)',
+      '  Counted events: purchase. Ranked from 1,000 sessions.',
+      '  RANK  PLATFORM    SESSIONS  PAID     CONVERSIONS  PER 1K',
+      '  ────  ──────────  ──────────────────────────────────────',
+      '  1     Instagram   1200      1200     12           9.9',
+      '  2     Facebook    1600      1600     6            3.7',
+      '  -     ShopMy      400       400      8            20.0  too few sessions',
+      '        Whole site  10000              56           5.6',
+    ])
+
+    gaTraffic.mockResolvedValue(traffic({ socialPlatformPerformance: { ...block, conversionRateAvailable: false, conversionRateUnavailableReason: 'sessions-before-leads' } }))
+    const withheld = await lines(() => showGaTraffic('p', {}))
+    expect(withheld).toContain('  Note: this window starts before conversions were first stored, so rates are hidden; pick a shorter window.')
+    expect(withheld.some(line => line.includes('too few sessions'))).toBe(false)
+  })
+
+  it('ga traffic prints platform history the page and referral tables do not hold', async () => {
+    const block = {
+      status: 'ready' as const,
+      unavailableReason: null,
+      sessions: 1200,
+      sharePct: 0,
+      sharePctDisplay: '—',
+      paidSessions: 0,
+      paidShare: 0,
+      conversions: 12,
+      conversionRateAvailable: true,
+      conversionRateUnavailableReason: null,
+      countedEventNames: ['purchase'],
+      minSessions: 1000,
+      site: { sessions: 9000, conversions: 90, conversionsPerThousandSessions: 10, conversionsPerThousandSessionsDisplay: '10.0' },
+      platforms: [{
+        key: 'instagram',
+        platform: 'instagram' as const,
+        label: 'Instagram',
+        sessions: 1200,
+        organicSessions: 1200,
+        paidSessions: 0,
+        share: 1,
+        conversions: 12,
+        conversionsPerThousandSessions: 10,
+        conversionsPerThousandSessionsDisplay: '10.0',
+        enoughSessions: true,
+        rank: 1,
+        paid: { sessions: 0, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '—' },
+        organic: { sessions: 1200, conversions: 12, conversionsPerThousandSessions: 10, conversionsPerThousandSessionsDisplay: '10.0' },
+        channelGroups: ['Organic Social'],
+        sources: [],
+      }],
+      daily: { series: [], otherCount: 0, days: [] },
+    }
+    gaTraffic.mockResolvedValue(traffic({
+      totalSessions: 0,
+      topPages: [],
+      aiReferrals: [],
+      aiReferralLandingPages: [],
+      socialReferrals: [],
+      aiSessionsDeduped: 0,
+      socialPlatformPerformance: block,
+      lastSyncedAt: '2026-11-13T06:00:00.000Z',
+    }))
+    const out = await lines(() => showGaTraffic('p', { window: '180d' }))
+    expect(out.some(line => line.startsWith('No GA4 traffic data'))).toBe(false)
+    expect(out).toContain('  SOCIAL PLATFORMS BY CONVERSIONS (every GA4 channel)')
+    expect(out).toContain('  1     Instagram   1200      0        12           10.0')
+  })
+
   it('ga traffic keeps an undefined share visibly absent during a partial sync', async () => {
     // Referral rows are synced but the totals that drive the denominator are
     // not: the share is undefined, which the server says with a dash.

@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, SeoCapabilities, SeoProviders, emptySeoResults, type ContentTargetsResponseDto, type ProjectOverviewDto, type ProjectSetupDto, type SeoProfileInput, type SeoTrends, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -14,9 +14,12 @@ import {
   competitors,
   runs,
   querySnapshots,
+  siteAuditSnapshots,
   siteCrawlSnapshots,
+  seoProfiles,
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import { seedSeoEvidence, seoProfileFixture } from './seo-fixture.js'
 
 /**
  * Probe runs (`runs.trigger = 'probe'`) write snapshots so an operator can
@@ -164,6 +167,29 @@ async function get<T>(path: string): Promise<{ status: number; body: T }> {
 // ============================================================================
 
 describe('probe runs are excluded from dashboard / analytics aggregates', () => {
+  it('SEO trends exclude a newer saved probe observation', async () => {
+    const target = { kind: 'domain', value: 'real-brand.example.com', includeSubdomains: true } as const
+    const capability = SeoCapabilities['domain-intelligence']
+    const profile: SeoProfileInput = { ...seoProfileFixture, targets: [target], capabilities: [capability] }
+    const observedAt = '2026-10-10T12:00:00.000Z'
+    ctx.db.insert(seoProfiles).values({ id: 'default', projectId: ctx.projectId, revision: 1, input: profile, createdAt: observedAt, updatedAt: observedAt }).run()
+    for (const { id, trigger, date, count } of [
+      { id: 'real-seo', trigger: RunTriggers.manual, date: observedAt, count: 33 },
+      { id: 'probe-seo', trigger: RunTriggers.probe, date: '2026-10-12T12:00:00.000Z', count: 999 },
+    ]) {
+      seedSeoEvidence(ctx.db, { id, trigger, createdAt: date, finishedAt: date, projectId: ctx.projectId, profileId: 'default', profile, status: 'completed',
+        tasks: [{ request: { capability, target, locationCode: 2840, languageCode: 'en', keywords: [], limit: 100, tag: id },
+          results: { ...emptySeoResults(), domainIntelligence: [{ target, organicKeywords: count, estimatedOrganicTraffic: null,
+            estimatedOrganicTrafficValueUsd: null, top1: 0, top2To3: 0, top4To10: 0, top11To20: 0,
+            provenance: { provider: SeoProviders.dataforseo, dataset: 'google-labs', engine: 'google', locationCode: 2840, languageCode: 'en', device: 'unspecified', collectedAt: date, sourceUpdatedAt: null },
+          }] } }],
+      })
+    }
+    const { body } = await get<SeoTrends>('/api/v1/projects/probe-excl/seo/trends?profileId=default')
+    expect(body.points).toEqual([{ runId: 'real-seo', observedAt, organicKeywords: 33, inTop10: 0, estimatedOrganicTraffic: null, page1: null }])
+    expect(body.changes.organicKeywords).toBeNull()
+  })
+
   it('citations/visibility reads the real run, not the newer probe', async () => {
     const { body } = await get<{
       summary: { latestRunId: string | null; queriesCitedAndMentioned: number; totalQueries: number }
@@ -182,6 +208,40 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     // latestRun.run is the absolute-latest run of any kind. We only have
     // answer-visibility runs here, so the real run should win — not the probe.
     expect(body.latestRun?.run?.id).toBe(ctx.realRunId)
+  })
+
+  it('overview whatChanged reads the real run as the latest check, and no probe is lost or in progress', async () => {
+    // A probe still running must not show as a run in progress either.
+    const runningProbeId = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runningProbeId,
+      projectId: ctx.projectId,
+      kind: 'answer-visibility',
+      status: 'running',
+      trigger: 'probe',
+      createdAt: new Date().toISOString(),
+    }).run()
+    const { body } = await get<ProjectOverviewDto>(`/api/v1/projects/probe-excl/overview`)
+    // If the newer probe leaked in as the latest check, the real run would be
+    // its previous check, and the probe's uncited, unmentioned answer would
+    // count as both a lost mention and a lost citation.
+    expect(body.whatChanged?.latestCheck?.runIds).toEqual([ctx.realRunId])
+    expect(body.whatChanged?.comparison).toEqual({ state: 'unavailable', reason: 'no-previous-check' })
+    expect(body.whatChanged?.lostMentions).toEqual({ queryCount: 0, queries: [], truncated: false })
+    expect(body.whatChanged?.lostCitations).toEqual({ queryCount: 0, queries: [], truncated: false })
+    expect(body.whatChanged?.activeRuns).toEqual({ count: 0, runIds: [] })
+    expect(body.whatChanged?.items).toEqual([])
+  })
+
+  it('runs/attention lists the real failed run, never lets the newer probe hide it, and never lists a failed probe', async () => {
+    ctx.db.update(runs).set({ status: RunStatuses.failed }).where(eq(runs.id, ctx.realRunId)).run()
+    ctx.db.insert(runs).values({
+      id: 'probe-audit-failed', projectId: ctx.projectId, kind: RunKinds['site-audit'], status: RunStatuses.failed,
+      trigger: RunTriggers.probe, createdAt: new Date().toISOString(),
+    }).run()
+    const { status, body } = await get<{ items: Array<{ run: { id: string } }> }>('/api/v1/runs/attention?since=2000-01-01T00:00:00.000Z')
+    expect(status).toBe(200)
+    expect(body.items.map(item => item.run.id)).toEqual([ctx.realRunId])
   })
 
   it('runs/latest returns the real run and totalRuns excludes the probe', async () => {
@@ -352,6 +412,32 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(body.contextMetrics.latestRunId).toBe(ctx.realRunId)
     expect(body.targets.map(target => target.query)).not.toContain(poisonQuery)
   })
+
+  it('setup tracks the real scan and check, not newer probes, and dates its first result by a real run', async () => {
+    const realScanId = crypto.randomUUID()
+    const scans = [
+      // A probe scan that finished before every real result: it must not date setup.
+      { id: crypto.randomUUID(), status: 'completed', trigger: 'probe', createdAt: '2026-10-01T00:00:00.000Z', finishedAt: '2026-10-01T00:05:00.000Z' },
+      { id: realScanId, status: 'completed', trigger: 'manual', createdAt: '2026-10-11T12:00:00.000Z', finishedAt: '2026-10-11T12:05:00.000Z' },
+      // A newer probe scan that failed: a leak would ask to retry the scan.
+      { id: crypto.randomUUID(), status: 'failed', trigger: 'probe', createdAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: 'probe-only failure' },
+    ]
+    for (const scan of scans) ctx.db.insert(runs).values({ projectId: ctx.projectId, kind: 'site-audit', ...scan }).run()
+    // A probe check still running: a leak would read the check as in progress.
+    ctx.db.insert(runs).values({ id: crypto.randomUUID(), projectId: ctx.projectId, kind: 'answer-visibility', status: 'running', trigger: 'probe', createdAt: new Date().toISOString() }).run()
+
+    const { status, body } = await get<ProjectSetupDto>('/api/v1/projects/probe-excl/setup')
+    expect(status).toBe(200)
+    expect(body.tracks.agentReadiness).toMatchObject({ state: 'completed', runId: realScanId, error: null })
+    // The newer completed probe check does not cite the brand; the real one does.
+    expect(body.tracks.aiVisibility).toMatchObject({
+      state: 'completed', runId: ctx.realRunId, baselineRunId: ctx.realRunId, progress: null,
+      // The real check is the project's first result: the newer probe never counts.
+      result: { answers: 1, engines: 1, queryCounts: { totalQueries: 1, citedQueries: 1, mentionedQueries: 1, citationNotMeasuredQueries: 0 } },
+    })
+    expect(body.firstResultAt).toBe('2026-10-11T12:05:00.000Z')
+    expect({ complete: body.complete, nextAction: body.nextAction }).toEqual({ complete: true, nextAction: 'open_project' })
+  })
 })
 
 // ============================================================================
@@ -451,6 +537,22 @@ describe('GET /projects/:name/competitor-suggestions excludes probe evidence', (
     expect(response.json()).toMatchObject({ runId: realId, total: 1, issues: [{ code: 'site.duplicate-title' }] })
     expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues?runId=${probeId}`)).statusCode).toBe(404)
     expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues/site-issue:probe-only/pages?runId=${probeId}`)).statusCode).toBe(404)
+  })
+  it('the Site Health trend card charts the real scan, not a newer probe scan', async () => {
+    for (const [trigger, auditedAt, aggregateScore] of [
+      ['manual', '2026-10-11T12:00:00.000Z', 64],
+      ['probe', '2026-10-12T12:00:00.000Z', 99],
+    ] as const) {
+      const runId = crypto.randomUUID()
+      ctx.db.insert(runs).values({ id: runId, projectId: ctx.projectId, kind: 'site-audit', status: 'completed', trigger, createdAt: auditedAt, finishedAt: auditedAt }).run()
+      ctx.db.insert(siteAuditSnapshots).values({ id: crypto.randomUUID(), projectId: ctx.projectId, runId,
+        sitemapUrl: 'https://real-brand.example.com/sitemap.xml', auditedAt, aggregateScore, aggregateGrade: 'C',
+        pagesDiscovered: 1, pagesAudited: 1, pagesSkipped: 0, pagesErrored: 0,
+        factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: auditedAt }).run()
+    }
+    const response = await ctx.app.inject('/api/v1/projects/probe-excl/trends?surface=site-health')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ endDate: '2026-10-11', groups: [{ figures: [{ key: 'score', value: 64, series: [{ date: '2026-10-11', value: 64 }] }, { key: 'pages-checked' }] }] })
   })
 
 })

@@ -48,6 +48,7 @@ export const HEALTH_CHECK_LABELS: Readonly<Record<string, string>> = {
   'gbp.sync.recent-failures': 'Business Profile sync failing',
   'ga.sync.recent-failures': 'GA4 sync failing',
   'gsc.sync.recent-failures': 'Search Console sync failing',
+  'bing.sync.recent-failures': 'Bing sync failing',
   'config.providers': 'AI provider keys',
   'config.agent-providers': 'Agent provider keys',
   'traffic.source.connected': 'Traffic sync failing',

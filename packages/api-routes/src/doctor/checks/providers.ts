@@ -36,7 +36,7 @@ const providersConfiguredCheck: CheckDefinition = {
       return {
         status: CheckStatuses.warn,
         code: 'providers.none-configured',
-        summary: `No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled.${servicesNote}`,
+        summary: `No answer-engine provider is configured. Agent Readiness remains available; AI Visibility is disabled.${servicesNote}`,
         remediation:
           'To enable AI Visibility, run `canonry settings provider <name> --api-key <key>` while the server is running, ' +
           'or set a provider environment variable and rerun `canonry bootstrap`. Bootstrap reloads a matching running local server; ' +

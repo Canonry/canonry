@@ -1,0 +1,414 @@
+/**
+ * Overview's "What changed": the latest check's lost and gained mentions and
+ * citations, one per query, and the AI Visibility runs in progress. It rides
+ * on `GET /projects/:name/overview` as `whatChanged`, so the dashboard, the
+ * CLI and MCP read the same rows.
+ *
+ * Each portfolio path has its own rule for what an answer is compared with:
+ *
+ * - Simple compares each answer of the latest sweep with the previous check
+ *   of the same tracked query, engine and location: the most recent earlier
+ *   answer for that slot, from any non-probe sweep, whatever its status. A
+ *   mention is resolved as the evidence rows resolve it, through
+ *   `snapshotMentionObserver`, which the change webhooks use too: an answer
+ *   never checked for a mention (no answer text, no stored verdict) neither
+ *   loses nor gains one. A citation is read through `readCitationState`: an
+ *   answer without sources neither loses nor gains one.
+ * - Advanced compares each Property's answer in the sweep the coverage
+ *   headline reads with the same slot of the eligible sweep before it, under
+ *   the visibility report's continuity rule (same plan definition chain, same
+ *   engines and models, neither sweep partial). A Property's mention and
+ *   citation come from the frozen report kernel, never the project-level
+ *   snapshot columns.
+ *
+ * Either way a query counts once per signal and direction however many answers
+ * moved, and mentions and citations are counted apart: neither is read from
+ * the other. A query can lose a signal on one answer and gain it on another.
+ * The caller passes runs that already leave probes out.
+ */
+
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import {
+  CitationStates,
+  compareText,
+  MentionStates,
+  isWhatChangedActiveRun,
+  normalizeQueryText,
+  OVERVIEW_WHAT_CHANGED_QUERY_LIMIT,
+  readCitationState,
+  RunKinds,
+  whatChangedProjectItems,
+  type OverviewWhatChangedComparisonDto,
+  type OverviewWhatChangedSignalDto,
+  type ProjectOverviewWhatChangedDto,
+  type QueryClass,
+  type VisibilityReportLocationSelection,
+} from '@canonry/canonry-contracts'
+import { queries, querySnapshots, runs, type DatabaseClient, type projects } from '@canonry/canonry-db'
+import { advancedSignalTransitions, type AdvancedSignalTransition } from './advanced-signal-changes.js'
+import { snapshotMentionObserver } from './helpers.js'
+import { readQueryClasses } from './query-class-read.js'
+import { locationMatches } from './visibility-report-reader.js'
+import type { OverviewAdvancedSweeps } from './visibility-report.js'
+
+type RunRow = typeof runs.$inferSelect
+type ProjectRow = typeof projects.$inferSelect
+type UnavailableReason = Extract<OverviewWhatChangedComparisonDto, { state: 'unavailable' }>['reason']
+
+/** How many earlier AI Visibility runs a previous check is looked for in, as the project page's timeline reads. */
+const PREVIOUS_CHECK_MAX_RUNS = 100
+/** Snapshot ids per `IN (...)` list. */
+const SNAPSHOT_ID_CHUNK = 500
+
+export interface OverviewWhatChangedInput {
+  project: ProjectRow
+  /** The overview's runs: no probes, narrowed by its location and since filters, newest first. */
+  runs: readonly RunRow[]
+  /** Every run of the latest completed or partial AI Visibility sweep; empty before the first. */
+  latestSweep: readonly RunRow[]
+  /** The Advanced sweeps the coverage read selected; null on a Simple project. */
+  advanced: OverviewAdvancedSweeps | null
+  /** The coverage read's location selection, which narrows the Advanced answers. */
+  location: VisibilityReportLocationSelection
+  /** The overview's `since`: an earlier sweep before it is outside the window. */
+  since: string | null
+}
+
+export function buildOverviewWhatChanged(db: DatabaseClient, input: OverviewWhatChangedInput): ProjectOverviewWhatChangedDto {
+  const changes = input.advanced === null
+    ? simpleSignalChanges(db, input.project, input.latestSweep, input.runs)
+    : advancedSignalChanges(input.advanced, input.latestSweep, input.location, input.since)
+  const activeRuns = input.runs.filter(isWhatChangedActiveRun)
+  const lostMentions = signalDto(changes.lostMentions)
+  const lostCitations = signalDto(changes.lostCitations)
+  const gainedMentions = signalDto(changes.gainedMentions)
+  const gainedCitations = signalDto(changes.gainedCitations)
+  return {
+    mode: input.advanced === null ? 'simple' : 'advanced',
+    latestCheck: changes.latestCheck,
+    comparison: changes.comparison,
+    lostMentions,
+    lostCitations,
+    gainedMentions,
+    gainedCitations,
+    activeRuns: { count: activeRuns.length, runIds: activeRuns.map(run => run.id) },
+    items: whatChangedProjectItems(input.project, {
+      lostMentionQueries: lostMentions.queryCount,
+      gainedMentionQueries: gainedMentions.queryCount,
+      lostCitationQueries: lostCitations.queryCount,
+      gainedCitationQueries: gainedCitations.queryCount,
+      activeRuns: activeRuns.length,
+    }),
+  }
+}
+
+interface SignalChanges {
+  latestCheck: ProjectOverviewWhatChangedDto['latestCheck']
+  comparison: OverviewWhatChangedComparisonDto
+  lostMentions: Map<string, ChangedQuery>
+  lostCitations: Map<string, ChangedQuery>
+  gainedMentions: Map<string, ChangedQuery>
+  gainedCitations: Map<string, ChangedQuery>
+}
+
+/** Every answer of one query that moved on a signal in one direction, gathered so the query counts once. */
+interface ChangedQuery {
+  queryId: string | null
+  query: string
+  classes: Set<QueryClass | null>
+  providers: Set<string>
+  locations: Set<string | null>
+  properties: Map<string, string>
+  markets: Map<string, string>
+}
+
+interface ChangedAnswer {
+  /** What makes two answers the same query. */
+  queryKey: string
+  queryId: string | null
+  query: string
+  queryClass: QueryClass | null
+  provider: string
+  location: string | null
+  property?: { key: string; label: string }
+  markets?: ReadonlyArray<{ key: string; label: string }>
+}
+
+function record(changed: Map<string, ChangedQuery>, answer: ChangedAnswer): void {
+  let entry = changed.get(answer.queryKey)
+  if (!entry) {
+    entry = {
+      queryId: answer.queryId,
+      query: answer.query,
+      classes: new Set(),
+      providers: new Set(),
+      locations: new Set(),
+      properties: new Map(),
+      markets: new Map(),
+    }
+    changed.set(answer.queryKey, entry)
+  }
+  entry.classes.add(answer.queryClass)
+  entry.providers.add(answer.provider)
+  entry.locations.add(answer.location)
+  if (answer.property) entry.properties.set(answer.property.key, answer.property.label)
+  for (const market of answer.markets ?? []) entry.markets.set(market.key, market.label)
+}
+
+function unavailable(reason: UnavailableReason): OverviewWhatChangedComparisonDto {
+  return { state: 'unavailable', reason }
+}
+
+function nothingChanged(latestCheck: SignalChanges['latestCheck'], comparison: OverviewWhatChangedComparisonDto): SignalChanges {
+  return { latestCheck, comparison, lostMentions: new Map(), lostCitations: new Map(), gainedMentions: new Map(), gainedCitations: new Map() }
+}
+
+function sweepCheck(sweep: readonly RunRow[]): SignalChanges['latestCheck'] {
+  const first = sweep.at(0)
+  return first === undefined ? null : { runIds: sweep.map(run => run.id), createdAt: first.createdAt }
+}
+
+const SNAPSHOT_SIGNAL_COLUMNS = {
+  id: querySnapshots.id,
+  runId: querySnapshots.runId,
+  queryId: querySnapshots.queryId,
+  queryText: querySnapshots.queryText,
+  provider: querySnapshots.provider,
+  location: querySnapshots.location,
+  citationState: querySnapshots.citationState,
+  retrievalStatus: querySnapshots.retrievalStatus,
+  answerMentioned: querySnapshots.answerMentioned,
+  answerText: querySnapshots.answerText,
+  mentionIdentity: querySnapshots.mentionIdentity,
+}
+
+function slotKey(queryId: string, provider: string, location: string | null): string {
+  return `${queryId}\u0000${provider}\u0000${location ?? ''}`
+}
+
+/** An earlier answer, with what picks the newest one per slot. */
+interface EarlierAnswer {
+  id: string
+  runId: string
+  queryId: string | null
+  queryText: string | null
+  provider: string
+  location: string | null
+  createdAt: string
+}
+
+/**
+ * The newest answer in these runs for each stored slot identity: the query
+ * id (its text when the id is gone), the engine and the location. One query
+ * however many runs or slots there are, ranked as `compareRecency` ranks.
+ */
+function newestEarlierAnswers(db: DatabaseClient, runIds: readonly string[]): EarlierAnswer[] {
+  if (runIds.length === 0) return []
+  return db.all<EarlierAnswer>(sql`
+    SELECT "id", "runId", "queryId", "queryText", "provider", "location", "createdAt" FROM (
+      SELECT ${querySnapshots.id} AS "id", ${querySnapshots.runId} AS "runId", ${querySnapshots.queryId} AS "queryId",
+        ${querySnapshots.queryText} AS "queryText", ${querySnapshots.provider} AS "provider",
+        ${querySnapshots.location} AS "location", ${querySnapshots.createdAt} AS "createdAt",
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            CASE WHEN ${querySnapshots.queryId} IS NULL THEN 'text:' || COALESCE(${querySnapshots.queryText}, '') ELSE 'id:' || ${querySnapshots.queryId} END,
+            ${querySnapshots.provider},
+            COALESCE(${querySnapshots.location}, '')
+          ORDER BY ${runs.createdAt} DESC, ${runs.id} DESC, ${querySnapshots.createdAt} DESC, ${querySnapshots.id} ASC
+        ) AS "slotRank"
+      FROM ${querySnapshots}
+      INNER JOIN ${runs} ON ${runs.id} = ${querySnapshots.runId}
+      WHERE ${inArray(querySnapshots.runId, [...runIds])}
+    )
+    WHERE "slotRank" = 1`)
+}
+
+/** Negative when `left` is the more recent answer: the newer run, then the newer answer, then the lower id. */
+function compareRecency(left: EarlierAnswer, right: EarlierAnswer, runOrder: ReadonlyMap<string, number>): number {
+  return (runOrder.get(left.runId) ?? 0) - (runOrder.get(right.runId) ?? 0)
+    || compareText(right.createdAt, left.createdAt)
+    || compareText(left.id, right.id)
+}
+
+function simpleSignalChanges(
+  db: DatabaseClient,
+  project: ProjectRow,
+  latestSweep: readonly RunRow[],
+  overviewRuns: readonly RunRow[],
+): SignalChanges {
+  const latestCheck = sweepCheck(latestSweep)
+  if (latestCheck === null) return nothingChanged(null, unavailable('not-measured'))
+
+  const tracked = db.select({ id: queries.id, query: queries.query })
+    .from(queries)
+    .where(eq(queries.projectId, project.id))
+    .all()
+  const trackedById = new Map(tracked.map(query => [query.id, query]))
+  const trackedByText = new Map(tracked.map(query => [normalizeQueryText(query.query), query]))
+  // A deleted query's answers keep its text, and a query re-added under a new
+  // id still owns them. An answer of a query no longer tracked has no
+  // evidence row to lose anything in.
+  const trackedQuery = (snapshot: { queryId: string | null; queryText: string | null }) => {
+    const byId = snapshot.queryId === null ? undefined : trackedById.get(snapshot.queryId)
+    return byId ?? (snapshot.queryText ? trackedByText.get(normalizeQueryText(snapshot.queryText)) : undefined)
+  }
+
+  // A slot answered twice in one sweep (a retried request) is its newest
+  // answer, as on the previous side, so which one counts never depends on
+  // the order rows come back in.
+  const current = new Map<string, { query: typeof tracked[number]; snapshot: SignalRow }>()
+  for (const snapshot of db.select(SNAPSHOT_SIGNAL_COLUMNS).from(querySnapshots)
+    .where(inArray(querySnapshots.runId, latestCheck.runIds))
+    .orderBy(desc(querySnapshots.createdAt), asc(querySnapshots.id))
+    .all()) {
+    const query = trackedQuery(snapshot)
+    if (query === undefined) continue
+    const key = slotKey(query.id, snapshot.provider, snapshot.location)
+    if (!current.has(key)) current.set(key, { query, snapshot })
+  }
+
+  // Each answer's previous check is the newest earlier answer for its slot,
+  // whatever the run's status, read in one query over a bounded window. A
+  // slot with no earlier answer (a new query, engine or location) is new,
+  // not a change, and costs no further read.
+  const earlier = overviewRuns
+    .filter(run => run.kind === RunKinds['answer-visibility'] && run.createdAt < latestCheck.createdAt)
+    .slice(0, PREVIOUS_CHECK_MAX_RUNS)
+  const runOrder = new Map(earlier.map((run, index) => [run.id, index]))
+  const previousIdBySlot = new Map<string, EarlierAnswer>()
+  for (const answer of newestEarlierAnswers(db, earlier.map(run => run.id))) {
+    const query = trackedQuery(answer)
+    if (query === undefined) continue
+    const key = slotKey(query.id, answer.provider, answer.location)
+    if (!current.has(key)) continue
+    // A query's answers can be stored under its id and, from before a
+    // re-add, under its text alone: the newer of the two is its previous check.
+    const chosen = previousIdBySlot.get(key)
+    if (chosen === undefined || compareRecency(answer, chosen, runOrder) < 0) previousIdBySlot.set(key, answer)
+  }
+
+  const previousById = new Map<string, SignalRow>()
+  const previousIds = [...previousIdBySlot.values()].map(previous => previous.id)
+  for (let start = 0; start < previousIds.length; start += SNAPSHOT_ID_CHUNK) {
+    for (const row of db.select(SNAPSHOT_SIGNAL_COLUMNS).from(querySnapshots)
+      .where(inArray(querySnapshots.id, previousIds.slice(start, start + SNAPSHOT_ID_CHUNK))).all()) {
+      previousById.set(row.id, row)
+    }
+  }
+
+  const classes = readQueryClasses(db, project, tracked)
+  const mentioned = snapshotMentionObserver(project)
+  const lostMentions = new Map<string, ChangedQuery>()
+  const lostCitations = new Map<string, ChangedQuery>()
+  const gainedMentions = new Map<string, ChangedQuery>()
+  const gainedCitations = new Map<string, ChangedQuery>()
+  for (const [key, { query, snapshot }] of current) {
+    const chosen = previousIdBySlot.get(key)
+    const previous = chosen === undefined ? undefined : previousById.get(chosen.id)
+    if (previous === undefined) continue
+    const answer: ChangedAnswer = {
+      queryKey: query.id,
+      queryId: query.id,
+      query: query.query,
+      queryClass: classes.get(query.id) ?? null,
+      provider: snapshot.provider,
+      location: snapshot.location,
+    }
+    // Null is never checked: it moves neither way.
+    const [wasMentioned, isMentioned] = [mentioned(previous), mentioned(snapshot)]
+    if (wasMentioned === true && isMentioned === false) record(lostMentions, answer)
+    if (wasMentioned === false && isMentioned === true) record(gainedMentions, answer)
+    // Measured on both sides: an answer without sources moves neither way.
+    const [wasCited, isCited] = [readCitationState(previous), readCitationState(snapshot)]
+    if (wasCited === CitationStates.cited && isCited === CitationStates['not-cited']) record(lostCitations, answer)
+    if (wasCited === CitationStates['not-cited'] && isCited === CitationStates.cited) record(gainedCitations, answer)
+  }
+
+  const previousRunIds = [...new Set([...previousIdBySlot.values()].map(previous => previous.runId))]
+    .sort((left, right) => (runOrder.get(left) ?? 0) - (runOrder.get(right) ?? 0))
+  const comparison: OverviewWhatChangedComparisonDto = previousRunIds.length === 0
+    ? unavailable('no-previous-check')
+    : { state: 'available', previousRunIds }
+  return { latestCheck, comparison, lostMentions, lostCitations, gainedMentions, gainedCitations }
+}
+
+type SignalRow = {
+  [K in keyof typeof SNAPSHOT_SIGNAL_COLUMNS]: typeof querySnapshots.$inferSelect[K]
+}
+
+function advancedSignalChanges(
+  advanced: OverviewAdvancedSweeps,
+  latestSweep: readonly RunRow[],
+  location: VisibilityReportLocationSelection,
+  since: string | null,
+): SignalChanges {
+  if (advanced.plan === 'legacy') {
+    const latestCheck = sweepCheck(latestSweep)
+    return nothingChanged(latestCheck, unavailable(latestCheck === null ? 'not-measured' : 'legacy-plan'))
+  }
+  const { current } = advanced
+  if (current === null) return nothingChanged(null, unavailable('not-measured'))
+  const latestCheck = { runIds: [current.id], createdAt: current.createdAt }
+  // The change webhooks read the same transitions, so What changed never
+  // lists a change an alert did not report, or the reverse.
+  const changes = advancedSignalTransitions(advanced, since)
+  if (changes.state === 'unavailable') return nothingChanged(latestCheck, unavailable(changes.reason))
+
+  const moved = (transitions: ReadonlyArray<AdvancedSignalTransition<string>>, toState: string): Map<string, ChangedQuery> => {
+    const changed = new Map<string, ChangedQuery>()
+    for (const transition of transitions) {
+      if (transition.to !== toState || !locationMatches(transition.location, location)) continue
+      record(changed, {
+        queryKey: transition.queryId ?? `text:${transition.query}`,
+        queryId: transition.queryId,
+        query: transition.query,
+        queryClass: transition.queryClass,
+        provider: transition.provider,
+        location: transition.location,
+        property: transition.property,
+        markets: transition.markets,
+      })
+    }
+    return changed
+  }
+  return {
+    latestCheck,
+    comparison: { state: 'available', previousRunIds: [changes.previousRunId] },
+    lostMentions: moved(changes.mention, MentionStates['not-mentioned']),
+    lostCitations: moved(changes.citation, CitationStates['not-cited']),
+    gainedMentions: moved(changes.mention, MentionStates.mentioned),
+    gainedCitations: moved(changes.citation, CitationStates.cited),
+  }
+}
+
+function compareNullableText(left: string | null, right: string | null): number {
+  if (left === right) return 0
+  if (left === null) return -1
+  if (right === null) return 1
+  return compareText(left, right)
+}
+
+function keyedLabels(values: ReadonlyMap<string, string>): Array<{ key: string; label: string }> {
+  return [...values]
+    .map(([key, label]) => ({ key, label }))
+    .sort((left, right) => compareText(left.label, right.label) || compareText(left.key, right.key))
+}
+
+function signalDto(changed: ReadonlyMap<string, ChangedQuery>): OverviewWhatChangedSignalDto {
+  const rows = [...changed.values()]
+    .sort((left, right) => compareText(left.query, right.query) || compareNullableText(left.queryId, right.queryId))
+  return {
+    queryCount: rows.length,
+    queries: rows.slice(0, OVERVIEW_WHAT_CHANGED_QUERY_LIMIT).map(row => ({
+      queryId: row.queryId,
+      query: row.query,
+      // Answers assigned under both classes leave the query with no single class.
+      queryClass: row.classes.size === 1 ? ([...row.classes][0] ?? null) : null,
+      providers: [...row.providers].sort(compareText),
+      locations: [...row.locations].sort(compareNullableText),
+      properties: keyedLabels(row.properties),
+      markets: keyedLabels(row.markets),
+    })),
+    truncated: rows.length > OVERVIEW_WHAT_CHANGED_QUERY_LIMIT,
+  }
+}

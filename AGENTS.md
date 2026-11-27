@@ -8,16 +8,16 @@ It ships a built-in analyst agent, Aero (`packages/canonry/src/agent/`), and a s
 
 ## Where rules live
 
-This file holds only the rules every change must follow. Every package and app has its own `AGENTS.md` with the rest; read the one for the folder you're changing before you edit. Claude Code loads a folder's `AGENTS.md` automatically when it opens a file there. Codex and most other agents load only the files from the repo root down to their working directory, so open the right one yourself. Find files, navigation recipes, and search tips (`muse.search`, chunked reads of large files) in `docs/CODEMAP.md`; find docs, plans, ADRs, and the roadmap in `docs/README.md`.
+This file holds the rules for every change. Before you edit, read the `AGENTS.md` files for the affected packages and apps. See `docs/CODEMAP.md` for source paths and `docs/README.md` for documentation.
 
 ```text
-apps/api/, apps/worker/   Cloud Run API and worker entry points (import packages/api-routes)
+apps/api/                Cloud Run REST entry point (imports packages/api-routes)
 apps/web/                 Vite SPA, bundled into packages/canonry/assets/ (also read PRODUCT.md, DESIGN.md)
 packages/canonry/         Publishable npm package: CLI + server + SPA (+ src/mcp/AGENTS.md, src/agent/AGENTS.md)
 packages/api-routes/      Shared Fastify route plugins (+ src/doctor/AGENTS.md, src/discovery/AGENTS.md)
 packages/contracts/       DTOs, enums, config schema, error codes, shared utilities
 packages/config/          Typed environment parsing
-packages/db/              Drizzle ORM schema, migrations, client (SQLite/Postgres)
+packages/db/              Drizzle ORM schema, SQLite client, migrations
 packages/intelligence/    Insight and health analysis over snapshots
 packages/provider-*/      Answer-engine adapters (gemini, openai, claude, perplexity, local, cdp)
 packages/integration-*/   Third-party integrations (Google, GA4, Bing, OpenAI ads, Cloudflare, WordPress, ...)
@@ -99,7 +99,7 @@ When proposing work, requesting feedback, or showcasing changes:
 - All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
-- Store raw observation snapshots only (`cited` / `not-cited`); compute transitions at query time.
+- Store raw observation snapshots only (`cited` / `not-cited`, or `not-measured` when the engine returns no sources); compute transitions at query time.
 
 ## Vocabulary (Critical)
 
@@ -108,14 +108,14 @@ Every (query × provider) snapshot carries two independent signals — a model c
 | Term | Meaning | Source field |
 |------|---------|--------------|
 | **mention / mentioned** | The project's brand or domain appears in the LLM's answer prose. Citation links written into the text (chips such as `([domain](url))`, links labelled with a URL or a lowercase host, `[1]` markers, bare `http(s)://` URLs) are citations and never count; match through `answerProseForMentions`. | `query_snapshots.answer_mentioned` (boolean) |
-| **cited** | The project's domain appears in the answer's source links / grounding. | `query_snapshots.citation_state` = `'cited'` |
+| **cited** | The project's domain appears in the answer's source links / grounding. An engine that returns no sources (Local) records `'not-measured'`, which is never a miss. | `query_snapshots.citation_state` = `'cited'`, read through `readCitationState` |
 
 1. Say `mention` / `mentioned` for answer-text presence. `answer`, `visible`, and `visibility` are legacy terms (`visibility_state`, run kind `answer-visibility`, `visibilityStateFromAnswerMentioned`); new APIs, fields, flags, and UI labels say `mentioned` (`mentionRate`, never `answerRate`).
 2. Say `cited` for source-list presence; never use `citation` as an umbrella for both.
 3. Never compute one signal from the other. A "cited" label reads `citationState`; a "mentioned" label reads `answerMentioned`. A metric named for one and computed from the other is a bug — fix it.
 4. When you mean both, say "citation + mention coverage" or "visibility (cited or mentioned)" and disambiguate immediately.
 5. Public API field names use this vocabulary from the start; a rename needs a version bump.
-6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do.
+6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `·` citation not measured, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do (`packages/canonry/src/snapshot-cell.ts`).
 7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint-rules/canonry-vocabulary.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
 
 ### Branded vs non-brand (Critical)
@@ -240,7 +240,7 @@ A **probe run** (`runs.trigger = 'probe'`, `RunTriggers.probe`; `canonry run --p
 
 1. Aggregate reads (dashboard, analytics, report, timeline, intelligence) AND-in `notProbeRun()` from `packages/api-routes/src/helpers.ts`, including recent-runs windows. Add a case to `packages/api-routes/test/probe-exclusion.test.ts` for every new aggregate endpoint.
 2. Per-run detail endpoints that take a `runId` (`GET /runs/:id`, screenshots, browser diffs, GSC inspect lookups) include probes.
-3. Operator lists (`GET /runs`, `GET /projects/:name/runs`) include probes; the dashboard filters them client-side (`apps/web/src/queries/use-dashboard.ts`).
+3. Operator lists (`GET /runs`, `GET /projects/:name/runs`) include probes. The dashboard overview filters them in `apps/web/src/queries/use-dashboard-overview.ts`.
 4. `RunCoordinator` (`packages/canonry/src/run-coordinator.ts`) returns early for probes — no intelligence, webhooks, or Aero wake. New post-run subscribers keep that check.
 5. External callers may send only `manual` or `probe` (`runTriggerRequestSchema`); `scheduled`, `config-apply`, and `backfill` are server-set.
 
@@ -256,6 +256,8 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 ## Versioning
 
 **Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry`. Use semver: patch for fixes, minor for features, major for breaking changes.
+
+- **Decide on a What’s new note yourself; don't ask.** Add one when the change alters what a dashboard user sees or can do, release it as a minor or major version, and say so in the PR summary. When, who sees it and wording: `apps/web/AGENTS.md` → "What’s new notes".
 
 - **Native-plugin exception:** any change shipped through `plugins/canonry/` or its canonical `skills/canonry/` / `skills/aero/` sources bumps Canonry, the portable manifest, and both client manifests even when the diff is small — clients use the manifest version to discover updates. `pnpm plugin:sync` copies the package version into all three manifests.
 
@@ -287,60 +289,3 @@ Per-package `AGENTS.md` must stay in sync — see `docs/DOC_UPDATE.md` for the f
 Put a new rule in the `AGENTS.md` closest to the code it governs; add it here only if every change must follow it. Point to the source (`path` or `file:line`) instead of copying it, and leave out what an agent can learn from the code, `--help`, or `docs/CODEMAP.md`.
 
 `AGENTS.md` is the only agent-instruction file. Claude Code v2.1.277+ reads it directly, but only where no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` is on the path, so never add one: it hides the `AGENTS.md` beside and below it. Claude Code sessions that cannot read `AGENTS.md` directly (before v2.1.277, on Bedrock / Vertex / Foundry, or with telemetry disabled) get no project instructions from this repo.
-
-## Carrick
-
-**If the answer is defined by another service — its endpoints, its real
-request/response types, who consumes it, or any local type, constant, or
-SDK helper that mirrors it — ask Carrick before you rely on anything
-local.** Local copies of another service's contract drift and lie; the
-producing service defines the contract, and if two definitions disagree,
-the producer's definition wins. Load the Carrick tools now so they are ready at that
-moment.
-
-**Read the file you are editing. For anything that lives elsewhere in
-the workspace (a helper, an endpoint, a consumer, a type), ask Carrick
-first, then grep to confirm a location.**
-Run `search_by_intent` before writing any helper, parser, validator, or
-domain function, even when you are sure it is new. Grep can prove a name
-is absent; it can never prove the behaviour is.
-
-Then, before you write new code, state one line naming what you asked and
-what came back:
-
-`Carrick checked: <query> -> <result count>`
-
-Start a session with `get_project_map`, passing your own service so the
-map splits this repo from its siblings: one cheap call that names the
-sibling services this project indexes, the contracts crossing into and
-out of this repo, the calls that reach no route, and the drill-down tool
-for each section.
-
-`get_endpoint_types` returns another service's real request and response
-types. Before adding or bumping an npm package, `get_service_dependencies`
-shows version conflicts across services. For audit-shaped work, such as
-listing what a service calls outside itself, `list_external_calls` names
-each recorded outbound call with its file and line.
-
-Carrick indexes every service in the project **canonry**
-(workspace **arberx**): every function with an intent
-description, its dependencies, and API endpoints with their real
-request/response types, on each repo's main branch, exported or not. Pass
-`project: "canonry"` (or `repo: "<owner/repo>"` from the git
-remote) on every call. Carrick is read-only; data reflects the most recent
-scan of each repo. The index at main is what production integrates
-against, so build against a sibling's contract from the index and merge —
-your unmerged local state does not need to be visible to Carrick.
-
-Write correct, idiomatic, explicitly typed code; never contort code so the
-scanner can read it. If Carrick fails to extract something written
-normally, that is a Carrick bug to report, not a constraint to code
-around.
-
-### Connect the agent
-
-```
-claude mcp add --scope user --transport http carrick https://api.carrick.tools/mcp
-```
-
-One install serves every project in the workspace.

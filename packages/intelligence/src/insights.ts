@@ -43,7 +43,7 @@ export function generateInsights(input: GenerateInsightsInput): Insight[] {
       recommendation: {
         action: 'audit',
         target: reg.previousCitationUrl,
-        reason: `Page was previously cited at position ${reg.previousPosition ?? 'unknown'}. Run aeo-audit to check for content or schema issues.`,
+        reason: `${reg.provider} cited ${reg.previousCitationUrl ?? 'your domain'} for "${reg.query}" in the previous run but not in this one. Run agent-readiness to check for content or schema issues.`,
       },
       cause,
       createdAt: now,
@@ -61,7 +61,7 @@ export function generateInsights(input: GenerateInsightsInput): Insight[] {
       recommendation: {
         action: 'monitor',
         target: gain.citationUrl,
-        reason: `New citation appeared at position ${gain.position ?? 'unknown'}. Monitor to confirm it persists.`,
+        reason: `${gain.provider} now cites ${gain.citationUrl ?? 'your domain'} for "${gain.query}"; the previous run did not. Monitor to confirm the citation persists.`,
       },
       createdAt: now,
     })

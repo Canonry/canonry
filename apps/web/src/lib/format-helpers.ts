@@ -1,5 +1,6 @@
-import { formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@canonry/canonry-contracts'
+import { citationNotMeasuredLabel, formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type CitationState as AnswerCitationState, type RunErrorDto } from '@canonry/canonry-contracts'
 import type { CitationState } from '../view-models.js'
+import { CITATION_NOT_MEASURED } from './citation-not-measured-copy.js'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
 export enum SearchMetric {
@@ -39,32 +40,44 @@ export function splitPercentSign(text: string): { figure: string; sign: string }
 /** The signal a coverage rate reads: the answer text (`mentioned`) or its source links (`cited`). */
 export type CoverageSignal = 'mentioned' | 'cited'
 
+/** The answers a rate left out of both its sides, as the server counts them. */
+export interface ExcludedAnswerCounts {
+  denominator?: number | null
+  unattributed?: number
+  unchecked?: number
+  citationNotMeasured?: number
+}
+
 /**
  * The server's count of saved answers a rate left out of both its sides, as the
  * shared label for that rate's own signal: a mention rate names the answers it
  * could not tie to one property (`unattributed`), a citation rate the answers
- * whose sources could not be checked (`unchecked`). Each count belongs to one
- * signal, so its line never shows under the other.
+ * whose sources could not be checked (`unchecked`) and those whose engine
+ * returns no sources (`citationNotMeasured`). Each count belongs to one signal,
+ * so its line never shows under the other.
  */
-export function excludedAnswersLabel(
-  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
-  signal: CoverageSignal,
-): string | null {
-  return signal === 'cited' ? uncheckedSourcesLabel(value) : unattributedAnswersLabel(value)
+export function excludedAnswersLabel(value: ExcludedAnswerCounts, signal: CoverageSignal): string | null {
+  if (signal !== 'cited') return unattributedAnswersLabel(value)
+  const notes = [uncheckedSourcesLabel(value), citationNotMeasuredLabel(value)].filter((note): note is string => note !== null)
+  return notes.length === 0 ? null : notes.join('; ')
 }
 
 /**
  * The same caveat as a flag beside the rate: a count and one word to show,
  * and the full sentence for its bubble. Null when the rate left nothing out.
  */
-export function excludedAnswersFlag(
-  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
-  signal: CoverageSignal,
-): { label: string; text: string } | null {
+export function excludedAnswersFlag(value: ExcludedAnswerCounts, signal: CoverageSignal): { label: string; text: string } | null {
   const sentence = excludedAnswersLabel(value, signal)
-  const count = signal === 'cited' ? value.unchecked : value.unattributed
-  if (sentence === null || count === undefined) return null
-  const label = `${count} ${signal === 'cited' ? 'unchecked' : 'unattributed'}`
+  if (sentence === null) return null
+  const parts = signal === 'cited'
+    ? [
+        ...(value.unchecked ? [`${value.unchecked} unchecked`] : []),
+        ...(value.citationNotMeasured ? [`${value.citationNotMeasured} not measured`] : []),
+      ]
+    : value.unattributed ? [`${value.unattributed} unattributed`] : []
+  const count = signal === 'cited' ? (value.unchecked ?? 0) + (value.citationNotMeasured ?? 0) : value.unattributed ?? 0
+  if (parts.length === 0) return null
+  const label = parts.join(', ')
   return { label, text: `${label}. ${sentence}, so this rate leaves ${count === 1 ? 'it' : 'them'} out.` }
 }
 
@@ -81,8 +94,16 @@ export function siteCitationLabel(domain: string, state: CitationState): string 
     case 'emerging': return `${site} newly cited (any page)`
     case 'lost': return `${site} citation lost (any page)`
     case 'not-cited': return `${site} not cited (any page)`
+    case 'not-measured': return `${site} citation not measured`
     case 'pending': return 'Pending'
   }
+}
+
+/** One stored answer's citation state as a plain label, such as a run's activity log. */
+export const ANSWER_CITATION_LABEL: Record<AnswerCitationState, string> = {
+  cited: 'Cited',
+  'not-cited': 'Not cited',
+  'not-measured': CITATION_NOT_MEASURED.label,
 }
 
 export function formatErrorLog(error: RunErrorDto): string {

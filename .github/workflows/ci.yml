@@ -160,11 +160,9 @@ jobs:
         name: Check documentation coverage (AGENTS.md per package)
       - run: pnpm run lint
 
-  # The WP plugin's PHP suite. It runs here and ONLY here: the root test
-  # script is vitest-only, and wp-plugin-release.yml auto-publishes the plugin
-  # zip on any merge that touches the plugin — so without this job a broken
-  # plugin change would ship to client sites untested. ubuntu-latest bundles
-  # PHP, and the suite is a dependency-free custom runner (no composer).
+  # Contributor CI runs the WordPress plugin's PHP suite. The root test script
+  # runs only Vitest. wp-plugin-release.yml publishes a zip for each new plugin
+  # version. ubuntu-latest includes PHP, and the suite requires no Composer dependencies.
   wp-plugin-tests:
     needs: policy
     if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}

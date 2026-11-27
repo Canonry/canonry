@@ -181,14 +181,14 @@ test('keeps distinct classes separate for the same query and location', () => {
   expect(within(screen.getByText('Shared question').closest('tr')!).getByText('Branded')).toBeTruthy()
 })
 
-test('same-query buttons describe their class, compared location and engines independently', () => {
+test('same-query buttons describe their class and compared location independently', () => {
   render(<EvidenceTable compareLocations evidence={[
     evidence('Best widgets', 'non-brand', { id: 'east-claude', location: 'East', provider: 'claude' }),
     evidence('Best widgets', 'non-brand', { id: 'east-gemini', location: 'East', provider: 'gemini' }),
     evidence('Best widgets', 'non-brand', { id: 'west-claude', location: 'West', provider: 'claude' }),
   ]} />)
-  const east = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*East.*Claude.*Gemini/ })
-  const west = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*West.*Claude/ })
+  const east = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*East/ })
+  const west = screen.getByRole('button', { name: 'Best widgets', exact: true, description: /Non-brand.*West/ })
   expect(east.getAttribute('aria-describedby')).not.toBe(west.getAttribute('aria-describedby'))
   expect(screen.getAllByRole('button', { name: 'Best widgets', exact: true })).toHaveLength(2)
   fireEvent.click(east)
@@ -292,4 +292,18 @@ test('without added queries a first sweep still reads "First mention"', () => {
   const row = screen.getByText('Best widgets').closest('tr')!
   expect(within(row).getByText('First mention')).toBeTruthy()
   expect(within(row).queryByText('new query')).toBeNull()
+})
+
+test('status labels use the sentence case the rest of the product uses', () => {
+  render(<EvidenceTable evidence={[
+    evidence('Best widgets', 'non-brand', { citationState: 'not-cited', answerMentioned: false, visibilityState: 'not-visible' }),
+  ]} />)
+
+  const row = () => screen.getByText('Best widgets').closest('tr')!
+  expect(within(row()).getAllByText('Not mentioned').length).toBeGreaterThan(0)
+  expect(within(row()).queryByText('Not Mentioned')).toBeNull()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Citations' }))
+  expect(within(row()).getAllByText('Not cited').length).toBeGreaterThan(0)
+  expect(within(row()).queryByText('Not Cited')).toBeNull()
 })

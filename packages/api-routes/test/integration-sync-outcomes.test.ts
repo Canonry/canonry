@@ -207,12 +207,12 @@ describe('bing inspect outcome', () => {
     expect(ctx.outcomes).toEqual([
       {
         event: 'feature.completed',
-        properties: { feature: 'bing', operation: 'inspect', status: 'succeeded', durationBucket: 'under_1s', counts: { urls: 1 } },
+        properties: { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'succeeded', durationBucket: 'under_1s', counts: { urls: 1 }, diagnostics: { phase: 'persistence', remainingWork: 0 } },
         attribution: CLI_ATTRIBUTION,
       },
       {
         event: 'feature.completed',
-        properties: { feature: 'bing', operation: 'inspect', status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'BingApiError', durationBucket: 'under_1s' },
+        properties: { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'failed', reasonCode: 'RATE_LIMITED', errorName: 'BingApiError', durationBucket: 'under_1s', diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 0, remainingWork: 1 } },
         attribution: CLI_ATTRIBUTION,
       },
     ])
@@ -225,8 +225,8 @@ describe('bing inspect outcome', () => {
 
     expect([notConnected.statusCode, noSite.statusCode]).toEqual([400, 400])
     expect(ctx.outcomes.map((event) => event.properties)).toEqual([
-      { feature: 'bing', operation: 'inspect', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError', durationBucket: 'under_1s' },
-      { feature: 'bing', operation: 'inspect', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', durationBucket: 'under_1s' },
+      { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'AppError', durationBucket: 'under_1s', diagnostics: { phase: 'setup', httpStatus: 400 } },
+      { feature: 'bing', operation: 'inspect', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), operationKind: 'url-inspection', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', durationBucket: 'under_1s', diagnostics: { phase: 'setup', httpStatus: 400 } },
     ])
   })
 })
@@ -248,10 +248,16 @@ describe('ga4 sync outcome', () => {
     vi.spyOn(ga, 'fetchWindowSummary').mockImplementation(async (_token, _property, windowKey) => ({
       windowKey, periodStart: dateDaysAgo(30), periodEnd: dateDaysAgo(1), totalSessions: 1, totalOrganicSessions: 0, totalDirectSessions: 0, totalUsers: 1,
     }))
-    vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals(withData
-      ? [{ date: dateDaysAgo(2), sessions: 50, users: 33, engagementRate: 0.6, newUsers: 20 }]
-      : []))
-    vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
+    vi.spyOn(ga, 'fetchDailyTotals').mockImplementation(async (_t, _p, _days, options) => {
+      const range = options?.dateRange ?? { startDate: dateDaysAgo(360), endDate: dateDaysAgo(0) }
+      const rows = withData && dateDaysAgo(2) >= range.startDate && dateDaysAgo(2) <= range.endDate
+        ? [{ date: dateDaysAgo(2), sessions: 50, users: 33, engagementRate: 0.6, newUsers: 20 }] : []
+      return { ...dailyTotals(rows), ...range }
+    })
+    vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => {
+      const report = unknownWindowMetrics(windowKey)
+      return { ...report, current: { ...report.current, startDate: dateDaysAgo(180), endDate: dateDaysAgo(1) }, previous: { ...report.previous, startDate: dateDaysAgo(360), endDate: dateDaysAgo(181) } }
+    })
     vi.spyOn(ga, 'fetchTrafficByLandingPage').mockResolvedValue(withData
       ? [
           { date: dateDaysAgo(2), landingPage: '/a', sessions: 30, organicSessions: 10, users: 20 },

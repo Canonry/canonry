@@ -87,7 +87,14 @@ export const CLAUDE_RETRIEVAL_CONTRACT: ClaudeRetrievalContract =
  * https://platform.claude.com/docs/en/api/errors#forced-tool-use-not-supported
  */
 export const CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE: ReadonlySet<string> =
-  new Set(["claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"]);
+  new Set([
+    "claude-fable-5-2",
+    "claude-mythos-5-2",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+  ]);
 
 /** True when `model` is one of {@link CLAUDE_MODELS_REJECTING_FORCED_TOOL_CHOICE}. */
 export function claudeModelRejectsForcedToolChoice(model: string): boolean {
@@ -173,8 +180,10 @@ export function validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult {
   };
 }
 
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
 export async function healthcheck(
   config: ClaudeConfig,
+  signal?: AbortSignal,
 ): Promise<ClaudeHealthcheckResult> {
   const validation = validateConfig(config);
   if (!validation.ok) return validation;
@@ -182,12 +191,17 @@ export async function healthcheck(
   try {
     const model = resolveModel(config);
     const client = new Anthropic({ apiKey: config.apiKey });
-    const response = await withRetry(() =>
-      client.messages.create({
-        model,
-        max_tokens: 32,
-        messages: [{ role: "user", content: 'Say "ok"' }],
-      }),
+    const response = await withRetry(
+      () =>
+        client.messages.create(
+          {
+            model,
+            max_tokens: 32,
+            messages: [{ role: "user", content: 'Say "ok"' }],
+          },
+          { signal },
+        ),
+      { signal },
     );
     const text = extractTextFromResponse(response);
     return {

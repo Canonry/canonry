@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { hostMatchesAnyDomain, hostOf } from './url-normalize.js'
 
 /**
- * The social platforms a GA4 social referral source can be grouped under.
+ * The social and creator platforms a GA4 referral source can be grouped under.
  *
  * GA4 reports one platform under many sources: `ig`, `instagram.com`,
  * `l.instagram.com` and a campaign tag such as `Instagram+Story` are all
@@ -22,6 +22,8 @@ export const socialPlatformSchema = z.enum([
   'snapchat',
   'nextdoor',
   'quora',
+  'shopmy',
+  'ltk',
 ])
 export type SocialPlatform = z.infer<typeof socialPlatformSchema>
 export const SocialPlatforms = socialPlatformSchema.enum
@@ -58,6 +60,10 @@ export const SOCIAL_PLATFORM_DEFINITIONS: readonly SocialPlatformDefinition[] = 
   { platform: SocialPlatforms.snapchat, label: 'Snapchat', domains: ['snapchat.com'], labels: ['snapchat'] },
   { platform: SocialPlatforms.nextdoor, label: 'Nextdoor', domains: ['nextdoor.com'], labels: ['nextdoor'] },
   { platform: SocialPlatforms.quora, label: 'Quora', domains: ['quora.com'], labels: ['quora'] },
+  // Creator storefronts: a creator's link to a product lands with the
+  // platform as its source, which GA4 files under Referral or Unassigned.
+  { platform: SocialPlatforms.shopmy, label: 'ShopMy', domains: ['shopmy.us'], labels: ['shopmy'] },
+  { platform: SocialPlatforms.ltk, label: 'LTK', domains: ['liketoknow.it', 'shopltk.com', 'rstyle.me'], labels: ['ltk', 'liketoknowit', 'rewardstyle'] },
 ]
 
 const PLATFORM_BY_LABEL = new Map<string, SocialPlatform>(
@@ -84,8 +90,15 @@ function looksLikeHost(value: string): boolean {
  * full URL, a bare label (`ig`, `Pinterest`), an app id
  * (`android-app://com.instagram.android`) or a campaign tag (`FB_Ads`,
  * `Instagram+Story`). Hostnames match on a domain boundary only.
+ *
+ * `minLabelLength` drops bare words shorter than it, so a reader scanning
+ * every GA4 channel (not only the Social channel) can keep a one-letter word
+ * such as `x` in `promo-x` from naming a platform. Hostnames always match.
  */
-export function socialPlatformForReferralSource(source: string | null | undefined): SocialPlatform | null {
+export function socialPlatformForReferralSource(
+  source: string | null | undefined,
+  options: { minLabelLength?: number } = {},
+): SocialPlatform | null {
   if (source == null) return null
   const value = source.trim().toLowerCase()
   if (!value || value.startsWith('(')) return null
@@ -98,7 +111,9 @@ export function socialPlatformForReferralSource(source: string | null | undefine
     const host = hostOf(bare)
     return host ? SOCIAL_PLATFORM_DEFINITIONS.find(d => hostMatchesAnyDomain(host, d.domains))?.platform ?? null : null
   }
+  const minLabelLength = options.minLabelLength ?? 1
   for (const word of bare.split(/[^a-z0-9]+/)) {
+    if (word.length < minLabelLength) continue
     const platform = PLATFORM_BY_LABEL.get(word)
     if (platform) return platform
   }

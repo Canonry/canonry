@@ -22,6 +22,7 @@ import {
 import { recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
+import { planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
 import { addLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
@@ -114,6 +115,8 @@ export interface WriteTrafficEventBatchResult {
   crawlerHits: number
   aiUserFetchHits: number
   aiUserFetchLikelyFakeHits: number
+  /** Browser-agent requests other than page loads; never in `aiUserFetchHits`. */
+  aiUserFetchBrowserNonPageHits: number
   aiReferralHits: number
   unknownHits: number
   crawlerBucketRows: number
@@ -153,6 +156,7 @@ export function writeTrafficEventBatch(
   let crawlerHits = 0
   let aiUserFetchHits = 0
   let aiUserFetchLikelyFakeHits = 0
+  let aiUserFetchBrowserNonPageHits = 0
   let aiReferralHits = 0
   let unknownHits = 0
 
@@ -217,7 +221,14 @@ export function writeTrafficEventBatch(
       // stored earlier batch, so one-event pushes read the same as batches.
       const bursts = planScannerBursts(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret })
       saveScannerBursts(tx, { projectId: opts.projectId, sourceId: opts.sourceId, windows: bursts.windows, now: opts.receivedAt })
-      const report = buildTrafficProbeReport(claimedEvents, { sampleLimit: claimedEvents.length, scannerBurstEventIds: bursts.eventIds })
+      // Later requests of a visitor who arrived in this batch or a stored earlier one are not arrivals.
+      const referralArrivals = planAiReferralArrivals(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret })
+      saveAiReferralArrivals(tx, { projectId: opts.projectId, sourceId: opts.sourceId, arrivals: referralArrivals.arrivals, now: opts.receivedAt })
+      const report = buildTrafficProbeReport(claimedEvents, {
+        sampleLimit: claimedEvents.length,
+        scannerBurstEventIds: bursts.eventIds,
+        aiReferralFollowOnEventIds: referralArrivals.followOnEventIds,
+      })
       // AI visitor journeys from the newly claimed events, in this transaction.
       recordJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
         onError: error => opts.onJourneyError?.(error),
@@ -231,6 +242,7 @@ export function writeTrafficEventBatch(
       crawlerHits = report.totals.crawlerHits
       aiUserFetchHits = report.totals.aiUserFetchHits
       aiUserFetchLikelyFakeHits = report.totals.aiUserFetchLikelyFakeHits
+      aiUserFetchBrowserNonPageHits = report.totals.aiUserFetchBrowserNonPageHits
       aiReferralHits = report.totals.aiReferralHits
       unknownHits = report.totals.unknownHits
 
@@ -515,6 +527,7 @@ export function writeTrafficEventBatch(
     crawlerHits,
     aiUserFetchHits,
     aiUserFetchLikelyFakeHits,
+    aiUserFetchBrowserNonPageHits,
     aiReferralHits,
     unknownHits,
     crawlerBucketRows,

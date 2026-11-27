@@ -8,11 +8,16 @@ description: Shared Canonry vocabulary, evidence scope, comparison rules, and au
 > **Built-in Aero:** your available `canonry_*` tools are already loaded, and
 > you read this guide through `read_skill_doc` (slug `agent-operations`). Your
 > catalog does not include `canonry_help` or `canonry_load_toolkit`; the
-> connection and navigation steps below are for external MCP hosts. Your
-> project-scoped tools use the current session's project. Dashboard selections
-> are not passed to chat: resolve the requested Property, market, filters, or
-> page before making a scoped claim. The `portfolio-analysis` and `site-health`
-> skill docs cover those investigations for Simple and Advanced portfolios.
+> connection and navigation steps below are for external MCP hosts. It also
+> leaves out the provider connection actions the guide names
+> (`canonry_provider_test`, `canonry_provider_settings_update` and
+> `canonry_providers_reload`): they spend on or change the operator's
+> install-wide provider accounts, so the operator runs them from the dashboard
+> or CLI. Your project-scoped tools use the current session's project.
+> Dashboard selections are not passed to chat: resolve the requested Property,
+> market, filters, or page before making a scoped claim. The
+> `portfolio-analysis` and `site-health` skill docs cover those investigations
+> for Simple and Advanced portfolios.
 
 # Canonry Operations Guide v1
 
@@ -23,9 +28,9 @@ prerequisite or a permission mechanism.
 ## Connect and choose a route
 
 Read the initialization guidance, then call `canonry_help` with an `intent`:
-`status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`,
-`reports`, or a short task
-description. Select an accessible project with `canonry_projects_list` before
+`status`, `diagnose`, `operations`, `prospecting`, `measurement`, `integrations`, `connections`,
+`seo`, `reports`, `start`, or a short task
+description. Use `start` when the user is new or unsure what to ask. Select an accessible project with `canonry_projects_list` before
 using its exact name in project tools. Inspect each listed tool's input schema;
 help suggests tool names, not invented arguments or authorization.
 
@@ -61,6 +66,22 @@ guide plus links to host-native references. It does not replace runtime help.
   compute one signal from the other.
 - `answerMentioned: null` means not checked, not false. Missing runs and empty
   populations mean no measurement, not zero visibility.
+- `citationState: not-measured` (with `cited: null`) means the adapter captures
+  no structured sources, as with Local chat completions. Canonry excludes those
+  answers from cited rates and counts them in `citationNotMeasured`. The cited
+  rate is null when there are no measured citations. Canonry still measures
+  mentions on those answers. Other reads show the
+  same state in their own shape:
+  - visibility report: an answer's `citationUnavailableReason:
+    citation-not-measured`, or a rate's `reason: citation-not-measured`;
+  - Advanced metrics: `{state: unavailable, reason: citation_not_measured}`;
+  - research and snapshot answers: `citationMeasured: false` (research also
+    sends `citationState: null`);
+  - overview: `citationNotMeasuredQueries`, `citationNotMeasuredPairs` and
+    `citationNotMeasuredCount`;
+  - analytics: the gaps bucket `citationNotMeasured[]` and sources'
+    `citationNotMeasuredAnswers`;
+  - visibility compare: `excludedNotMeasured`.
 - Preserve project, time window, provider, requested/served model, location,
   sample size, and query class when comparing evidence. Use server-returned
   metrics; do not invent a score from incompatible populations.
@@ -75,11 +96,27 @@ guide plus links to host-native references. It does not replace runtime help.
 **Status:** read the stored overview and freshness first. Say when evidence is
 missing instead of silently creating it.
 
-**Setup:** Page Health needs no answer-engine provider; AI Visibility does.
-After a Page Health result on an install with no provider (a `NO_PROVIDER`
+**Start:** for a new user or one unsure what to ask, read
+`canonry_project_setup` and follow its `nextAction`, then the `getting-started`
+playbook. It walks the loop from setup to monthly reports, says who does each
+step, and lists questions the user can ask at each stage.
+
+**Setup:** Agent Readiness needs no answer-engine provider; AI Visibility does.
+Use `canonry_project_setup` to read stored prerequisites and the suggested next step.
+After an Agent Readiness result on an install with no provider (a `NO_PROVIDER`
 notice, or doctor's `providers.none-configured`), propose AI Visibility setup
 as the next step. The operator adds the provider key in the dashboard or in
-their own terminal; never ask for it in chat.
+their own terminal; never ask for it in chat. A saved key is not a verified one:
+with approval, `canonry settings provider test <name>` or `canonry_provider_test`
+checks the saved connection with the provider now (usually one tiny prompt on
+the operator's account) and reports `connected`, `failed` with the provider's
+reason, or `not-verified`. It needs install administrator authority and
+`settings.write`; while a connection's test is still running, another test of it
+returns `OPERATION_IN_PROGRESS`, so wait for that result. The latest result is
+kept as the connection's `lastTest` (`canonry settings provider-info <name>` or
+`canonry_provider_settings_get`) until its key, endpoint, model, Vertex project,
+region or credentials, or CDP endpoint changes, or the connection is
+disconnected; read it before testing again.
 Rerunning `canonry bootstrap` after a provider change reloads saved provider
 settings on a matching running local server and reports whether they became
 active. If the server is offline, start it to apply the saved settings. For an
@@ -93,8 +130,8 @@ Ports and database settings still need a restart.
 changed separately from why it might have changed. A hypothesis is not a
 measured cause. Propose bounded verification if stored evidence is insufficient.
 
-**Site Health:** read `canonry_site_health_issues` for stored technical findings,
-affected-page counts and example URLs, then `canonry_site_health_issue_pages`
+**Agent Readiness:** read `canonry_agent_readiness_issues` for stored findings,
+affected-page counts and example URLs, then `canonry_agent_readiness_issue_pages`
 for a selected issue's remaining pages. Pin subsequent reads to the returned
 run. Inspect coverage and omissions: a passing score can still have findings,
 an older scan may lack cross-page evidence, and a partial scan cannot establish
@@ -122,7 +159,16 @@ Use a supported preview where available, inspect its exact destination and
 revision, then seek approval for the actual change. A preview may itself require
 write permission; never treat a dry-run flag as a universal safety guarantee.
 
+`canonry_discover_harvest` reads saved probes and can send query text to Gemini
+to check for paraphrases. Get approval for that live work. Harvest requires an
+administrator account or a bearer key with `*` scope and access to the project.
+Use the saved session read for stored-only work. Promoting candidates needs its
+own approval.
+
 **Integrations:** inspect stored connection state and snapshot freshness first.
+For project setup, call `canonry_help({intent:"connect"})`. Its actions and
+toolkit suggestions reflect the current MCP connection. The getting-started
+playbook covers browser consent, saved credentials and resource selection.
 Provider configuration evidence does not prove a browser event fired or a
 conversion was recorded. Connection, resource selection, refresh/sync, and live
 reads are separate actions. Credentials belong in the operator's secure setup
@@ -132,7 +178,7 @@ flow, never in chat, tool arguments, reports, or public guidance.
 and citation signals separate, include dates and sample sizes, and state missing
 or stale inputs. For Advanced Property mention rankings, use
 `canonry_measurement_portfolio_summary` and its `mentionRanking.strongest`,
-`.weakest`, and `.excluded` lists. It defaults to non-brand questions; state the
+`.weakest`, and `.excluded` lists. It defaults to non-brand queries. State the
 returned class and report branded results separately. An unavailable portfolio
 aggregate does not invalidate available Property mention rates. Flag excluded
 Properties individually; do not silently replace mention ranking with citation
@@ -154,8 +200,12 @@ authority without exposing its token. Missing `operator` means unapproved.
 machine. Telemetry reports configured preference, effective state, and any
 environment override; inspecting status never creates an anonymous identifier.
 After approval, `canonry_telemetry_update` changes that preference and
-`canonry_provider_settings_update` changes an already-configured provider's
-model/quota. Both require `settings.write`; neither accepts credentials.
+`canonry_provider_settings_update` changes or resets an already-configured
+provider's model and quota, restores its built-in endpoint, or removes an
+optional Local key. Both require `settings.write`; neither accepts credentials.
+A reset, restoring the endpoint and removing the Local key included, also
+requires install administrator authority. Pass the `revision` from
+`canonry_provider_settings_get` as `expectedRevision` to reject a stale edit.
 Server telemetry reads and updates additionally require operator authority.
 Ordinary audit-history reads omit internal telemetry events and their state.
 

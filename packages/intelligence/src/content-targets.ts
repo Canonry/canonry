@@ -51,7 +51,9 @@ export interface CandidateQuery {
   gscClicks: number
   gscCtr: number
 
-  // Snapshot-derived signal
+  // Snapshot-derived signal. Both rates read only answers whose sources were
+  // checked; an engine that returns no sources adds to neither, and with none
+  // checked both are 0, as for a query with no answers.
   ourCitedRate: number
   /**
    * True iff our domain was cited in any provider's snapshot of the most

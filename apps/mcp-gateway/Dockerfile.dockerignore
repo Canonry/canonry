@@ -10,4 +10,3 @@ node_modules
 **/.env.*
 **/*.log
 .tmp
-apps/vals

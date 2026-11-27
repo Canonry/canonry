@@ -1,10 +1,15 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import {
   AppError,
   bucketDuration,
   classifyOutcomeError,
   OutcomeReasonCodes,
   OutcomeStatuses,
+  OutcomePhases,
+  buildOutcomeDiagnostics,
+  type OutcomeDiagnostics,
+  type OutcomeOperationKind,
   type FeatureCompletedProperties,
   type FeatureName,
   type FeatureOperation,
@@ -97,6 +102,7 @@ export async function withFeatureOutcome<F extends FeatureName, T>(
 
 /** One operation's result as reported: a status, a reason and counts, never names, ids or messages. */
 export interface RouteOutcome {
+  diagnostics?: OutcomeDiagnostics
   status: OutcomeStatus
   reasonCode?: OutcomeReasonCode
   errorName?: string
@@ -117,16 +123,21 @@ export function startRouteOutcome<F extends FeatureName>(
   app: FastifyInstance,
   feature: F,
   operation: FeatureOperation<F>,
-  options: { trigger?: OutcomeTrigger } = {},
+  options: { trigger?: OutcomeTrigger; operationKind?: OutcomeOperationKind; projectId?: string } = {},
 ): RouteOutcomeReporter {
   const startedAt = Date.now()
+  const operationId = options.operationKind ? randomUUID() : undefined
+  if (operationId) app.log.info({ operationId, projectId: options.projectId }, `${feature}.${operation} started`)
   let sent = false
   const report = (outcome: RouteOutcome): void => {
     if (sent) return
     sent = true
+    if (operationId) app.log.info({ operationId, projectId: options.projectId, errorCode: outcome.reasonCode, httpStatus: outcome.diagnostics?.httpStatus }, `${feature}.${operation} ${outcome.status}; phase ${outcome.diagnostics?.phase ?? OutcomePhases.unknown}`)
     const counts = Object.entries(outcome.counts ?? {}).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
-    reportFeatureOutcome(app, { feature, operation, ...options }, {
+    reportFeatureOutcome(app, { feature, operation, ...(options.trigger ? { trigger: options.trigger } : {}) }, {
       status: outcome.status,
+      ...(operationId ? { operationId, operationKind: options.operationKind } : {}),
+      ...(outcome.diagnostics ? { diagnostics: outcome.diagnostics } : {}),
       ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
       ...(outcome.errorName ? { errorName: outcome.errorName } : {}),
       durationBucket: bucketDuration(Date.now() - startedAt),
@@ -136,14 +147,14 @@ export function startRouteOutcome<F extends FeatureName>(
   return {
     report,
     refuse(reasonCode, error) {
-      report({ status: OutcomeStatuses.failed, reasonCode })
+      report({ status: OutcomeStatuses.failed, reasonCode, ...(operationId ? { diagnostics: buildOutcomeDiagnostics(error, { phase: OutcomePhases.setup }) } : {}) })
       return error
     },
     guard(reasonCode, check) {
       try {
         return check()
       } catch (err) {
-        report({ status: OutcomeStatuses.failed, ...classifyOutcomeError(err), reasonCode })
+        report({ status: OutcomeStatuses.failed, ...classifyOutcomeError(err), reasonCode, ...(operationId ? { diagnostics: buildOutcomeDiagnostics(err, { phase: OutcomePhases.setup }) } : {}) })
         throw err
       }
     },

@@ -25,8 +25,62 @@ describe('hotel editorial-only guard', () => {
     'Get a promo code',
     'd&#105;scount',
     '<a href="/offers/">Read more</a>',
+    'Polyurea offers greater discounts this week.',
   ])('refuses promotional copy or links: %s', (text) => {
     expect(hotelEditorialText(text)).toBe(false)
+  })
+  it.each([
+    'This guide deals with roof leaks.',
+    'Does the contractor offer roof inspections?',
+    'What the manufacturer offers on the product.',
+    'The company offers free roof inspections.',
+    // A contractor homepage FAQ answer, refused as a promotion until 2026-11-11.
+    'Yes. A polyurea coating offers greater durability and faster curing.',
+    'Polyurea offers superior tensile strength.',
+  ])('reads offer and deal as ordinary verbs: %s', (text) => {
+    expect(hotelEditorialText(text)).toBe(true)
+  })
+  it('allows offer and deal as ordinary words in an article and its FAQ', async () => {
+    const faq = jsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: {
+        '@type': 'Question',
+        name: 'Does the contractor offer roof inspections?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'The company offers free inspections before any bid.',
+        },
+      },
+    })
+    expect(
+      await editorialPage(
+        faq +
+          '<article><h3>Does the contractor offer roof inspections?</h3>' +
+          '<p>The manufacturer offers a written warranty, and this guide deals with what it covers.</p>' +
+          '<ul><li>Read what the contractor offers on the labor, too.</li></ul>' +
+          '<p>Roofers’ offers on labor differ, so compare them line by line.</p></article>',
+      ),
+    ).toBe(true)
+  })
+  it.each([
+    '<p>Explore our deals for winter stays.</p>',
+    '<p>Travel deals this weekend.</p>',
+    '<p>Special offers for members.</p>',
+    '<p>The offer ends Sunday.</p>',
+    '<p>Deal of the week: a free night.</p>',
+    '<p>Use promo code SPRING at checkout.</p>',
+    '<p>Get 20% off your stay.</p>',
+    '<li>Book now and relax.</li>',
+    '<h2>Offers</h2>',
+    '<nav><a href="/stay/">Deals</a></nav>',
+    '<p>Read <a href="/offers/">more</a> about it.</p>',
+    '<p>See the <a href="/stay/">offers</a> here.</p>',
+    '<button>Deals</button>',
+  ])('still refuses a promotion in an article or its page: %s', async (html) => {
+    expect(
+      await editorialPage(`<article><p>A roof access guide.</p>${html}</article>`),
+    ).toBe(false)
   })
   it('allows a relevant editorial article and checks the whole public destination', async () => {
     const fetch = vi.fn(

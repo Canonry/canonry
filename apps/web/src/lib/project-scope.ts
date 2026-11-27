@@ -106,7 +106,8 @@ export function projectScopeSlot(input: ProjectScopeSlotInput): ProjectScopeSlot
     }
     case 'search-console':
     case 'activity':
-    case 'technical-aeo':
+    case 'traffic':
+    case 'agent-readiness':
     case 'conversions':
     case 'local':
     case 'backlinks':

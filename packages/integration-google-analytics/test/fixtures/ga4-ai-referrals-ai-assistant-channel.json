@@ -1,5 +1,5 @@
 {
-  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20; re-run 2026-10-21 with the source filters built from AI_REFERRAL_ENGINE_DEFINITIONS: EXACT host, ENDS_WITH .host and EXACT name for every engine, EXACT app id, EXACT android-app://<app id> and BEGINS_WITH android-app://<app id>/ for each official Android app id, plus BEGINS_WITH name_ and host_ tags for engines with labels, and no substring match; 80 source expressions per pass, every pass 200 on seven properties), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
+  "_note": "Response shape captured from live GA4 Data API runReport calls (v1beta, 2026-10-20; re-run 2026-10-21 with the source filters built from AI_REFERRAL_ENGINE_DEFINITIONS: EXACT host, ENDS_WITH .host and EXACT name for every engine, EXACT app id, EXACT android-app://<app id> and BEGINS_WITH android-app://<app id>/ for each official Android app id, plus BEGINS_WITH name_ and host_ tags for engines with labels, and no substring match; 80 source expressions per pass, every pass 200 on seven properties; re-run 2026-11-11 with orderBys on every dimension, ALPHANUMERIC, every pass 200 on one property), one request per attribution pass, each request exactly as fetchAiReferrals sends it (dateRanges fixed here). Headers echo the requested names, including the deprecated sessionDefaultChannelGrouping; metric values are integer strings; metadata and kind are as returned. Rows, values, rowCount, dates and landing pages are synthetic: no captured property had a grok, deepseek or unrecognized source in the AI Assistant channel. The row shapes follow what was captured: AI Assistant rows carry medium ai-assistant, and the manual UTM lens reports chatgpt.com (whose links carry utm_source=chatgpt.com) with medium (not set) and other AI sources with their session medium. checkCompatibility on the captured properties: every requested dimension and filter dimension (including firstUserDefaultChannelGroup) and both metrics COMPATIBLE for all three passes. EXACT 'AI Assistant' with caseSensitive false matched lower-case 'ai assistant'; with caseSensitive true it did not.",
   "passes": {
     "session": {
       "request": {
@@ -770,6 +770,38 @@
             ]
           }
         },
+        "orderBys": [
+          {
+            "dimension": {
+              "dimensionName": "date",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionSource",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionMedium",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionDefaultChannelGrouping",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "landingPagePlusQueryString",
+              "orderType": "ALPHANUMERIC"
+            }
+          }
+        ],
         "limit": 1000,
         "offset": 0
       },
@@ -1715,6 +1747,38 @@
             ]
           }
         },
+        "orderBys": [
+          {
+            "dimension": {
+              "dimensionName": "date",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "firstUserSource",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "firstUserMedium",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionDefaultChannelGrouping",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "landingPagePlusQueryString",
+              "orderType": "ALPHANUMERIC"
+            }
+          }
+        ],
         "limit": 1000,
         "offset": 0
       },
@@ -2650,6 +2714,38 @@
             ]
           }
         },
+        "orderBys": [
+          {
+            "dimension": {
+              "dimensionName": "date",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionManualSource",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionManualMedium",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "sessionDefaultChannelGrouping",
+              "orderType": "ALPHANUMERIC"
+            }
+          },
+          {
+            "dimension": {
+              "dimensionName": "landingPagePlusQueryString",
+              "orderType": "ALPHANUMERIC"
+            }
+          }
+        ],
         "limit": 1000,
         "offset": 0
       },

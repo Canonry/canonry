@@ -8,6 +8,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { isManagedCanonryInstall } from "./support-links.js";
 import { SeoRuntime } from "./seo-runtime.js";
 import { isLoopbackBindHost } from "./serve-endpoint.js";
 import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
@@ -58,6 +59,8 @@ import {
   forbidden,
   notFound,
   validationError,
+  redactKnownSecrets,
+  redactUrlPrivateFields,
   embedProjectTabsError,
   embedClientConfigForRequest,
   EMBED_QUERY_LIMIT_HEADER,
@@ -99,8 +102,12 @@ import {
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
+  CloudRunConnectionConfigEntry,
+  ProviderConfigEntry,
   CloudflareTrafficConnectionConfigEntry,
 } from "./config.js";
+import { createProviderSettingsController } from "./provider-settings.js";
+import { createProviderConnectionTestStore } from "./provider-connection-tests.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
 import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
@@ -240,6 +247,8 @@ import { GOOGLE_ADS_OAUTH_SCOPE } from "@canonry/canonry-integration-google-ads"
 import { GTM_READONLY_SCOPE } from "@canonry/canonry-integration-google-tag-manager";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
+import { executeBingSync } from "./bing-sync.js";
+import { runBingJob } from "./bing-job-lane.js";
 import { maybeRefreshGscCoverage, runWasUserInitiated, type CoverageRefreshDeps } from "./coverage-refresh.js";
 import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
@@ -263,7 +272,7 @@ import {
   ccReleaseSyncs as ccReleaseSyncsTable,
 } from "@canonry/canonry-db";
 import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
-import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { batchEligibleProviderNames, providersWithUnsupportedBatch } from "./provider-batch-config.js";
 import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
 import { startInstallStateTelemetry } from "./install-state-telemetry.js";
 import { trackTrafficIngested, trackTrafficSynced } from "./traffic-telemetry.js";
@@ -277,6 +286,7 @@ import { SCHEDULE_SPREAD_MS, Scheduler, ensureDefaultHealthSchedule } from "./sc
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startUnrecognizedAgentAlertLoop } from "./unrecognized-agent-alerts.js";
+import { startSentimentAlertLoop } from "./sentiment-alerts.js";
 import { startTrafficReclassification } from "./traffic-reclassify.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
@@ -288,6 +298,9 @@ import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
 import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
+import { ChatGptAccounts } from "@canonry/canonry-api-routes";
+import { resolveChatGptSettings } from "./chatgpt-config.js";
+import { preferredChatGptModel } from "./agent/chatgpt-plan.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
@@ -306,6 +319,7 @@ import {
   executeGtmMarketingSync,
 } from "./google-marketing-sync.js";
 import { assessConversionTrackingIntegrity } from "@canonry/canonry-intelligence";
+import { PACKAGE_VERSION } from "./package-version.js";
 
 const log = createLogger("Server");
 
@@ -523,7 +537,7 @@ function summarizeProviderConfig(provider: RegisteredProvider | undefined) {
     // summary AND produce an audit diff. Omitting it for API providers would let
     // an endpoint redirect (a credential-exfiltration vector on a box where the
     // provider key is the carrier) happen with no audit trail.
-    baseUrl: config?.baseUrl ?? config?.cdpEndpoint ?? null,
+    baseUrl: redactUrlPrivateFields(config?.baseUrl ?? config?.cdpEndpoint)?.url ?? null,
     quota: { ...(config?.quotaPolicy ?? DEFAULT_QUOTA) },
     vertexProject: config?.vertexProject ?? null,
     vertexRegion: config?.vertexRegion ?? null,
@@ -537,7 +551,9 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
     name: adapter.name,
     displayName: adapter.displayName,
     keyUrl: adapter.keyUrl,
-    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    // A gateway or answer service has no single default model, and "e.g. "
+    // with nothing after it is not a hint.
+    ...(adapter.modelRegistry.defaultModel ? { modelHint: `e.g. ${adapter.modelRegistry.defaultModel}` } : {}),
     model: registry.get(adapter.name)?.config.model ?? undefined,
     defaultModel: adapter.modelRegistry.defaultModel,
     configured: Boolean(registry.get(adapter.name)),
@@ -1078,7 +1094,7 @@ export async function createServer(opts: {
   const persistedConfigPath = configSourcePath === undefined ? undefined : runtimeConfigPath;
   const persistConfigPatch = (
     patch: Partial<CanonryConfig>,
-    options: { setDashboardPasswordHash?: string } = {},
+    options: { setDashboardPasswordHash?: string; providerReplacement?: { name: string; entry: ProviderConfigEntry | null } } = {},
   ): void => {
     if (persistedConfigPath !== undefined) saveConfigPatch(patch, { ...options, configPath: persistedConfigPath });
   };
@@ -1236,7 +1252,9 @@ export async function createServer(opts: {
   // the same value as webhook create/test (api-routes), so a hook that was
   // accepted is not refused later when an event fires.
   const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0";
-  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks });
+  // Read on every use, so a config.yaml change applies without a restart.
+  const sentimentInstall = () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; };
+  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks, sentimentInstall });
   const intelligenceService = new IntelligenceService(opts.db);
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -1282,6 +1300,18 @@ export async function createServer(opts: {
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
       })
     : undefined;
+  // Sign in with ChatGPT (config `chatgpt`). One instance for the whole
+  // process, shared by the sign-in routes and viewer Aero, so concurrent
+  // turns share a single plan-token refresh. Settings are read per call.
+  const chatgptAccounts = new ChatGptAccounts({
+    db: opts.db,
+    settings: () => resolveChatGptSettings(opts.config),
+  });
+  if (opts.config.chatgpt && (opts.config.chatgpt.signIn || opts.config.chatgpt.planUsage) && !resolveChatGptSettings(opts.config)) {
+    log.warn("chatgpt.disabled", {
+      reason: "Sign in with ChatGPT needs chatgpt.clientId and an HTTPS publicUrl; it stays off until both are set.",
+    });
+  }
   // Viewer Aero is its own lane (see viewer-sessions.ts), built only on an
   // explicit opt-in. Absent, the agent routes stay administrator-only.
   const agentAllowViewers = agentEnabled && resolveAgentAllowViewers(process.env, opts.config);
@@ -1291,6 +1321,7 @@ export async function createServer(opts: {
         config: opts.config,
         selfApiUrl: opts.config.apiUrl,
         managedSweeps: dashboardManagedRunKinds.includes(SchedulableRunKinds['answer-visibility']),
+        chatgpt: chatgptAccounts,
       })
     : undefined;
 
@@ -1553,8 +1584,8 @@ export async function createServer(opts: {
       });
   };
 
-  // Shared Technical-AEO site-audit worker. Used by BOTH the manual
-  // `POST /technical-aeo/runs` route and the scheduled `site-audit` kind. The
+  // Shared Agent Readiness site-audit worker. Used by BOTH the manual
+  // `POST /agent-readiness/runs` route and the scheduled `site-audit` kind. The
   // run row is created by the caller. This runs the full crawl and audit, then
   // hands off to the post-run coordinator on completion.
   //
@@ -1999,6 +2030,7 @@ export async function createServer(opts: {
   let stopSiteLiveness: (() => void) | null = null;
   let stopReviewDeliveries: (() => void) | null = null;
   let stopUnrecognizedAgentAlerts: (() => void) | null = null;
+  let stopSentimentAlerts: (() => void) | null = null;
   let stopTrafficReclassification: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
   let stopInstallState: (() => void) | null = null;
@@ -2100,7 +2132,7 @@ export async function createServer(opts: {
     },
     onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses, with the
+      // worker the manual POST /agent-readiness/runs route uses, with the
       // scheduler's full-site page budget.
       runSiteAudit(runId, projectId, auditOpts);
     },
@@ -2143,8 +2175,24 @@ export async function createServer(opts: {
     ),
   };
 
+  // Keep the previous site live if its config write fails and the evidence
+  // transaction rolls back. A retry must still see the previous site.
+  function saveSearchConnection<K extends "bing" | "google", T>(
+    section: K,
+    change: (draft: CanonryConfig) => T,
+  ): T {
+    const draft = { ...opts.config, [section]: structuredClone(opts.config[section]) };
+    const result = change(draft);
+    if (result) {
+      persistConfigPatch({ [section]: draft[section] });
+      opts.config[section] = draft[section];
+    }
+    return result;
+  }
+
   // Bing connection store — stores connections in ~/.canonry/config.yaml
   const bingConnectionStore = {
+    getSavedApiKey: () => opts.config.bing?.apiKey,
     getConnection: (domain: string) => {
       return opts.config.bing?.connections?.find((c) => c.domain === domain);
     },
@@ -2155,10 +2203,10 @@ export async function createServer(opts: {
       createdByProjectId?: string | null;
       createdAt: string;
       updatedAt: string;
-    }) => {
-      if (!opts.config.bing) opts.config.bing = {};
-      if (!opts.config.bing.connections) opts.config.bing.connections = [];
-      const idx = opts.config.bing.connections.findIndex(
+    }) => saveSearchConnection("bing", (draft) => {
+      if (!draft.bing) draft.bing = {};
+      if (!draft.bing.connections) draft.bing.connections = [];
+      const idx = draft.bing.connections.findIndex(
         (c) => c.domain === connection.domain,
       );
       const normalized = {
@@ -2166,13 +2214,12 @@ export async function createServer(opts: {
         createdByProjectId: connection.createdByProjectId ?? null,
       };
       if (idx >= 0) {
-        opts.config.bing.connections[idx] = normalized;
+        draft.bing.connections[idx] = normalized;
       } else {
-        opts.config.bing.connections.push(normalized);
+        draft.bing.connections.push(normalized);
       }
-      persistConfigPatch(opts.config);
       return normalized;
-    },
+    }),
     updateConnection: (
       domain: string,
       patch: Partial<{
@@ -2180,25 +2227,23 @@ export async function createServer(opts: {
         siteUrl: string | null;
         updatedAt: string;
       }>,
-    ) => {
-      const conn = opts.config.bing?.connections?.find(
+    ) => saveSearchConnection("bing", (draft) => {
+      const conn = draft.bing?.connections?.find(
         (c) => c.domain === domain,
       );
       if (!conn) return undefined;
       Object.assign(conn, patch);
-      persistConfigPatch(opts.config);
       return conn;
-    },
-    deleteConnection: (domain: string) => {
-      if (!opts.config.bing?.connections) return false;
-      const idx = opts.config.bing.connections.findIndex(
+    }),
+    deleteConnection: (domain: string) => saveSearchConnection("bing", (draft) => {
+      if (!draft.bing?.connections) return false;
+      const idx = draft.bing.connections.findIndex(
         (c) => c.domain === domain,
       );
       if (idx < 0) return false;
-      opts.config.bing.connections.splice(idx, 1);
-      persistConfigPatch(opts.config);
+      draft.bing.connections.splice(idx, 1);
       return true;
-    },
+    }),
   } as const;
 
   // GA4 credential store — stores service account keys in ~/.canonry/config.yaml
@@ -2230,28 +2275,11 @@ export async function createServer(opts: {
     getConnection: (projectName: string) => {
       return getCloudRunConnection(opts.config, projectName);
     },
-    upsertConnection: (record: {
-      projectName: string;
-      gcpProjectId: string;
-      serviceName?: string;
-      location?: string;
-      authMode: "oauth" | "service-account";
-      clientEmail?: string;
-      privateKey?: string;
-      refreshToken?: string;
-      tokenExpiresAt?: string;
-      scopes?: string[];
-      createdAt: string;
-      updatedAt: string;
-    }) => {
-      const updated = upsertCloudRunConnection(opts.config, record);
-      persistConfigPatch(opts.config);
-      return updated;
+    upsertConnection: (record: CloudRunConnectionConfigEntry) => {
+      return upsertCloudRunConnection(opts.config, record, persistConfigPatch);
     },
     deleteConnection: (projectName: string) => {
-      const removed = removeCloudRunConnection(opts.config, projectName);
-      if (removed) persistConfigPatch(opts.config);
-      return removed;
+      return removeCloudRunConnection(opts.config, projectName, persistConfigPatch);
     },
   } as const;
 
@@ -2360,11 +2388,7 @@ export async function createServer(opts: {
       createdByProjectId?: string | null;
       createdAt: string;
       updatedAt: string;
-    }) => {
-      const updated = upsertGoogleConnection(opts.config, connection);
-      persistConfigPatch(opts.config);
-      return updated;
-    },
+    }) => saveSearchConnection("google", draft => upsertGoogleConnection(draft, connection)),
     updateConnection: (
       domain: string,
       connectionType: "gsc" | "ga4" | "gbp",
@@ -2377,28 +2401,11 @@ export async function createServer(opts: {
         scopes?: string[];
         updatedAt: string;
       }>,
-    ) => {
-      const updated = patchGoogleConnection(
-        opts.config,
-        domain,
-        connectionType,
-        patch,
-      );
-      if (updated) persistConfigPatch(opts.config);
-      return updated;
-    },
+    ) => saveSearchConnection("google", draft => patchGoogleConnection(draft, domain, connectionType, patch)),
     deleteConnection: (
       domain: string,
       connectionType: "gsc" | "ga4" | "gbp",
-    ) => {
-      const removed = removeGoogleConnection(
-        opts.config,
-        domain,
-        connectionType,
-      );
-      if (removed) persistConfigPatch(opts.config);
-      return removed;
-    },
+    ) => saveSearchConnection("google", draft => removeGoogleConnection(draft, domain, connectionType)),
   } as const;
 
   const wordpressConnectionStore = {
@@ -2471,8 +2478,13 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowFeedback = parseBooleanEnv(process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK) ?? opts.config.dashboard?.showFeedback ?? true;
+  const managedInstall = isManagedCanonryInstall();
   const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
+  const dashboardWhatsNewOnly = managedInstall || (
+    parseBooleanEnv(process.env.CANONRY_DASHBOARD_WHATS_NEW_ONLY) ?? opts.config.dashboard?.whatsNewOnly ?? false
+  );
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const dashboardBrandMark = resolveDashboardBrandMark(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
@@ -3155,13 +3167,16 @@ export async function createServer(opts: {
     before: RegisteredProvider | undefined,
     after: RegisteredProvider | undefined,
     auditContext: Parameters<NonNullable<ApiRoutesOptions['onProviderUpdate']>>[5],
+    savedSettingsChanged = false,
   ): void => {
     const beforeConfig = summarizeProviderConfig(before);
     const afterConfig = summarizeProviderConfig(after);
     const apiKeyRotated = Boolean(before) && Boolean(after?.config.apiKey)
       && before?.config.apiKey !== after?.config.apiKey;
+    const apiKeyRemoved = Boolean(before?.config.apiKey) && !after?.config.apiKey;
     const credentialsChanged = before?.config.vertexCredentials !== after?.config.vertexCredentials;
-    if (!apiKeyRotated && !credentialsChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
+    const endpointChanged = before?.config.baseUrl !== after?.config.baseUrl || before?.config.cdpEndpoint !== after?.config.cdpEndpoint;
+    if (!savedSettingsChanged && !apiKeyRotated && !apiKeyRemoved && !credentialsChanged && !endpointChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
     const affectedProjects = opts.db.select({ id: projects.id, providers: projects.providers }).from(projects).all()
       .filter(project => project.providers.length === 0 || project.providers.includes(name));
     const projectIds = affectedProjects.length ? affectedProjects.map(project => project.id) : [null];
@@ -3180,18 +3195,39 @@ export async function createServer(opts: {
           before: before ? beforeConfig : null,
           after: afterConfig,
           ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
+          ...(apiKeyRemoved ? { apiKeyRemoved: true } : {}),
           ...(credentialsChanged ? { credentialsChanged: true } : {}),
+          ...(endpointChanged ? { endpointChanged: true } : {}),
+          ...(savedSettingsChanged ? { savedSettingsChanged: true } : {}),
         },
       });
     }
   };
+  // Keyed like the connection revision, with the install's own key.
+  const connectionTests = createProviderConnectionTestStore(opts.db, opts.config.apiKey);
+  const providerSettings = createProviderSettingsController({
+    config: opts.config,
+    configPath: persistedConfigPath,
+    db: opts.db,
+    registry,
+    apiAdapters: API_ADAPTERS,
+    browserAdapter: cdpChatgptAdapter,
+    executingBatches: () => jobRunner.getExecutingBatchRegistrations(),
+    persist: (name, entry) => persistConfigPatch(
+      persistedConfigPath && fs.existsSync(persistedConfigPath) ? {} : opts.config,
+      { providerReplacement: { name, entry } },
+    ),
+    recordChange: recordProviderChange,
+    refreshSummary: () => { providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config)); },
+    connectionTests,
+  });
   await app.register(apiRoutes, {
     // Outcome telemetry reported from route code (`app.emitOutcome`).
     onOutcome: handleRouteOutcome,
     db: opts.db,
     claimScheduledSync,
     sentiment: {
-      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; },
+      install: sentimentInstall,
       previewSecret: opts.config.apiKey,
       estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
     },
@@ -3213,6 +3249,9 @@ export async function createServer(opts: {
       path: sessionCookiePath,
       ...(sessionCookieSecure ? { secure: true } : {}),
     },
+    chatgptAccounts,
+    chatgptPreferredModel: () => preferredChatGptModel(opts.config),
+    dashboardPath: basePath ?? "/",
     // Whether an operator has declared which hops to believe. The per-caller
     // sign-in budget depends on this being the truth rather than something
     // inferred from a header the caller controls.
@@ -3251,6 +3290,7 @@ export async function createServer(opts: {
     // Powers the `canonry.version.current` doctor check. Non-blocking.
     getUpdateStatus: () => getServerUpdateStatus(),
     allowLoopbackWebhooks,
+    appVersion: PACKAGE_VERSION,
     // Wall-clock budget for one incremental Vercel drain. This is the only lever
     // that decides whether a source catches up or falls further behind, and it
     // was previously reachable only from tests, so a source losing ground could
@@ -3607,10 +3647,13 @@ export async function createServer(opts: {
       projectId: string,
       inspectOpts?: { sitemapUrl?: string },
     ) => {
-      executeBingInspectSitemap(opts.db, runId, projectId, {
-        ...inspectOpts,
-        config: opts.config,
-      })
+      // One Bing job per API key at a time, syncs first: see bing-job-lane.ts.
+      runBingJob(opts.db, opts.config, projectId, "inspect", () =>
+        executeBingInspectSitemap(opts.db, runId, projectId, {
+          ...inspectOpts,
+          config: opts.config,
+        }),
+      )
         .then(() => {
           // Unlike executeGscSync, the Bing executor resolves even when the run
           // ends `failed` (every URL errored), so gate the cross-engine GSC
@@ -3639,6 +3682,13 @@ export async function createServer(opts: {
         .catch((err: unknown) => {
           app.log.error({ runId, err }, "Bing inspect sitemap failed");
         });
+    },
+    onBingSyncRequested: (runId: string, projectId: string) => {
+      runBingJob(opts.db, opts.config, projectId, "sync", () =>
+        executeBingSync(opts.db, runId, projectId, { config: opts.config }),
+      ).catch((err: unknown) => {
+        app.log.error({ runId, err }, "Bing sync failed");
+      });
     },
     wordpressConnectionStore,
     ga4CredentialStore,
@@ -3687,6 +3737,21 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
+    // The active registration's own healthcheck: the settings a sweep would
+    // use right now. Its result is kept for exactly those settings.
+    onProviderTest: (name: string, signal: AbortSignal) => {
+      const provider = registry.get(name);
+      if (!provider) return undefined;
+      // Taken now: settings saved while the check runs are not what it checked.
+      const tested = connectionTests.fingerprint(provider.config);
+      return {
+        // Once the route stops waiting, the check stops retrying and spending.
+        // A vendor error can quote the key it was sent; it never leaves in a test result.
+        check: provider.adapter.healthcheck(provider.config, signal)
+          .then(result => ({ ...result, message: redactKnownSecrets(result.message, [provider.config.apiKey]) })),
+        record: result => connectionTests.record(name, tested, result),
+      };
+    },
     onProviderReload: (input, auditContext) => {
       if (input.configPath !== undefined && (
         runtimePathIdentity(input.configPath) !== runtimeConfigIdentity
@@ -3723,72 +3788,12 @@ export async function createServer(opts: {
       providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
       return providerSummaries(registry, opts.config, true);
     },
-    onProviderUpdate: (
-      providerName: string,
-      apiKey: string,
-      model?: string,
-      baseUrl?: string,
-      incomingQuota?: Partial<
-        import("@canonry/canonry-contracts").ProviderQuotaPolicy
-      >,
-      auditContext?,
-    ) => {
-      const name = providerName;
-      if (!adapterMap[name]) return null;
-      const adapterDefaultQuota = adapterMap[name]!.defaultQuota ?? DEFAULT_QUOTA;
-      const answerService = adapterMap[name]!.kind === "answer-service";
-
-      // Update config and persist
-      if (!opts.config.providers) opts.config.providers = {};
-      const existing = opts.config.providers[name];
-      const previousProvider = registry.get(name) ?? (existing ? {
-        adapter: adapterMap[name]!,
-        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, adapterDefaultQuota)),
-      } : undefined);
-      const mergedQuota = incomingQuota
-        ? { ...(existing?.quota ?? adapterDefaultQuota), ...incomingQuota }
-        : existing?.quota;
-      opts.config.providers[name] = {
-        apiKey: apiKey || existing?.apiKey,
-        // An answer service's endpoint is fixed and its routes pin profiles.
-        baseUrl: answerService ? undefined : baseUrl || existing?.baseUrl,
-        model: answerService ? undefined : model || existing?.model,
-        quota: mergedQuota,
-        // Preserve Vertex AI config (Gemini provider) — these are set via
-        // config file or env vars, not through the dashboard update payload
-        vertexProject: existing?.vertexProject,
-        vertexRegion: existing?.vertexRegion,
-        vertexCredentials: existing?.vertexCredentials,
-        // Batch and price settings are config-file only too; a key rotation
-        // from the dashboard must not switch batch off or drop overrides.
-        ...(existing?.batch ? { batch: existing.batch } : {}),
-        ...(existing?.pricing ? { pricing: existing.pricing } : {}),
-      };
-
-      try {
-        persistConfigPatch(fs.existsSync(runtimeConfigPath)
-          ? { providers: { [name]: opts.config.providers[name]! } }
-          : opts.config);
-      } catch (err) {
-        app.log.error({ err }, "Failed to save config");
-        return null;
-      }
-
-      // Re-register in the live registry (use preserved model if none was passed)
-      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, adapterDefaultQuota);
-      registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
-
-      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
-      const entry = providerSummary.find((provider) => provider.name === name);
-      opts.db.transaction(() => recordProviderChange(name, previousProvider, registry.get(name), auditContext));
-
-      return {
-        name,
-        model: entry?.model,
-        configured: true,
-        quota,
-      };
+    getProviderConnections: providerSettings.connections,
+    onProviderSettingsUpdate: (name, input, auditContext) => {
+      providerSettings.update(name, input, auditContext);
+      return providerSummary.find(provider => provider.name === name)!;
     },
+    onProviderDisconnect: providerSettings.disconnect,
     onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
       try {
         setGoogleAuthConfig(opts.config, { clientId, clientSecret });
@@ -3869,8 +3874,7 @@ export async function createServer(opts: {
       opts.config.telemetry = enabled;
     } : undefined,
     recordOnboardingEvent: (event) => recordDashboardEvent(event),
-    // Answers false while telemetry is off or the per-process cap is spent, so
-    // the dashboard stops sending for the session.
+    // False stops collection when opted out; 429 allows recovery after a rate limit.
     recordUiEvent: createUiTelemetryGate(),
     submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
@@ -3957,6 +3961,10 @@ export async function createServer(opts: {
     },
   });
 
+  // Resolve once at startup so the dashboard document and /health describe the same build.
+  const buildCommit = resolveBuildCommit();
+  const build = { version: PKG_VERSION, ...(buildCommit ? { commit: buildCommit } : {}) };
+
   // Try to serve static SPA assets
   const dirname = path.dirname(fileURLToPath(import.meta.url));
   const assetsDir = opts.assetsDir ?? path.join(dirname, "..", "assets");
@@ -3973,20 +3981,29 @@ export async function createServer(opts: {
     ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
-      // Keep the default client config byte-for-byte unchanged. Only inject the
-      // dashboard block when the operator changes dashboard presentation.
+      if (!embed.enabled) clientConfig.build = build;
+      // Only inject the dashboard block when the operator changes dashboard presentation.
       const dashboardConfig: Record<string, boolean | string | string[]> = {};
       if (dashboardOnboardingMode) {
         dashboardConfig.onboardingMode = dashboardOnboardingMode;
       }
+      if (managedInstall) {
+        dashboardConfig.managedInstance = true;
+      }
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
+      }
+      if (!dashboardShowFeedback) {
+        dashboardConfig.showFeedback = false;
       }
       if (!dashboardShowLocalAgentSetup) {
         dashboardConfig.showLocalAgentSetup = false;
       }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
+      }
+      if (dashboardWhatsNewOnly) {
+        dashboardConfig.whatsNewOnly = true;
       }
       if (dashboardBrandMark === "icon") {
         dashboardConfig.brandMark = "icon";
@@ -4018,8 +4035,6 @@ export async function createServer(opts: {
           viewerDailyRunLimit: researchViewerDailyRunLimit,
         };
       }
-      // Embed block is appended LAST and only when enabled, so the default
-      // (non-embed) serve emits byte-for-byte the same `{}` / `{basePath}`.
       // `projectTabs` + `theme` may be overridden PER REQUEST by the
       // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
       // proxy sets per dashboard. The proxy also sets X-Canonry-Embed-Render-Token
@@ -4053,7 +4068,7 @@ export async function createServer(opts: {
       const baseTag = `<base href="${basePath ?? "/"}">`;
       return (dashboardBrandMark === "icon" ? withIconMarkLinks(html) : html)
         .replace("<head>", `<head>${baseTag}`)
-        .replace("</head>", `${configScript}</head>`);
+        .replace("</head>", () => `${configScript}</head>`);
     };
 
     // Single chokepoint for every SPA HTML document (root + deep-link
@@ -4094,9 +4109,8 @@ export async function createServer(opts: {
       // every page load, defeating most of the dashboard's first-paint
       // budget.
       setHeaders: (reply: FastifyReply, path: string) => {
-        // index.html serving is handled separately below; this static
-        // middleware doesn't actually serve it (index:false), but guard
-        // anyway in case fastify-static falls back through here.
+        // Dashboard documents have explicit routes below. Other HTML assets
+        // must also revalidate instead of using the hashed asset policy.
         if (path.endsWith(".html")) {
           reply.header("Cache-Control", "no-cache, must-revalidate");
         } else {
@@ -4125,6 +4139,8 @@ export async function createServer(opts: {
     };
     const rootRouteTrailing = basePath ?? "/";
     app.get(rootRouteTrailing, serveIndex);
+    // index:false disables directory indexes but still allows the literal filename.
+    app.get(rootRouteTrailing + "index.html", serveIndex);
     // Also register the no-trailing-slash variant when base path is set
     // (e.g. '/canonry' in addition to '/canonry/') to avoid a 404 on bare navigation.
     if (basePath) {
@@ -4199,6 +4215,17 @@ export async function createServer(opts: {
           .send({ error: "Not found", path: request.url });
       }
 
+      // A dashboard code file this build does not have. Vite names every file
+      // under assets/ by its content hash, and a deploy removes the old ones,
+      // so a tab opened before the deploy asks for names that are gone. Answer
+      // 404, not the app shell: HTML sent for a module request is a MIME error,
+      // not a missing file, and nothing under assets/ is a dashboard route.
+      const assetsPrefix = `${basePath ?? "/"}assets/`;
+      if (url.startsWith(assetsPrefix) || decodedUrl.startsWith(assetsPrefix)) {
+        const error = notFound("Asset", url);
+        return reply.status(error.statusCode).send(error.toJSON());
+      }
+
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, "utf-8");
         // Same no-cache + embed-framing policy as `serveIndex` — SPA deep
@@ -4221,9 +4248,7 @@ export async function createServer(opts: {
   // updateCheck: false in config.
   // `commit` (build-time stamp, else CANONRY_COMMIT) and `instance`
   // (CANONRY_INSTANCE / CANONRY_INSTANCE_ROLE) make a running engine
-  // self-identifying to fleet tooling. Both are fixed for the process lifetime,
-  // so resolve them once here; each is omitted, not nulled, when unknown.
-  const buildCommit = resolveBuildCommit();
+  // self-identifying to fleet tooling. Unknown optional fields are omitted.
   const instance = resolveInstanceIdentity();
   const healthHandler = (request: FastifyRequest) => {
     const storedOnly = request.headers[STORED_ONLY_HEADER] === '1' || request.headers[STORED_ONLY_HEADER] === 'true';
@@ -4231,9 +4256,8 @@ export async function createServer(opts: {
     return {
       status: "ok",
       service: "canonry",
-      version: PKG_VERSION,
+      ...build,
       mcp: getMcpHealth(),
-      ...(buildCommit ? { commit: buildCommit } : {}),
       ...(instance ? { instance } : {}),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
       ...(update ? { updateAvailable: update } : {}),
@@ -4280,6 +4304,11 @@ export async function createServer(opts: {
         return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
       },
       credentials: credentialChecker,
+      // A person whose account signs in only with ChatGPT approves MCP
+      // clients too: the consent page offers it and comes back to itself.
+      chatgptSignInUrl: (returnTo) => chatgptAccounts.signInEnabled()
+        ? `${apiPrefix}/auth/chatgpt/start?${new URLSearchParams({ intent: "login", returnTo }).toString()}`
+        : null,
       startSession: (userId) => {
         const token = createUserSession(opts.db, userId);
         return serializeUserSessionCookie({
@@ -4341,8 +4370,11 @@ export async function createServer(opts: {
       // New bots and agents in traffic alert on their own schedule; every
       // source type writes them, including direct push, which never syncs.
       stopUnrecognizedAgentAlerts = startUnrecognizedAgentAlertLoop(() => notifier.dispatchUnrecognizedAgentAlerts());
+      // Sentiment verdicts arrive after a sweep completes, so answers that
+      // turned unfavorable alert on their own schedule once a sweep settles.
+      stopSentimentAlerts = startSentimentAlertLoop(() => notifier.dispatchSentimentAlerts());
       // When the classification rules changed since the last pass, reclassify
-      // stored unknown traffic once, shortly after startup.
+      // stored traffic under them once, shortly after startup.
       stopTrafficReclassification = startTrafficReclassification({ db: opts.db });
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
@@ -4386,6 +4418,8 @@ export async function createServer(opts: {
     stopReviewDeliveries = null;
     stopUnrecognizedAgentAlerts?.();
     stopUnrecognizedAgentAlerts = null;
+    stopSentimentAlerts?.();
+    stopSentimentAlerts = null;
     stopTrafficReclassification?.();
     stopTrafficReclassification = null;
     stopProviderBatchPoller?.();

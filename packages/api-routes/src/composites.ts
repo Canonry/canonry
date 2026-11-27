@@ -21,6 +21,8 @@ import { SentimentService, type SentimentServiceOptions } from './sentiment-serv
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  isCitationStateMeasured,
+  readCitationState,
   competitorAutoAliasNames,
   formatPercent,
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
@@ -33,6 +35,7 @@ import {
   type AttentionItemDto,
   type CitationState,
   type MentionIdentity,
+  type RetrievalStatus,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -82,9 +85,11 @@ import {
   providerKey,
   type SuggestedQueryGscRow,
 } from '@canonry/canonry-intelligence'
-import { notProbeRun, resolveProject } from './helpers.js'
-import { compareInsightsForTriage } from './intelligence.js'
+import { isScopedRun, notProbeRun, notScopedRun, resolveProject } from './helpers.js'
+import { compareInsightsForTriage, mapHealthSnapshotRow } from './intelligence.js'
+import { buildOverviewWhatChanged } from './overview-what-changed.js'
 import { runAdmissionState } from './run-queue.js'
+import { readOverviewVisibility } from './visibility-report.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readLatestGscDataDate, resolveGscWindowDays,
@@ -105,6 +110,7 @@ const INTEGRATION_SYNC_KINDS: ReadonlySet<string> = new Set<RunKind>([
   RunKinds['ga-sync'],
   RunKinds['bing-inspect'],
   RunKinds['bing-inspect-sitemap'],
+  RunKinds['bing-sync'],
   RunKinds['backlink-extract'],
   RunKinds['traffic-sync'],
   RunKinds['google-ads-sync'],
@@ -149,7 +155,12 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     const allRuns = allRunsRaw.filter(r => runMatchesFilters(r, filterLocation, sinceIso))
     const totalRuns = allRuns.length
 
-    const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
+    // Whole-project sweeps only. A spot check (a list of queries, or a slice
+    // of a plan) is a real observation of what it asked, but drawing it as a
+    // trend point or picking it as the latest/previous sweep would report a
+    // 2-query check as the whole basket. It still counts in `latestRun`,
+    // `totalRuns`, run status, and What changed's runs in progress.
+    const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'] && !isScopedRun(r))
     const completedVisRuns = visibilityRuns.filter(
       r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
     )
@@ -183,14 +194,17 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       ? { totalRuns, run: summarizeRun(latestRunRow), admission, manualAdmission }
       : { totalRuns: 0, run: null, admission, manualAdmission }
 
+    // A spot check writes a health row for its slice; the headline stays on
+    // the latest sweep's. A legacy row with no run joins nulls and passes.
     const healthRow = app.db
-      .select()
+      .select({ health: healthSnapshots })
       .from(healthSnapshots)
-      .where(eq(healthSnapshots.projectId, project.id))
+      .leftJoin(runs, eq(runs.id, healthSnapshots.runId))
+      .where(and(eq(healthSnapshots.projectId, project.id), notScopedRun()))
       .orderBy(desc(healthSnapshots.createdAt))
       .limit(1)
-      .get()
-    const health: HealthSnapshotDto | null = healthRow ? mapHealthRow(healthRow) : null
+      .get()?.health
+    const health: HealthSnapshotDto | null = healthRow ? mapHealthSnapshotRow(healthRow) : null
 
     const insightRows = app.db
       .select()
@@ -326,7 +340,10 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     )
     const providerScores: ProjectOverviewProviderScoreDto[] = providerScoresBase.map(score => {
       const trend = providerTrends.get(providerKey(score.provider, score.model)) ?? []
-      return trend.length > 1 ? { ...score, trend: trend.map(p => p.rate) } : score
+      // A run whose answers from this engine carried no sources measured
+      // nothing; it is left out of the sparkline rather than drawn as 0.
+      const rates = trend.flatMap(p => p.rate === null ? [] : [p.rate])
+      return rates.length > 1 ? { ...score, trend: rates } : score
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
@@ -345,14 +362,43 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     // the cross-run trends are assembled here at the composite — each tracking
     // its own signal (mention = answer-text, visibility = cited source).
     scores.mention.trend = runHistory.map(p => p.mentionRate)
-    scores.visibility.trend = runHistory.map(p => p.citationRate)
+    // Runs with no answer carrying sources have no citation rate to plot.
+    scores.visibility.trend = runHistory.flatMap(p => p.citationRate === null ? [] : [p.citationRate])
     const suggestedQueries: SuggestedQueriesSummaryDto = buildSuggestedQueriesFromGsc(
       app,
       project.id,
       projectQueries.map(q => q.query),
     )
 
+    // One canonical read keeps the collection and detailed report on the same
+    // frozen identities, completed sweep, class split, and missing-answer rules.
+    // On an Advanced project it also hands What changed the sweep it selected
+    // and the one before it.
+    const { report: coverage, advanced } = readOverviewVisibility(app.db, project, {
+      queryClass: 'all',
+      limit: 1,
+      ...(filterLocation ? { location: filterLocation } : {}),
+      ...(sinceIso ? { from: sinceIso } : {}),
+    })
+    const whatChanged = buildOverviewWhatChanged(app.db, {
+      project,
+      runs: allRuns,
+      latestSweep: latestVisRunGroup,
+      advanced,
+      location: coverage.selection.location,
+      since: sinceIso,
+    })
     const result: ProjectOverviewDto = {
+      mentionCoverage: {
+        selection: coverage.selection,
+        populations: coverage.populations.map(({ queryClass, summary }) => ({
+          queryClass,
+          queryCount: summary.queryCount,
+          answerCount: summary.answerCount,
+          mentionCoverage: summary.mentionCoverage,
+          citationCoverage: summary.citationCoverage,
+        })),
+      },
       project: formatProject(project, readNegativeReviewMaxStars(app.db, project.id)),
       latestRun,
       health,
@@ -373,6 +419,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       competitors: overviewCompetitors,
       providerScores,
       attentionItems,
+      whatChanged,
       runHistory,
       suggestedQueries,
       ...(sentiment ? { sentiment: sentiment.overview(project.id, latestVisRunGroup.map(run => run.id), filterLocation ?? undefined) } : {}),
@@ -409,6 +456,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
@@ -566,6 +614,7 @@ function loadSnapshotsByRunIds(
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
+      retrievalStatus: querySnapshots.retrievalStatus,
       answerMentioned: querySnapshots.answerMentioned,
       mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
@@ -608,7 +657,7 @@ function loadSnapshotsByRunIds(
       archived,
       provider: row.provider,
       model: row.model,
-      citationState: row.citationState as CitationState,
+      citationState: readCitationState(row),
       answerMentioned: row.answerMentioned,
       mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
@@ -641,6 +690,7 @@ function summarizeFromSnapshots(
       citedQueries: 0,
       notCitedQueries: 0,
       citedRate: 0,
+      citationNotMeasuredQueries: 0,
       mentionedQueries: 0,
       notMentionedQueries: 0,
       mentionRate: 0,
@@ -649,28 +699,34 @@ function summarizeFromSnapshots(
   }
   if (snapshots.length === 0) return empty
 
-  const { totalQueries, citedQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
-  const perProvider = new Map<string, { cited: number; total: number }>()
+  const { totalQueries, citedQueries, mentionedQueries, citationNotMeasuredQueries = 0 } = summarizeObservedQueryCounts(snapshots)
+  const perProvider = new Map<string, { cited: number; total: number; citationNotMeasured: number }>()
   for (const snap of snapshots) {
     const cited = snap.citationState === CitationStates.cited
-    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
+    const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0, citationNotMeasured: 0 }
     bucket.total += 1
     if (cited) bucket.cited += 1
+    if (!isCitationStateMeasured(snap.citationState)) bucket.citationNotMeasured += 1
     perProvider.set(snap.provider, bucket)
   }
 
-  const notCitedQueries = totalQueries - citedQueries
-  const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
+  // A query none of whose answers carries sources is neither cited nor not cited.
+  const citationMeasuredQueries = totalQueries - citationNotMeasuredQueries
+  const notCitedQueries = citationMeasuredQueries - citedQueries
+  const citedRate = citationMeasuredQueries === 0
+    ? (totalQueries === 0 ? 0 : null)
+    : Number((citedQueries / citationMeasuredQueries).toFixed(4))
 
   const notMentionedQueries = totalQueries - mentionedQueries
   const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
 
   const providers: ProjectOverviewProviderEntryDto[] = [...perProvider.entries()]
-    .map(([provider, { cited, total }]) => ({
+    .map(([provider, { cited, total, citationNotMeasured }]) => ({
       provider,
       cited,
       total,
-      citedRate: total === 0 ? 0 : Number((cited / total).toFixed(4)),
+      citationNotMeasured,
+      citedRate: total === citationNotMeasured ? null : Number((cited / (total - citationNotMeasured)).toFixed(4)),
     }))
     .sort((a, b) => a.provider.localeCompare(b.provider))
 
@@ -680,6 +736,7 @@ function summarizeFromSnapshots(
       citedQueries,
       notCitedQueries,
       citedRate,
+      citationNotMeasuredQueries,
       mentionedQueries,
       notMentionedQueries,
       mentionRate,
@@ -699,6 +756,9 @@ function summarizeTransitionsFromSnapshots(
   const buildMap = (snaps: readonly OverviewSnapshot[]): Map<string, boolean> => {
     const m = new Map<string, boolean>()
     for (const s of snaps) {
+      // An answer without sources observed nothing about citation, so it can
+      // neither gain nor lose one; a query only it answered is absent here.
+      if (!isCitationStateMeasured(s.citationState)) continue
       const cited = s.citationState === CitationStates.cited
       if (!m.has(s.queryId) || cited) m.set(s.queryId, cited)
     }
@@ -1019,34 +1079,6 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
   }
 }
 
-function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto {
-  // Coalesce legacy provider entries (written before v80, no mention keys) to 0.
-  const providerBreakdown: HealthSnapshotDto['providerBreakdown'] = {}
-  for (const [provider, entry] of Object.entries(r.providerBreakdown)) {
-    providerBreakdown[provider] = {
-      citedRate: entry.citedRate,
-      mentionRate: entry.mentionRate ?? 0,
-      cited: entry.cited,
-      mentioned: entry.mentioned ?? 0,
-      total: entry.total,
-    }
-  }
-  return {
-    id: r.id,
-    projectId: r.projectId,
-    runId: r.runId ?? null,
-    overallCitedRate: Number(r.overallCitedRate),
-    // Legacy rows (persisted before v80) have NULL mention columns → 0.
-    overallMentionRate: r.overallMentionRate == null ? 0 : Number(r.overallMentionRate),
-    totalPairs: r.totalPairs,
-    citedPairs: r.citedPairs,
-    mentionedPairs: r.mentionedPairs ?? 0,
-    providerBreakdown,
-    createdAt: r.createdAt,
-    status: 'ready',
-  }
-}
-
 function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars: number | null): ProjectDto {
   return {
     id: row.id,
@@ -1069,6 +1101,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    siteAuditDomains: row.siteAuditDomains,
     competitorAutoAliases: row.competitorAutoAliases,
     configSource: row.configSource,
     configRevision: row.configRevision,
@@ -1085,7 +1118,8 @@ function buildSnapshotHit(
     queryText: string | null
     provider: string
     model: string | null
-    citationState: string
+    citationState: CitationState
+    retrievalStatus: RetrievalStatus | null
     answerText: string | null
     citedDomains: string[]
     citedUrls: string[] | null
@@ -1125,7 +1159,7 @@ function buildSnapshotHit(
     query,
     provider: row.provider,
     model: row.model,
-    citationState: row.citationState as CitationState,
+    citationState: readCitationState(row),
     matchedField,
     snippet,
     createdAt: row.createdAt,

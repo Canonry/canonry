@@ -5,7 +5,8 @@ export function aeroViewFromLocation(path: string, search: Record<string, unknow
   const property = /\/properties\/([^/]+)/.exec(path)
   const selection = parseVisibilitySelection(search)
   if (property) return { view: 'property', selection: visibilityReportRequestSchema.parse({ scope: 'property', scopeKey: decodeURIComponent(property[1]), queryClass: selection.queryClass, limit: 10 }) }
-  if (path.endsWith('/technical-aeo')) return { view: 'site-health' }
+  // `site-health` is Aero's wire token for the Agent Readiness view; `/technical-aeo` is its retired route.
+  if (path.endsWith('/agent-readiness') || path.endsWith('/technical-aeo')) return { view: 'site-health' }
   if (path.endsWith('/seo-data')) {
     const text = (key: string) => { const value = search[key]; return typeof value === 'string' && value ? value : undefined }
     const [seoProfileId, seoRunId, seoRegionKey, seoMarketKey] = [text('seoProfileId'), text('seoRunId'), text('seoRegion'), text('seoMarket')]

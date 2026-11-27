@@ -6,7 +6,6 @@ test('getPlatformEnv returns defaults when no env vars set', () => {
   const env = getPlatformEnv({})
 
   expect(env.apiPort).toBe(3000)
-  expect(env.workerPort).toBe(3001)
   expect(env.webPort).toBe(4173)
   expect(env.bootstrapSecret).toBe('change-me')
   // No providers configured by default
@@ -28,7 +27,6 @@ test('getPlatformEnv configures Gemini provider from env vars', () => {
   const env = getPlatformEnv({
     DATABASE_URL: 'postgresql://custom',
     API_PORT: '4100',
-    WORKER_PORT: '4101',
     WEB_PORT: '4200',
     BOOTSTRAP_SECRET: 'secret',
     GEMINI_API_KEY: 'gemini-key',
@@ -40,7 +38,6 @@ test('getPlatformEnv configures Gemini provider from env vars', () => {
 
   expect(env.databaseUrl).toBe('postgresql://custom')
   expect(env.apiPort).toBe(4100)
-  expect(env.workerPort).toBe(4101)
   expect(env.webPort).toBe(4200)
   expect(env.bootstrapSecret).toBe('secret')
   expect(env.providers.gemini).toBeTruthy()
@@ -178,6 +175,9 @@ test('getBootstrapEnv leaves model and quota unset unless set; a new entry takes
   // A saved model and quota are values, not gaps: the defaults never replace them.
   const saved = { apiKey: 'o', model: 'gpt-4.1', quota: { maxConcurrency: 4, maxRequestsPerMinute: 30, maxRequestsPerDay: 900 } }
   expect(withBootstrapProviderDefaults('openai', saved)).toEqual(saved)
+  // A reset removes one override; bootstrap must not persist a default in its place.
+  expect(withBootstrapProviderDefaults('openai', { apiKey: 'o', model: 'gpt-4.1', quota: { maxRequestsPerDay: 25 } }))
+    .toEqual({ apiKey: 'o', model: 'gpt-4.1', quota: { maxRequestsPerDay: 25 } })
 })
 
 test('getBootstrapEnv parses hosted Canonry env vars', () => {

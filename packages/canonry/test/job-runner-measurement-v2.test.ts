@@ -131,6 +131,10 @@ interface CountingAdapterOptions {
   /** What the provider claims it built the request with, however it was configured. */
   reportedModel?: string
   servedModel?: string
+  /** Domains the answer's sources cite. */
+  citedDomains?: string[]
+  /** False for an engine whose answers carry no sources, like a local model. */
+  citationMeasurable?: boolean
 }
 
 function countingAdapter(options: CountingAdapterOptions): ProviderAdapter {
@@ -159,10 +163,11 @@ function countingAdapter(options: CountingAdapterOptions): ProviderAdapter {
       return {
         provider: options.name,
         answerText: 'fake answer',
-        citedDomains: [],
+        citedDomains: options.citedDomains ?? [],
         groundingSources: [],
         searchQueries: [],
-        retrievalStatus: 'used',
+        retrievalStatus: options.citationMeasurable === false ? 'not-applicable' : 'used',
+        ...(options.citationMeasurable === undefined ? {} : { citationMeasurable: options.citationMeasurable }),
       }
     },
     async generateText(_prompt: string, _config: ProviderConfig): Promise<string> {
@@ -234,6 +239,24 @@ describe('executing a published v2 revision', () => {
     // the run names the revision that froze it.
     expect(row.measurementExecutionId).toBe('exec-shared')
     expect(db.select().from(runs).where(eq(runs.id, queued.runId)).get()!.measurementPlanVersionId).toBeTruthy()
+  })
+
+  it('records an engine without sources as not measured beside one that cites', async () => {
+    const db = seedDb()
+    const projectId = seedPlannedProject(db, sharedNodePlan(['property-001'], { key: 'exec-shared', providers: ['local', 'openai'] }))
+
+    const queued = queueRunIfProjectIdle(db, { projectId })
+    if (queued.conflict) throw new Error('unexpected conflict')
+
+    const calls: Array<{ provider: string; query: string; model: string | undefined }> = []
+    await new JobRunner(db, registryFor([
+      countingAdapter({ name: 'local', calls, citationMeasurable: false }),
+      countingAdapter({ name: 'openai', calls, citedDomains: ['example.com'] }),
+    ])).executeRun(queued.runId, projectId)
+
+    const states = Object.fromEntries(db.select().from(querySnapshots).where(eq(querySnapshots.runId, queued.runId)).all()
+      .map(row => [row.provider, row.citationState]))
+    expect(states).toEqual({ local: 'not-measured', openai: 'cited' })
   })
 })
 

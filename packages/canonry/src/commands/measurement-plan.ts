@@ -15,6 +15,8 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  CITATION_NOT_MEASURED_REASON,
+  citationNotMeasuredLabel,
   unattributedAnswersLabel,
   uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
@@ -455,6 +457,7 @@ const METRIC_REASONS: Record<string, string> = {
   evidence_incomplete: 'not measured (evidence incomplete)',
   identity_ambiguous: `not measured (${UNATTRIBUTED_MENTION_REASON.toLowerCase()})`,
   not_applicable: 'not measured (not applicable)',
+  citation_not_measured: 'not measured (the engines return no sources)',
 }
 
 /** Answers a mention rate left out because they could not be tied to one property. */
@@ -462,9 +465,14 @@ function unattributedText(metric: MetricValue): string | null {
   return metric.state === 'available' ? unattributedAnswersLabel(metric) : null
 }
 
-/** Answers a citation rate left out because their source-link capture was incomplete. */
+/**
+ * Answers a citation rate left out: those whose source-link capture was
+ * incomplete, and those whose engine returns no sources.
+ */
 function uncheckedText(metric: MetricValue): string | null {
-  return metric.state === 'available' ? uncheckedSourcesLabel(metric) : null
+  if (metric.state !== 'available') return null
+  const notes = [uncheckedSourcesLabel(metric), citationNotMeasuredLabel(metric)].filter((note): note is string => note !== null)
+  return notes.length === 0 ? null : notes.join(' · ')
 }
 
 /** A rate followed by the note naming the answers it left out, when there is one. */
@@ -683,6 +691,9 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
     }
     if (differentSubject > 0) {
       lines.push('· different subject: the answer uses this Property\'s name, but sentiment found it is about something else, so it is not counted as mentioned.')
+    }
+    if (page.items.some(item => item.citationMeasured === false)) {
+      lines.push(`Cited "not measured" on an answer whose engine returns no sources: ${CITATION_NOT_MEASURED_REASON}`)
     }
   } else {
     lines.push(`${'Match'.padEnd(14)}${'Engine'.padEnd(12)}${'Question'.padEnd(40)}URL`)

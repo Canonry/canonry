@@ -3,6 +3,7 @@ import {
   DEFAULT_AI_REFERRER_RULES,
 } from '@canonry/canonry-integration-traffic'
 import { describe, expect, it, vi } from 'vitest'
+import { ruleTokens } from '../../integration-traffic/test/fixtures/rule-tokens.js'
 import { canonicalizeCloudflareJson } from '../src/canonical-json.js'
 import {
   DEFAULT_BOT_LIST,
@@ -190,10 +191,12 @@ describe('generateWorkerScript', () => {
     }
   })
 
-  it('forwards every canonical crawler and AI user-fetch UA token', () => {
+  it('forwards every classifier rule\'s token, static files included', () => {
     const shouldForward = generatedShouldForward()
-    for (const token of DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS) {
-      expect(shouldForward(request('https://example.com/', undefined, `Mozilla/5.0 ${token}1.0`))).toBe(true)
+    // On a static file only the keyword list forwards a request; the
+    // unlisted-agent net skips static files, so it cannot mask a missing token.
+    for (const { ruleId, token, userAgent } of ruleTokens()) {
+      expect(shouldForward(request('https://example.com/logo.png', undefined, userAgent)), `${ruleId}: ${token}`).toBe(true)
     }
   })
 

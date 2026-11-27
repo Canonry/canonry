@@ -307,7 +307,7 @@ describe('config.providers', () => {
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('providers.none-configured')
-    expect(result.summary).toContain('Page Health remains available')
+    expect(result.summary).toContain('Agent Readiness remains available')
     expect(result.remediation).toContain('canonry bootstrap')
     expect(result.remediation).toContain('canonry settings provider <name> --api-key <key>')
   })
@@ -330,7 +330,7 @@ describe('config.providers', () => {
     })
     expect(onlyService.status).toBe('warn')
     expect(onlyService.code).toBe('providers.none-configured')
-    expect(onlyService.summary).toBe('No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(onlyService.summary).toBe('No answer-engine provider is configured. Agent Readiness remains available; AI Visibility is disabled. Search answer services configured (used only where a project picks one of their profiles): exa.')
     expect(onlyService.details).toEqual({ available: ['gemini'], answerServices: ['exa'] })
 
     const withEngine = providersCheck.run({

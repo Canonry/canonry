@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { roundPreservingTotal } from '../src/rounding.js'
 
-/** The sixteen core audit factor weights, in `@canonry/aeo-audit` definition order. They sum to 111. */
+/** The sixteen core audit factor weights, in `@canonry/agent-readiness` definition order. They sum to 111. */
 const CORE_WEIGHTS = [12, 10, 5, 8, 8, 8, 8, 5, 7, 7, 6, 6, 4, 6, 5, 6]
 
 function sum(values: readonly number[]): number {

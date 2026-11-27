@@ -13,7 +13,7 @@ const RANGE_OPTIONS = {
   end: stringOption(),
 } as const
 
-const RANGE_USAGE = `[--window ${WINDOW_SETS.metrics.join('|')}] [--start YYYY-MM-DD] [--end YYYY-MM-DD]`
+const RANGE_USAGE = `[--window ${WINDOW_SETS.gaTraffic.join('|')}] [--start YYYY-MM-DD] [--end YYYY-MM-DD]`
 
 function rangeValues(values: CliValues): { window?: string; startDate?: string; endDate?: string } {
   return {
@@ -135,7 +135,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['ga', 'search-landing-pages'],
     windows: WINDOW_SETS.gaSearchLanding,
-    usage: 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]',
+    usage: 'canonry ga search-landing-pages <project> [--window 7d|28d|90d|180d] [--limit 50] [--offset 0] [--format json|jsonl]',
     options: {
       window: stringOption(),
       limit: stringOption(),
@@ -143,7 +143,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const { gaSearchLandingPages } = await import('../commands/ga.js')
-      const project = requireProject(input, 'ga.search-landing-pages', 'canonry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0] [--format json|jsonl]')
+      const project = requireProject(input, 'ga.search-landing-pages', 'canonry ga search-landing-pages <project> [--window 7d|28d|90d|180d] [--limit 50] [--offset 0] [--format json|jsonl]')
       // Forwarded verbatim: the server is the one place that validates them.
       await gaSearchLandingPages(project, {
         window: getString(input.values, 'window'),
@@ -155,7 +155,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'traffic'],
-    windows: WINDOW_SETS.metrics,
+    windows: WINDOW_SETS.gaTraffic,
     usage: `canonry ga traffic <project> [--limit 50] ${RANGE_USAGE} [--format json]`,
     options: {
       limit: stringOption(),
@@ -184,7 +184,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'ai-referral-history'],
-    windows: WINDOW_SETS.metrics,
+    windows: WINDOW_SETS.gaTraffic,
     usage: `canonry ga ai-referral-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -198,7 +198,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'ai-referral-daily'],
-    windows: WINDOW_SETS.metrics,
+    windows: WINDOW_SETS.gaTraffic,
     usage: `canonry ga ai-referral-daily <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -212,7 +212,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'social-referral-history'],
-    windows: WINDOW_SETS.metrics,
+    windows: WINDOW_SETS.gaTraffic,
     usage: `canonry ga social-referral-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {
@@ -227,10 +227,10 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['ga', 'overview'],
     windows: WINDOW_SETS.gaOverview,
-    usage: 'canonry ga overview <project> [--window 7d|30d|90d] [--format json]',
+    usage: 'canonry ga overview <project> [--window 7d|30d|90d|180d] [--format json]',
     run: async (input) => {
       const { gaOverview } = await import('../commands/ga.js')
-      const project = requireProject(input, 'ga.overview', 'canonry ga overview <project> [--window 7d|30d|90d] [--format json]')
+      const project = requireProject(input, 'ga.overview', 'canonry ga overview <project> [--window 7d|30d|90d|180d] [--format json]')
       await gaOverview(project, {
         window: typeof input.values.window === 'string' ? input.values.window : undefined,
         format: input.format,
@@ -239,7 +239,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'session-history'],
-    windows: WINDOW_SETS.metrics,
+    windows: WINDOW_SETS.gaTraffic,
     usage: `canonry ga session-history <project> ${RANGE_USAGE} [--format json]`,
     options: { ...RANGE_OPTIONS },
     run: async (input) => {

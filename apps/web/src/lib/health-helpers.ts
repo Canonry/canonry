@@ -8,7 +8,13 @@ import { toneFromService } from './tone-helpers.js'
  * never makes an install sweep-ready by itself.
  */
 function isSweepReadyProvider(provider: SettingsVm['providerStatuses'][number]): boolean {
-  return provider.state === 'ready' && makesInstallMeasurable(provider)
+  return provider.state !== 'needs-config' && makesInstallMeasurable(provider)
+}
+
+/** Service health before the first health read lands: both services still being checked. */
+export const CHECKING_HEALTH_SNAPSHOT: HealthSnapshot = {
+  apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
+  workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' },
 }
 
 /** Display name comes from the API (adapter.displayName). Capitalize as fallback. */
@@ -45,14 +51,18 @@ export function buildSystemHealthCards(
       }
     }
 
-    const configuredCount = settings.providerStatuses.filter(p => p.state === 'ready').length
+    // Settings not read yet (or refused) list no providers; that is unknown, not "none configured".
+    if (settings.providersKnown === false) {
+      return { ...card, label: 'Providers', tone: 'neutral' as MetricTone, detail: 'Unknown', meta: 'Provider settings have not loaded.' }
+    }
+    const configuredCount = settings.providerStatuses.filter(p => p.state !== 'needs-config').length
     const totalCount = settings.providerStatuses.length
     const allReady = settings.providerStatuses.some(isSweepReadyProvider)
-    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => providerDisplayName(p)).join(' · ')
+    const configuredNames = settings.providerStatuses.filter(p => p.state !== 'needs-config').map(p => providerDisplayName(p)).join(' · ')
     return {
       ...card,
       label: 'Providers',
-      tone: allReady ? 'positive' as MetricTone : 'caution' as MetricTone,
+      tone: allReady ? 'neutral' as MetricTone : 'caution' as MetricTone,
       detail: `${configuredCount} of ${totalCount} configured`,
       meta: configuredNames || 'None configured',
     }
@@ -78,6 +88,27 @@ export function buildSystemHealthCards(
   }
   result.splice(Math.max(0, result.findIndex(card => card.id === 'api') + 1), 0, mcpCard)
   return result
+}
+
+/**
+ * Overview's Infrastructure: only the cards that need a person, each with the
+ * service status it was built from. The API and worker count when they are
+ * not healthy (never while still being checked); other cards count when they
+ * are negative or caution, so an unreported MCP status or unloaded provider
+ * settings never do. Settings lists every service.
+ */
+export function systemHealthNeedingAttention(
+  cards: readonly SystemHealthCardVm[],
+  healthSnapshot: HealthSnapshot,
+): Array<{ card: SystemHealthCardVm; serviceStatus?: ServiceStatus }> {
+  return cards.flatMap(card => {
+    const serviceStatus = card.id === 'api' ? healthSnapshot.apiStatus : card.id === 'worker' ? healthSnapshot.workerStatus : undefined
+    const needsAttention = serviceStatus
+      ? serviceStatus.state !== 'ok' && serviceStatus.state !== 'checking'
+      : card.tone === 'negative' || card.tone === 'caution'
+    if (!needsAttention) return []
+    return [serviceStatus ? { card, serviceStatus } : { card }]
+  })
 }
 
 export function getLaunchBlockedReason(healthSnapshot: HealthSnapshot, settings: SettingsVm): string | undefined {
@@ -132,7 +163,7 @@ export function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnaps
   model.launchState.enabled = blockedReason === undefined
   model.launchState.blockedReason = blockedReason
   model.launchState.summary =
-    blockedReason ?? 'Queue an AI Visibility check first, then follow with a Technical AEO audit to explain movement.'
+    blockedReason ?? 'Queue an AI Visibility check first, then follow with an Agent Readiness audit scan to explain movement.'
 
   return model
 }

@@ -83,13 +83,13 @@ describe('ga search-landing-pages parity', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  function seedSnapshot(status: 'ready' | 'error' = 'ready') {
+  function seedSnapshot(status: 'ready' | 'error' = 'ready', window: '28d' | '180d' = '28d') {
     db.insert(gaSearchLandingWindows).values({
       id: crypto.randomUUID(),
       projectId,
       propertyId: '123456',
-      windowKey: '28d',
-      periodStart: '2026-09-10',
+      windowKey: window,
+      periodStart: window === '180d' ? '2026-04-11' : '2026-09-10',
       periodEnd: '2026-10-07',
       timeZone: 'America/Los_Angeles',
       totalClicks: 837,
@@ -108,7 +108,7 @@ describe('ga search-landing-pages parity', () => {
       { landingPage: '/members?ref=newsletter', clicks: 0, impressions: 0, ctr: null, averagePosition: null, activeUsers: 4 },
     ]
     for (const row of rows) {
-      db.insert(gaSearchLandingPages).values({ id: crypto.randomUUID(), projectId, windowKey: '28d', ...row, syncedAt: SYNCED_AT, createdAt: SYNCED_AT }).run()
+      db.insert(gaSearchLandingPages).values({ id: crypto.randomUUID(), projectId, windowKey: window, ...row, syncedAt: SYNCED_AT, createdAt: SYNCED_AT }).run()
     }
     db.insert(gaMeasurementSyncStates).values({
       projectId,
@@ -138,13 +138,13 @@ describe('ga search-landing-pages parity', () => {
     return [...logs, ...writes.join('').split('\n').filter(Boolean)]
   }
 
-  it('prints the API response verbatim for --format json and through the registered command', async () => {
-    seedSnapshot()
-    const api = await client.gaSearchLandingPages(PROJECT, { window: '28d', limit: '2' })
+  it.each(['28d', '180d'] as const)('prints the %s API response verbatim for --format json and through the registered command', async window => {
+    seedSnapshot('ready', window)
+    const api = await client.gaSearchLandingPages(PROJECT, { window, limit: '2' })
     expect(gaSearchLandingPagesResponseSchema.parse(api)).toEqual(api)
-    expect(api).toMatchObject({ totalRows: 3, limit: 2, offset: 0 })
+    expect(api).toMatchObject({ window, windowDays: window === '180d' ? 180 : 28, totalRows: 3, limit: 2, offset: 0 })
 
-    const lines = await captureCli({ window: '28d', limit: '2', format: 'json' })
+    const lines = await captureCli({ window, limit: '2', format: 'json' })
     expect(JSON.parse(lines.join('\n'))).toEqual(api)
 
     // The registered spec forwards --window / --limit / --offset to the same read.
@@ -153,9 +153,9 @@ describe('ga search-landing-pages parity', () => {
     const { dispatchRegisteredCommand } = await import('../src/cli-dispatch.js')
     const output: string[] = []
     vi.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => { output.push(parts.join(' ')) })
-    await dispatchRegisteredCommand(['ga', 'search-landing-pages', PROJECT, '--limit', '1', '--offset', '1'], 'json', GA_CLI_COMMANDS)
+    await dispatchRegisteredCommand(['ga', 'search-landing-pages', PROJECT, '--window', window, '--limit', '1', '--offset', '1'], 'json', GA_CLI_COMMANDS)
     const dispatched = JSON.parse(output.join('\n')) as GaSearchLandingPagesResponse
-    expect(dispatched).toMatchObject({ window: '28d', limit: 1, offset: 1, totalRows: 3 })
+    expect(dispatched).toMatchObject({ window, limit: 1, offset: 1, totalRows: 3 })
     expect(dispatched.rows.map(row => row.landingPage)).toEqual(['/pricing'])
   })
 
@@ -334,11 +334,11 @@ describe('ga search-landing-pages parity', () => {
 
     expect(error).toBeInstanceOf(CliError)
     expect((error as CliError).exitCode).toBe(1)
-    expect((error as CliError).message).toContain('Invalid window "30d". Must be one of: 7d, 28d, 90d.')
+    expect((error as CliError).message).toContain('Invalid window "30d". Must be one of: 7d, 28d, 90d, 180d.')
   })
 
   it('serves the MCP tool from the same read with the same parameters', async () => {
-    seedSnapshot()
+    seedSnapshot('ready', '180d')
     const { canonryMcpTools } = await import('../src/mcp/tool-registry.js')
     const tool = canonryMcpTools.find(entry => entry.name === 'canonry_ga_search_landing_pages')
 
@@ -350,10 +350,10 @@ describe('ga search-landing-pages parity', () => {
     expect(tool!.inputSchema.safeParse({ project: PROJECT, window: '30d' }).success).toBe(false)
     expect(tool!.inputSchema.safeParse({ project: PROJECT, limit: 1001 }).success).toBe(false)
 
-    const viaMcp = await tool!.handler(client, { project: PROJECT, window: '28d', limit: 1, offset: 1 })
-    const viaApi = await client.gaSearchLandingPages(PROJECT, { window: '28d', limit: '1', offset: '1' })
+    const viaMcp = await tool!.handler(client, { project: PROJECT, window: '180d', limit: 1, offset: 1 })
+    const viaApi = await client.gaSearchLandingPages(PROJECT, { window: '180d', limit: '1', offset: '1' })
     expect(viaMcp).toEqual(viaApi)
-    expect(viaApi).toMatchObject({ limit: 1, offset: 1, rows: [{ landingPage: '/pricing' }] })
+    expect(viaApi).toMatchObject({ window: '180d', windowDays: 180, limit: 1, offset: 1, rows: [{ landingPage: '/pricing' }] })
     expect((viaMcp as GaSearchLandingPagesResponse).total?.organicGoogleSearchClicks).toBe(837)
   })
 })

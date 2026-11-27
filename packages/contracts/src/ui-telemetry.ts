@@ -29,6 +29,9 @@ export const UI_PAGES = [
   '/projects/:projectName/report',
   '/projects/:projectName/activity',
   '/projects/:projectName/backlinks',
+  '/projects/:projectName/agent-readiness',
+  // Agent Readiness's earlier route. It now redirects, but dashboards built
+  // before the rename still report it, so their events must keep validating.
   '/projects/:projectName/technical-aeo',
   '/projects/:projectName/history',
   '/projects/:projectName/settings',
@@ -61,6 +64,8 @@ export const UI_PROJECT_TABS = [
   'report',
   'activity',
   'backlinks',
+  'agent-readiness',
+  // Kept for events from dashboards built before Agent Readiness was renamed.
   'technical-aeo',
   'history',
   'settings',
@@ -89,12 +94,17 @@ export const UI_ACTIONS = [
   'schedule.delete',
   'provider.save',
   'settings.save',
+  'feedback.submit',
   /** An OAuth flow was started; the connection is not confirmed yet. */
   'integration.connect_started',
   /** A connection was confirmed (credentials accepted, or a property/account chosen). */
   'integration.connect',
   'integration.disconnect',
   'traffic.sync',
+  /** A Bing data sync was queued from the dashboard. */
+  'bing.sync',
+  /** A sitemap was submitted to Google or Bing from the dashboard (`integration` says which). */
+  'sitemap.submit',
   'journeys.visitor_open',
   'journeys.visit_open',
   'journeys.agent_open',
@@ -183,9 +193,9 @@ export const UI_ROUTE_ID_COLLECTIONS: ReadonlySet<string> = new Set([
 export const UI_ROUTE_FIXED_CHILDREN: ReadonlySet<string> = new Set([
   'ads/account', 'ads/activation-grants', 'ads/ad-groups', 'ads/ads', 'ads/campaigns', 'ads/connect',
   'ads/connection', 'ads/conversions', 'ads/delivery-diagnostics', 'ads/files', 'ads/geo', 'ads/insights',
-  'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self',
+  'ads/live-delivery', 'ads/operations', 'ads/status', 'ads/summary', 'ads/sync', 'keys/self', 'users/invitations',
   'locations/default', 'locations/discover', 'notifications/events', 'operations/logs', 'providers/reload', 'queries/generate',
-  'queries/replace-preview', 'runs/latest', 'snapshots/diff',
+  'queries/replace-preview', 'runs/attention', 'runs/latest', 'snapshots/diff',
 ])
 
 const PARAM_SEGMENT = /^\{[a-z]+\}$/i
@@ -207,7 +217,18 @@ const uiEventBaseSchema = z.object({
   page: uiPageSchema,
 })
 
+/** Cumulative counters per visit, bounded to one day. No wall-clock timestamps. */
+export const UI_PAGE_TIME_MAX_MS = 86_400_000
+
 export const uiTelemetryEventSchema = z.discriminatedUnion('event', [
+  uiEventBaseSchema.extend({
+    event: z.literal('ui.page_time'),
+    tab: uiProjectTabSchema.optional(),
+    visitId: z.string().uuid(),
+    foregroundMs: z.number().int().min(1).max(UI_PAGE_TIME_MAX_MS),
+    activeMs: z.number().int().min(0).max(UI_PAGE_TIME_MAX_MS),
+    completed: z.boolean(),
+  }).strict().refine(value => value.activeMs <= value.foregroundMs, 'active time cannot exceed foreground time'),
   uiEventBaseSchema.extend({
     event: z.literal('ui.page_viewed'),
     tab: uiProjectTabSchema.optional(),

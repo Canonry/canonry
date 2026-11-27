@@ -7,10 +7,23 @@ import {
   hostOf,
   normalizeUrlPath,
   normalizeHostname,
+  redactUrlPrivateFields,
   registrableDomain,
   textContainsDomain,
   URL_PATH_NORMALIZATION_VERSION,
 } from '../src/url-normalize.js'
+
+describe('redactUrlPrivateFields', () => {
+  it('keeps the endpoint while removing credentials and opaque query and fragment values', () => {
+    expect(redactUrlPrivateFields('https://account:password@proxy.example/v1?token=secret#private')).toEqual({ url: 'https://proxy.example/v1', redacted: true })
+    expect(redactUrlPrivateFields('ws://localhost:9222/devtools?secret=value')).toEqual({ url: 'ws://localhost:9222/devtools', redacted: true })
+    expect(redactUrlPrivateFields('http://localhost:11434/v1')).toEqual({ url: 'http://localhost:11434/v1', redacted: false })
+  })
+
+  it.each([undefined, null, '', 'private-token', 'file:///private/credentials', 'data:text/plain,secret'])('withholds a value that is not a network endpoint: %s', value => {
+    expect(redactUrlPrivateFields(value)).toBeNull()
+  })
+})
 
 describe('normalizeHostname', () => {
   it('preserves every DNS label when normalizing exact-host evidence scope', () => {

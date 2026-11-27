@@ -241,6 +241,35 @@ describe('executeGbpSync — selected location profile refresh', () => {
   })
 })
 
+describe('executeGbpSync when a location is deselected mid-sync', () => {
+  test('writes nothing for it, so a deselect that already cleared its data stays cleared', async () => {
+    const { db, tmpDir } = createTempDb()
+    try {
+      seedProject(db)
+      seedRun(db, 'run_deselect')
+      // The operator deselects while the sync waits on Google; the deselect
+      // flips the row (and clears the location's data) before the write.
+      fetchDailyMetricsMock.mockImplementation(async () => {
+        db.update(gbpLocations).set({ selected: false }).where(eq(gbpLocations.id, 'loc_1')).run()
+        return [{ date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 7 }]
+      })
+
+      await executeGbpSync(db, 'run_deselect', 'proj_gbp', { config: testConfig() })
+
+      expect(db.select().from(gbpKeywordMonthly).all()).toEqual([])
+      expect(db.select().from(gbpKeywordImpressions).all()).toEqual([])
+      expect(db.select().from(gbpReviewRatings).all()).toEqual([])
+      expect(db.select().from(gbpAttributesSnapshots).all()).toEqual([])
+      const location = db.select().from(gbpLocations).where(eq(gbpLocations.id, 'loc_1')).get()
+      expect(location?.selected).toBe(false)
+      expect(location?.syncedAt).toBeNull()
+      expect(db.select().from(runs).where(eq(runs.id, 'run_deselect')).get()?.status).toBe('completed')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('executeGbpSync without a selected location', () => {
   test('fails with the shared no-locations error, stored as the doctor sync check matches it', async () => {
     const { db, tmpDir } = createTempDb()
@@ -1053,12 +1082,12 @@ describe('executeGbpSync outcome telemetry', () => {
       // One trailing-window keyword row plus one per complete month (three).
       expect(outcomes()).toEqual([
         [
-          { feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 } },
+          { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 } },
           undefined,
         ],
         [
           {
-            feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'skipped', reasonCode: 'PERMISSION_MISSING',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'skipped', reasonCode: 'PERMISSION_MISSING',
             durationBucket: 'under_1s', counts: { items: 1, reviews: 0, skipped: 1, failures: 0 },
           },
           { errorCode: 'PERMISSION_MISSING' },
@@ -1088,12 +1117,12 @@ describe('executeGbpSync outcome telemetry', () => {
       const reviews = outcomes().filter(([properties]) => properties.operation === 'reviews')
       expect(reviews).toEqual([
         [
-          { feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { items: 1, reviews: 2, skipped: 0, failures: 0 } },
+          { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'succeeded', durationBucket: 'under_1s', counts: { items: 1, reviews: 2, skipped: 0, failures: 0 } },
           undefined,
         ],
         [
           {
-            feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_5XX',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'reviews', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_5XX',
             durationBucket: 'under_1s', counts: { items: 1, reviews: 0, skipped: 0, failures: 1 },
           },
           { errorCode: 'HTTP_5XX' },
@@ -1122,21 +1151,21 @@ describe('executeGbpSync outcome telemetry', () => {
       expect(outcomes()).toEqual([
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PERMISSION_MISSING',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PERMISSION_MISSING',
             errorName: 'GbpApiError', durationBucket: 'under_1s', counts: { rows: 0, items: 0, failures: 1 },
           },
           { errorCode: 'PERMISSION_MISSING' },
         ],
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'QUOTA_EXCEEDED',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'QUOTA_EXCEEDED',
             errorName: 'GbpApiError', durationBucket: 'under_1s',
           },
           { errorCode: 'QUOTA_EXCEEDED' },
         ],
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND',
             errorName: 'Error', durationBucket: 'under_1s',
           },
           { errorCode: 'PROPERTY_NOT_FOUND' },
@@ -1159,7 +1188,7 @@ describe('executeGbpSync outcome telemetry', () => {
 
       expect(outcomes()[0]).toEqual([
         {
-          feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
+          operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
           durationBucket: 'under_1s', counts: { rows: 4, items: 1, failures: 0 },
         },
         undefined,

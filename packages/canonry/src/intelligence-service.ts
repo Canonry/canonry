@@ -8,10 +8,11 @@ import {
   buildGbpSummary,
   competitorIdentityColumns,
   mergeGscQueryTotalsWithFallback,
+  notScopedRun,
   readGscQueryDailyRows,
   readLatestGscDataDate,
 } from '@canonry/canonry-api-routes'
-import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, type CompetitorIdentityInput } from '@canonry/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, RunTriggers, effectiveDomains, isCitationStateMeasured, readCitationState, type CompetitorIdentityInput } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 import { pickProjectCitedDomain } from './citation-utils.js'
@@ -47,6 +48,11 @@ function analyzableRunPredicates(projectId: string) {
     // is called, but a future call site invoking it directly for a probe must
     // still not pollute the intelligence window.
     ne(runs.trigger, RunTriggers.probe),
+    // A spot check measured a few queries on purpose. Analyzed, it writes
+    // insights and a health row about its slice; as a baseline it hides every
+    // other query's change from the next sweep; as a history entry it adds a
+    // run to the streaks of the queries it asked.
+    notScopedRun(),
   ]
 }
 
@@ -847,7 +853,9 @@ export class IntelligenceService {
         id: crypto.randomUUID(),
         projectId,
         runId,
-        overallCitedRate: String(result.health.overallCitedRate),
+        // NOT NULL column: a run with no pair measured stores 0, and readers
+        // return null for it from the breakdown's `citationNotMeasured`.
+        overallCitedRate: String(result.health.overallCitedRate ?? 0),
         overallMentionRate: String(result.health.overallMentionRate),
         totalPairs: result.health.totalPairs,
         citedPairs: result.health.citedPairs,
@@ -1000,8 +1008,9 @@ export class IntelligenceService {
           eq(runs.projectId, projectId),
           eq(runs.kind, RunKinds['answer-visibility']),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
-          // Defensive — see top of file.
+          // Defensive — see top of file. A spot check is not a sweep either.
           ne(runs.trigger, RunTriggers.probe),
+          notScopedRun(),
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))
@@ -1102,6 +1111,7 @@ export class IntelligenceService {
         queryText: querySnapshots.queryText,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerMentioned: querySnapshots.answerMentioned,
         citedDomains: querySnapshots.citedDomains,
         rawResponse: querySnapshots.rawResponse,
@@ -1132,10 +1142,13 @@ export class IntelligenceService {
         citedDomains: domains,
         groundingSources: readStoredGroundingSources(r.rawResponse),
       }).citedCompetitorDomains
+      const citationState = readCitationState(r)
       snapshots.push({
         query: resolvedQuery,
         provider: r.provider,
-        cited: r.citationState === CitationStates.cited,
+        // Tri-state: an answer whose engine returns no sources observed
+        // nothing about citation (null), and no detector reads it as a miss.
+        cited: isCitationStateMeasured(citationState) ? citationState === CitationStates.cited : null,
         // Independent answer-text signal. Tri-state passes through untouched
         // (true / false / null = "not checked"); computeHealth counts only
         // exact `true`. Never coerce null→false here.

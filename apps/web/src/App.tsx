@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 
 import {
-  BookOpen,
   ChevronRight,
-  FileText,
-  CodeXml,
   Globe,
   History as HistoryIcon,
   LayoutDashboard,
@@ -20,19 +17,22 @@ import {
   Settings,
   Terminal,
   X,
-  type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { CitationStates, formatModelName, openRouterRouteModel, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
-import { formatErrorLog } from './lib/format-helpers.js'
+import { ANSWER_CITATION_LABEL, formatErrorLog } from './lib/format-helpers.js'
 import { viewerRoleLabel,
   getEmbedConfig,
+  getPublicBase,
+  dashboardShowsWhatsNewOnly,
   isAeroPreview,
   isPublicDemo,
   heyClient,
   shouldShowDashboardAgentBar,
+  shouldShowDashboardCommunityLinks,
+  shouldShowDashboardFeedback,
   shouldShowDashboardResourceLinks,
   shouldShowDashboardUpdateNotification,
   signOutOfAccount,
@@ -50,7 +50,6 @@ import {
   writeEmbedTabMemory,
 } from './embed.js'
 import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
-import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {
   getRunTrackerState,
@@ -70,7 +69,9 @@ import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { ThemeSelector } from './components/shared/ThemeSelector.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
+import { FooterLinks } from './components/layout/FooterLinks.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
+import { AnswerMarkdown } from './components/shared/AnswerMarkdown.js'
 import { SourceLink } from './components/shared/SourceLink.js'
 import { resolveProjectNameFromPathname } from './lib/project-route.js'
 import { findEvidenceForModal, findRunById } from './mock-data.js'
@@ -81,6 +82,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { AvailableUpdateBadge, ReleaseNotesBadge } from './components/layout/ReleaseNotesBadge.js'
 import { DemoNotice } from './components/layout/DemoNotice.js'
 import { TaskCenter } from './components/layout/TaskCenter.js'
 import { AeroBarHost, aeroAllowedFor } from './components/shared/AeroBar.js'
@@ -88,29 +90,8 @@ import { RUNS_STALE_MS } from './queries/query-client.js'
 import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import { formatTrackedRunKind } from './lib/run-labels.js'
 import { toRunListItem } from './build-dashboard.js'
-import type {
-  HealthSnapshot,
-  ServiceStatus,
-} from './view-models.js'
 
 import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router'
-
-const resources: { label: string; href: string; Icon: LucideIcon }[] = [
-  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: CodeXml },
-  { label: 'Docs', href: 'https://github.com/Canonry/canonry/tree/main/docs', Icon: BookOpen },
-  { label: 'Changelog', href: 'https://github.com/Canonry/canonry/releases', Icon: FileText },
-]
-
-const checkingStatus = (label: string): ServiceStatus => ({
-  label,
-  state: 'checking',
-  detail: 'Checking service health',
-})
-
-const defaultHealthSnapshot: HealthSnapshot = {
-  apiStatus: checkingStatus('API'),
-  workerStatus: checkingStatus('Worker'),
-}
 
 function terminalToneForRun(status: string): ToastTone {
   if (status === 'completed') return 'positive'
@@ -158,6 +139,19 @@ function batchTone(summary: ReturnType<typeof summarizeBatchStatuses>): ToastTon
   if (summary.failed > 0 || summary.cancelled > 0) return 'negative'
   if (summary.partial > 0) return 'caution'
   return 'positive'
+}
+
+/**
+ * The /setup crumb names the page as its heading does: adding a project, one
+ * project's setup, or setup itself (the first setup and the legacy wizard).
+ */
+function setupBreadcrumb(
+  search: { project?: string; setupProject?: string; onboarding?: string; experience?: string },
+  projectCount: number,
+): string {
+  if (search.experience === 'legacy') return 'Setup'
+  if (search.project ?? search.setupProject) return search.onboarding === undefined ? 'Project setup' : 'Setup'
+  return search.experience === 'platform' && projectCount > 0 ? 'Add a project' : 'Setup'
 }
 
 export function RunNotificationObserver() {
@@ -217,8 +211,9 @@ export function RunNotificationObserver() {
       if (previousStatus === run.status) continue
 
       const project = projects.find((candidate) => candidate.id === run.projectId)
-      if (project) {
-        invalidateQueriesForRunKind(queryClient, run.kind, project.name)
+      const projectName = project?.name ?? trackedRun.projectName
+      if (projectName) {
+        invalidateQueriesForRunKind(queryClient, run.kind, projectName)
       }
 
       if (trackedRun.sourceAction === 'run-all') {
@@ -233,11 +228,9 @@ export function RunNotificationObserver() {
         tone: terminalToneForRun(run.status),
         dedupeKey: `run:${run.id}`,
         dedupeMode: 'replace',
-        cta: {
-          label: 'View run',
-          intent: 'open-run-drawer',
-          runId: run.id,
-        },
+        cta: run.kind === RunKinds['seo-sync'] && projectName
+          ? { label: 'View refresh', intent: 'view-seo-refresh', projectName, runId: run.id }
+          : { label: 'View run', intent: 'open-run-drawer', runId: run.id },
       })
       removeTrackedRun(run.id)
     }
@@ -260,8 +253,9 @@ export function RunNotificationObserver() {
       )
       for (const trackedRun of staleRuns) {
         const project = projects.find((candidate) => candidate.id === trackedRun.projectId)
-        if (project) {
-          invalidateQueriesForRunKind(queryClient, trackedRun.kind, project.name)
+        const projectName = project?.name ?? trackedRun.projectName
+        if (projectName) {
+          invalidateQueriesForRunKind(queryClient, trackedRun.kind, projectName)
         }
         if (trackedRun.sourceAction !== 'run-all') {
           addToast({
@@ -308,7 +302,7 @@ export function RootLayout() {
   // ── Who is signed in ──
   // Full access on an install with no accounts, which is what every screen
   // already assumed before accounts existed.
-  const { account, isAdmin } = useAccount()
+  const { account, canWrite, isAdmin } = useAccount()
 
   // ── Context-based initial data (tests inject via DashboardProvider) ──
   const contextDashboard = useInitialDashboard()
@@ -318,6 +312,8 @@ export function RootLayout() {
   // render. The server-side embed tab policy intentionally blocks /settings.
   const embed = useMemo(() => getEmbedConfig(), [])
   const resourceLinksVisible = useMemo(shouldShowDashboardResourceLinks, [])
+  const feedbackPointersVisible = useMemo(shouldShowDashboardFeedback, [])
+  const communityLinksVisible = useMemo(shouldShowDashboardCommunityLinks, [])
   const deploymentServesAgentBar = useMemo(shouldShowDashboardAgentBar, [])
   // Two independent conditions: the deployment still serves the agent at all,
   // and this account may use it: an administrator, or a signed-in viewer on an
@@ -325,7 +321,8 @@ export function RootLayout() {
   // render site so the bottom padding the bar reserves disappears with it.
   // The public demo has neither, and shows the bar as a scripted preview.
   const agentBarVisible = isAeroPreview() || (deploymentServesAgentBar && aeroAllowedFor({ isAdmin, account }))
-  const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, [])
+  const updateNotificationVisible = useMemo(shouldShowDashboardUpdateNotification, []) && !isPublicDemo()
+  const whatsNewOnly = useMemo(dashboardShowsWhatsNewOnly, [])
 
   // Router state is also a data-fetching input: setup owns the project-create
   // mutation and invalidates the list itself, so the global zero-project poll
@@ -357,12 +354,38 @@ export function RootLayout() {
     includeOverviews: false,
     pauseProjectPolling: location.pathname === '/setup',
   })
-  const enableLiveStatus = !contextDashboard
-  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
-  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
+  // Once a page has rendered, keep it mounted. A project list that failed to
+  // load retries through `pending`, and swapping the page back for the shell
+  // skeleton remounted it, whose mount retried the read at once: a request
+  // loop that never let the page show its own error state.
+  const [pageShown, setPageShown] = useState(!isLoading)
+  useEffect(() => {
+    if (!isLoading) setPageShown(true)
+  }, [isLoading])
+  const [documentBuild] = useState(() => typeof window === 'undefined' ? undefined : window.__CANONRY_CONFIG__?.build)
+  const showAvailableUpdates = updateNotificationVisible && !whatsNewOnly && !embed
+  // Unstamped development or older documents can still show the service version in navigation.
+  const needsShellHealth = showAvailableUpdates || (!documentBuild && !whatsNewOnly && !embed)
+  const healthQuery = useHealth(needsShellHealth && !contextDashboard, contextDashboard?.health)
+  const serviceStatus = (healthQuery.data ?? contextDashboard?.health)?.apiStatus
+  const updateNoticeKey = `canonry:installed-update:${JSON.stringify([getPublicBase(), account?.name ?? null])}`
 
   // ── Router state ──
   const { runId, evidenceId, closeDrawer } = useDrawer()
+  const detailId = evidenceId ?? runId
+  const detailOpener = useRef<HTMLElement | null>(null)
+  const openDetailId = useRef(detailId)
+  useLayoutEffect(() => {
+    // Keep the original control while a loading drawer becomes saved detail.
+    if (detailId && !openDetailId.current) {
+      const focused = document.activeElement
+      detailOpener.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
+    }
+    openDetailId.current = detailId
+  }, [detailId])
+  const restoreDetailFocus = () => {
+    if (!openDetailId.current && detailOpener.current?.isConnected) detailOpener.current.focus()
+  }
 
   // ── UI state ──
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -396,13 +419,13 @@ export function RootLayout() {
   })
   const updateAvailable = forceUpdateVersion
     ? {
-        current: healthSnapshot.apiStatus.version ?? '0.0.0',
+        current: documentBuild?.version ?? serviceStatus?.version ?? '0.0.0',
         latest: forceUpdateVersion,
         url: 'https://www.npmjs.com/package/@canonry/canonry',
         upgradeCommand: 'npm install -g @canonry/canonry',
       }
-    : healthSnapshot.apiStatus.updateAvailable
-  const showUpdatePill = updateNotificationVisible && updateAvailable && updateAvailable.latest !== dismissedUpdateVersion
+    : serviceStatus?.updateAvailable
+  const showUpdatePill = showAvailableUpdates && updateAvailable && updateAvailable.latest !== dismissedUpdateVersion
   const dismissUpdatePill = () => {
     if (!updateAvailable) return
     try {
@@ -412,6 +435,9 @@ export function RootLayout() {
     }
     setDismissedUpdateVersion(updateAvailable.latest)
   }
+  const availableUpdateBadge = showUpdatePill && updateAvailable
+    ? <AvailableUpdateBadge update={updateAvailable} onDismiss={dismissUpdatePill} />
+    : null
   const toggleSidebar = () => {
     const next = !sidebarHidden
     try {
@@ -494,22 +520,17 @@ export function RootLayout() {
   const isSetupReadinessUnknown = isSetupRoute && safeDashboard === null
   const isFocusedSetup = isSetupRoute
     && (isExplicitFirstRunSetup || isEmptySetup || firstRunSetupLatched || isSetupReadinessUnknown)
-  const shellModifier = isFocusedSetup
-    ? 'app-shell-focus'
-    : sidebarHidden
-      ? 'app-shell-sidebar-hidden'
-      : ''
+  const shellModifier = sidebarHidden ? 'app-shell-sidebar-hidden' : ''
 
   const selectedRun = runId
-    ? (safeDashboard ? findRunById(safeDashboard, runId) : undefined)
-      ?? (runDetail
+    ? (runDetail?.id === runId
         ? toRunListItem(
             runDetail,
             safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.displayName
               ?? safeDashboard?.projects.find((project) => project.project.id === runDetail.projectId)?.project.name
               ?? 'Unknown project',
           )
-        : undefined)
+        : undefined) ?? (safeDashboard ? findRunById(safeDashboard, runId) : undefined)
     : undefined
 
   // The slim portfolio model has no answer evidence. Load it only while a
@@ -528,12 +549,12 @@ export function RootLayout() {
   // Derive breadcrumb label from current location
   const breadcrumbLabel = (() => {
     const path = location.pathname
-    if (path === '/') return 'All projects'
+    if (path === '/') return 'Overview'
     if (path === '/projects') return 'Projects'
     if (path === '/runs') return 'Runs'
     if (path === '/history') return 'History'
     if (path === '/settings') return 'Settings'
-    if (path === '/setup') return 'Setup'
+    if (path === '/setup') return setupBreadcrumb(location.search, safeDashboard?.projects.length ?? 0)
     if (path === '/agent-setup') return 'Agent setup'
     if (path === '/backlinks') return 'Backlink data'
     if (path === '/traffic') return 'Traffic sources'
@@ -582,33 +603,17 @@ export function RootLayout() {
     )
   }
 
-  const footer = (
-    <footer className="footer">
-      <span className="footer-brand">
-        <span><a href='https://canonry.ai'>Canonry</a></span>
-        {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
-          <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
-        ) : null}
-      </span>
-      {resourceLinksVisible ? (
-        <div className="footer-links">
-          {resources.map(({ label, href, Icon }) => (
-            <a
-              key={href}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={label}
-              aria-label={label}
-              className="footer-icon"
-            >
-              <Icon className="size-3.5" />
-            </a>
-          ))}
-        </div>
-      ) : null}
-    </footer>
-  )
+  const navigationVersion = whatsNewOnly ? undefined : documentBuild?.version ?? serviceStatus?.version
+  const footer = (showVersion: boolean) => {
+    const version = showVersion && navigationVersion !== 'unknown' ? navigationVersion : undefined
+    if (!resourceLinksVisible && !version) return null
+    return (
+      <footer className="footer">
+        {resourceLinksVisible && <FooterLinks showCommunity={communityLinksVisible} />}
+        {version && <span className="footer-version">v{version}</span>}
+      </footer>
+    )
+  }
 
   return (
     <Dialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -619,17 +624,14 @@ export function RootLayout() {
     <div className={`app-shell ${shellModifier}${isPublicDemo() ? ' app-shell-demo' : ''}`}>
 
       {/* ── Sidebar (desktop) ── */}
-      {!isFocusedSetup && !sidebarHidden && (
+      {!sidebarHidden && (
       <aside id="desktop-sidebar" className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
-          <BrandLockup
-            version={healthSnapshot.apiStatus.version}
-            updateAvailable={showUpdatePill ? updateAvailable : null}
-            onDismissUpdate={dismissUpdatePill}
-          />
+          <BrandLockup version={navigationVersion} />
         </div>
 
         <nav className="sidebar-nav">
+          {isFocusedSetup && <Link to="/setup" search={location.search} className="sidebar-link sidebar-link-active" aria-current="page"><Rocket className="sidebar-icon" /><span>Setup</span></Link>}
           <Link
             to="/"
             className="sidebar-link"
@@ -637,7 +639,7 @@ export function RootLayout() {
             activeOptions={{ exact: true }}
           >
             <LayoutDashboard className="sidebar-icon" />
-            <span>All projects</span>
+            <span>Overview</span>
           </Link>
           <Link
             to="/projects"
@@ -648,6 +650,7 @@ export function RootLayout() {
             <Globe className="sidebar-icon" />
             <span>Projects</span>
           </Link>
+          {!isFocusedSetup && <>
           <Link
             to="/runs"
             className="sidebar-link"
@@ -684,6 +687,7 @@ export function RootLayout() {
             <Link2 className="sidebar-icon" />
             <span>Backlink data</span>
           </Link>}
+          </>}
           {!isPublicDemo() && <Link
             to="/agent-setup"
             className="sidebar-link"
@@ -702,6 +706,21 @@ export function RootLayout() {
             >
               <Settings className="sidebar-icon" />
               <span>Settings</span>
+            </Link>
+          )}
+          {currentProjectName && (canWrite || isPublicDemo()) && (
+            <Link
+              to="/projects/$projectName/settings"
+              params={{ projectName: currentProjectName }}
+              // Keep the dashboard's URL state (class, scope, market, open run)
+              // for the way back, like the project tab links.
+              search={previous => ({ ...previous, onboarding: undefined })}
+              className="sidebar-link"
+              activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+              activeOptions={{ exact: true }}
+            >
+              <Settings className="sidebar-icon" />
+              <span>Project settings</span>
             </Link>
           )}
 
@@ -734,7 +753,7 @@ export function RootLayout() {
                 )
               })}
             </>
-          ) : !isLoading ? (
+          ) : !isLoading && !isFocusedSetup ? (
             <>
               <p className="sidebar-section-title">Resources</p>
               {isAdmin && (
@@ -774,7 +793,7 @@ export function RootLayout() {
           </div>
         )}
 
-        {footer}
+        {footer(false)}
       </aside>
       )}
 
@@ -783,9 +802,8 @@ export function RootLayout() {
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-left">
-            {!isFocusedSetup && (
-              <Button
-                className="sidebar-privacy-toggle"
+            {(<Button
+                className="sidebar-privacy-toggle hidden lg:inline-flex"
                 variant="ghost"
                 size="icon"
                 type="button"
@@ -806,35 +824,37 @@ export function RootLayout() {
               <BrandLockup compact />
             </div>
             <nav className="breadcrumb" aria-label="Breadcrumb">
-              <Link to="/">
-                Home
-              </Link>
-              <ChevronRight className="breadcrumb-sep size-3" />
+              {/* Overview is the root: on its own page the trail is that one crumb. */}
+              {location.pathname === '/' ? null : (
+                <>
+                  <Link to="/">
+                    Overview
+                  </Link>
+                  <ChevronRight className="breadcrumb-sep size-3" />
+                </>
+              )}
               <span className="breadcrumb-current">{breadcrumbLabel}</span>
             </nav>
           </div>
 
           <div className="topbar-actions">
+            {updateNotificationVisible && documentBuild ? (
+              <ReleaseNotesBadge
+                key={JSON.stringify([updateNoticeKey, documentBuild.version, resourceLinksVisible, whatsNewOnly, canWrite, feedbackPointersVisible])}
+                storageKey={updateNoticeKey}
+                availableUpdate={availableUpdateBadge}
+                build={documentBuild}
+                showResourceLinks={resourceLinksVisible}
+                whatsNewOnly={whatsNewOnly}
+                canWrite={canWrite}
+                showFeedback={feedbackPointersVisible}
+              />
+            ) : availableUpdateBadge}
             <ThemeSelector />
             <TaskCenter />
-            <div className="health-pill-row">
-              <span
-                className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}
-                title={serviceStatusTooltip(healthSnapshot.apiStatus)}
-              >
-                API {healthSnapshot.apiStatus.state === 'ok' ? 'ok' : healthSnapshot.apiStatus.state}
-              </span>
-              <span
-                className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}
-                title={serviceStatusTooltip(healthSnapshot.workerStatus)}
-              >
-                {`Worker ${healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}`}
-              </span>
-            </div>
-            {!isFocusedSetup ? (
-              <Dialog.Trigger asChild>
+            {(<Dialog.Trigger asChild>
               <Button
-                className="nav-toggle"
+                className="nav-toggle lg:hidden"
                 variant="secondary"
                 size="icon"
                 type="button"
@@ -843,13 +863,12 @@ export function RootLayout() {
                 <span className="sr-only">Open navigation</span>
               </Button>
               </Dialog.Trigger>
-            ) : null}
+            )}
           </div>
         </header>
 
         {/* Mobile nav overlay */}
-        {!isFocusedSetup ? (
-          <Dialog.Portal>
+        {(<Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40" />
           <Dialog.Content className="mobile-nav mobile-nav-open" aria-describedby={undefined}>
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
@@ -864,12 +883,14 @@ export function RootLayout() {
             <span className="sr-only">Close navigation</span>
           </Button>
           </Dialog.Close>
+          {isFocusedSetup && <Link to="/setup" search={location.search} className="mobile-nav-link mobile-nav-link-active" aria-current="page">Setup</Link>}
           <Link to="/" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
-            All projects
+            Overview
           </Link>
           <Link to="/projects" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Projects
           </Link>
+          {!isFocusedSetup && <>
           <Link to="/runs" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Runs
           </Link>
@@ -882,12 +903,25 @@ export function RootLayout() {
           {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
           </Link>}
+          </>}
           {!isPublicDemo() && <Link to="/agent-setup" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Agent setup
           </Link>}
           {isAdmin && (
             <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
               Settings
+            </Link>
+          )}
+          {currentProjectName && (canWrite || isPublicDemo()) && (
+            <Link
+              to="/projects/$projectName/settings"
+              params={{ projectName: currentProjectName }}
+              search={previous => ({ ...previous, onboarding: undefined })}
+              className="mobile-nav-link"
+              activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }}
+              activeOptions={{ exact: true }}
+            >
+              Project settings
             </Link>
           )}
           {safeDashboard && safeDashboard.projects.length > 0 ? (
@@ -900,7 +934,7 @@ export function RootLayout() {
                   params={{ projectName: projectVm.project.name }}
                   className="mobile-nav-link"
                 >
-                  {projectVm.project.name}
+                  {projectVm.project.displayName || projectVm.project.name}
                 </Link>
               ))}
             </div>
@@ -935,17 +969,17 @@ export function RootLayout() {
               </div>
             </div>
           )}
-          {footer}
+          {footer(true)}
           </Dialog.Content>
           </Dialog.Portal>
-        ) : null}
+        )}
 
         {/* Page content */}
         <main
           id="content"
           className="page-shell"
         >
-          {isLoading && !contextDashboard ? (
+          {isLoading && !contextDashboard && !pageShown ? (
             <div className="page-skeleton">
               <div className="page-skeleton-header">
                 <div className="skeleton-text h-6 w-40" />
@@ -981,12 +1015,12 @@ export function RootLayout() {
 
       {/* ── Drawers ── */}
       {runId && !selectedRun && runDetailLoading ? (
-        <Drawer open title="Loading run details" subtitle="Fetching the durable run record" onClose={closeDrawer}>
+        <Drawer open title="Loading run details" subtitle="Saved run" onClose={closeDrawer} onClosed={restoreDetailFocus}>
           <p className="text-copy-14 text-muted" role="status">Loading run details…</p>
         </Drawer>
       ) : null}
       {runId && !selectedRun && runDetailQuery.isError ? (
-        <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer}>
+        <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer} onClosed={restoreDetailFocus}>
           <p className="text-copy-14 text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
         </Drawer>
       ) : null}
@@ -994,8 +1028,9 @@ export function RootLayout() {
         <Drawer
           open
           title={selectedRun.summary}
-          subtitle={`${selectedRun.projectName} \u00b7 ${selectedRun.kindLabel}`}
+          subtitle={selectedRun.projectName}
           onClose={closeDrawer}
+          onClosed={restoreDetailFocus}
         >
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label-14">
             <StatusBadge status={selectedRun.status} />
@@ -1009,24 +1044,27 @@ export function RootLayout() {
 
           {/* Run activity log */}
           <div className="mt-4">
-            <p className="text-label-12-strong normal-case text-muted mb-2">Activity Log</p>
+            <p className="text-label-12-strong normal-case text-muted mb-2">Activity log</p>
             {runDetailLoading ? (
-              <p className="text-copy-14 text-muted">Loading run details...</p>
+              <p className="text-copy-14 text-muted">Loading run details…</p>
             ) : runDetail?.snapshots && runDetail.snapshots.length > 0 ? (
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
                   <div key={snap.id} className="material-base p-3">
-                    <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
                       <p className="text-copy-14-strong text-strong truncate">{snap.query ?? 'Unknown query'}</p>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
-                          {snap.citationState}
+                          {ANSWER_CITATION_LABEL[snap.citationState]}
+                        </Badge>
+                        <Badge variant={snap.answerMentioned === true ? 'success' : 'neutral'}>
+                          {snap.answerMentioned === true ? 'Mentioned' : snap.answerMentioned === false ? 'Not mentioned' : 'Mention not measured'}
                         </Badge>
                       </div>
                     </div>
-                    {snap.model && (
-                      <p className="text-copy-13-mono text-muted">{snap.model}</p>
+                    {snap.model && snap.model !== openRouterRouteModel(snap.provider) && (
+                      <p className="text-copy-13 text-secondary" title={snap.model}>{openRouterRouteModel(snap.provider) ? formatModelName(snap.model) : snap.model}</p>
                     )}
                     {snap.citedDomains.length > 0 && (
                       <p className="text-copy-13 text-muted mt-1">
@@ -1058,27 +1096,27 @@ export function RootLayout() {
                     {snap.answerText && (
                       <details className="mt-1">
                         <summary className="text-label-12 text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
-                        <p className="mt-1 text-copy-13 text-secondary whitespace-pre-wrap">{snap.answerText}</p>
+                        <div className="mt-2 text-copy-14 text-secondary"><AnswerMarkdown>{snap.answerText}</AnswerMarkdown></div>
                       </details>
                     )}
                   </div>
                 ))}
-                {runDetail.status === 'running' && (
+                {runDetail.status === RunStatuses.running && (
                   <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                     <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
-                    Running remaining queries...
+                    Running remaining queries…
                   </div>
                 )}
               </div>
             ) : runDetail && runDetail.status === RunStatuses.running ? (
               <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
-                {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result...' : 'Run is in progress...'}
+                {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result…' : 'Run is in progress…'}
               </div>
             ) : runDetail && runDetail.status === RunStatuses.queued ? (
               <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-mono-500 animate-pulse" />
-                Run queued, waiting for execution slot...
+                Run queued, waiting for execution slot…
               </div>
             ) : runDetail && runDetail.error ? (
               <div className="rounded-md border border-negative-800/40 bg-negative-950/20 p-3">
@@ -1101,7 +1139,7 @@ export function RootLayout() {
       ) : null}
 
       {evidenceId && !selectedEvidenceContext ? (
-        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer}>
+        <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer} onClosed={restoreDetailFocus}>
           {evidenceLoading ? (
             <p role="status" className="text-copy-14 text-secondary">Loading answer…</p>
           ) : (
@@ -1113,7 +1151,7 @@ export function RootLayout() {
         </Drawer>
       ) : null}
       {selectedEvidenceContext ? (
-        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} />
+        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} onClosed={restoreDetailFocus} />
       ) : null}
 
       <RunNotificationObserver />

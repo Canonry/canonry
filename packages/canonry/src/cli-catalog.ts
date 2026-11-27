@@ -33,17 +33,21 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Setup",
     "summary": "List or install bundled agent skills (claude/codex)"
   },
+  "agent-readiness": {
+    "section": "Agent Readiness",
+    "summary": "Scan your site, then read its Agent Readiness score, pages, issues and links"
+  },
   "technical-aeo": {
-    "section": "Page Health",
-    "summary": "Crawl, score, and inspect site health evidence"
+    "section": "Deprecated aliases",
+    "summary": "Deprecated name for agent-readiness (same commands, flags and output)"
   },
   "doctor": {
-    "section": "Page Health",
+    "section": "Setup",
     "summary": "Diagnose runtime and integration health"
   },
   "project": {
     "section": "Projects",
-    "summary": "Create, update, list, show, delete projects"
+    "summary": "Create, update, list, show, delete projects; read setup status"
   },
   "query": {
     "section": "Projects",
@@ -166,8 +170,8 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "summary": "Install and manage MCP client connections"
   },
   "site-health": {
-    "section": "Page Health",
-    "summary": "Crawl, score, and inspect site health evidence"
+    "section": "Deprecated aliases",
+    "summary": "Deprecated name for agent-readiness reads (same commands, flags and output)"
   },
   "keyword": {
     "section": "Projects",
@@ -180,6 +184,10 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
   "overview": {
     "section": "Monitoring",
     "summary": "Show the stored project overview"
+  },
+  "activity": {
+    "section": "Monitoring",
+    "summary": "List the jobs that failed or are still running across projects"
   },
   "results": {
     "section": "Monitoring",
@@ -197,13 +205,21 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Monitoring",
     "summary": "Show stored mention and citation statistics"
   },
+  "trends": {
+    "section": "Monitoring",
+    "summary": "Show the stored figures behind a dashboard trend card"
+  },
+  "sitemaps": {
+    "section": "Monitoring",
+    "summary": "Compare the site's sitemaps with what Google and Bing list"
+  },
   "visibility-compare": {
     "section": "Monitoring",
     "summary": "Compare stored mention and citation results"
   },
   "sentiment": {
     "section": "Monitoring",
-    "summary": "Inspect and manage experimental sentiment measurement"
+    "summary": "Inspect and manage sentiment measurement"
   },
   "ga": {
     "section": "Integrations",
@@ -303,8 +319,8 @@ export function buildCliCatalog(specs: readonly CliCommandSpec[]): CliCatalogDto
 }
 
 export function renderTopLevelHelp(catalog: CliCatalogDto): string {
-  const sections = ['Setup', 'Page Health', 'Projects', 'Monitoring', 'Config-as-Code', 'Integrations', 'Automation', 'Admin']
-  const lines = ["cnry - Page Health and AI visibility CLI   ('canonry' also works)", '', 'Usage:  cnry <command> [options]', '']
+  const sections = ['Setup', 'Agent Readiness', 'Projects', 'Monitoring', 'Config-as-Code', 'Integrations', 'Automation', 'Admin', 'Deprecated aliases']
+  const lines = ["cnry - Agent Readiness and AI visibility CLI   ('canonry' also works)", '', 'Usage:  cnry <command> [options]', '']
   for (const section of [...new Set([...sections, ...catalog.groups.map(group => group.section)])]) {
     const groups = catalog.groups.filter(group => group.section === section)
     if (!groups.length) continue

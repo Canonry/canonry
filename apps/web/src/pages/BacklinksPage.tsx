@@ -176,10 +176,9 @@ export function BacklinksPage() {
         </Card>
       )}
 
-      <section className="page-section-divider">
+      <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Readiness</p>
             <h2>Backlink source</h2>
           </div>
           {status?.duckdbInstalled ? (
@@ -202,10 +201,9 @@ export function BacklinksPage() {
         </Card>
       </section>
 
-      <section className="page-section-divider">
+      <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Latest sync</p>
             <h2 className="flex items-center gap-2">
               Release sync
               <Hint label="What is a release sync?">
@@ -215,7 +213,7 @@ export function BacklinksPage() {
           </div>
           {latest && <ToneBadge tone={syncStatusTone(latest.status)}>{latest.status}</ToneBadge>}
         </div>
-        <Card className="surface-card p-5">
+        <div className="space-y-4">
           {latest ? (
             <div className="space-y-2 text-label-14">
               <p className="text-strong">
@@ -267,7 +265,7 @@ export function BacklinksPage() {
               </div>
             </div>
           )}
-          <div className="mt-4 material-base p-3">
+          <div className="space-y-3">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
                 <p className="text-label-12 normal-case text-muted">
@@ -352,14 +350,14 @@ export function BacklinksPage() {
           {!status?.duckdbInstalled && (
             <p className="text-copy-14 text-secondary mt-2">Install DuckDB first to enable sync.</p>
           )}
-        </Card>
+        </div>
       </section>
 
       <details className="page-section-divider group">
         <summary className="cursor-pointer text-label-14-strong text-secondary hover:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded">Technical details and cache</summary>
         <div className="mt-4">
           <p className="text-copy-14 text-secondary mb-3">Cached releases support project re-extracts. Pruning a release does not remove saved backlink results.</p>
-        <Card className="surface-card overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full text-label-14">
             <thead>
               <tr className="border-b border-base text-left text-label-12 normal-case text-faint">
@@ -405,17 +403,16 @@ export function BacklinksPage() {
               )}
             </tbody>
           </table>
-        </Card>
+        </div>
           <p className="mt-3 text-copy-13 text-muted">Common Crawl files are stored locally. DuckDB reads them; Canonry stores results in its normal database.</p>
         </div>
       </details>
 
       {history.length > 1 && (
-        <section className="page-section-divider">
+        <section className="page-section">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">History</p>
-              <h2>Past release syncs</h2>
+                <h2>Past release syncs</h2>
             </div>
           </div>
           <Card className="surface-card overflow-hidden">

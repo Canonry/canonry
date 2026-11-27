@@ -3,7 +3,7 @@ import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-or
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@canonry/canonry-db'
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
-import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
+import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
 import {
   ProviderWorkflows,
   SEO_RUN_SCOPE,
@@ -15,7 +15,7 @@ import {
   providerDispatchModeSchema,
   resolveRunDispatchModes,
   summarizeRunUsage,
-  summarizeObservedQueryCounts,
+  RunStatuses,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
@@ -35,16 +35,24 @@ import {
   validationError,
   parseRunError,
   serializeRunError,
+  readCitationState,
   retrievedSourceSchema,
   type RetrievedSource,
+  OVERVIEW_ACTIVITY_DEFAULT_DAYS,
+  OVERVIEW_ACTIVITY_EXCLUDED_KINDS,
+  overviewActivityRuns,
+  type RunKind,
+  type RunStatus,
+  type RunTrigger,
 } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { assertProjectScope, requireScope, requireAdminSession } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
+import { activeRevisionProviders, assertMeasurementRunStampable, assertPublishedMeasurementPlanForSweep, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunLocation, resolveRunnableProviderSelection, runAdmissionState, previewManualRun } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
+import { summarizeRunQueryCounts } from './run-query-counts.js'
 import { cancelSeoRefresh } from './seo.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
@@ -90,6 +98,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const now = new Date().toISOString()
     const kind = body.kind ?? RunKinds['answer-visibility']
     const trigger = body.trigger ?? RunTriggers.manual
+    assertPublishedMeasurementPlanForSweep(app.db, { projectId: project.id, kind, trigger })
     const rawProviders = body.providers
     if (rawProviders?.length) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
@@ -190,28 +199,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (preflightError) throw preflightError
     }
 
-    // Resolve location for this run
-    let resolvedLocation: LocationContext | null | undefined
     const projectLocations = project.locations
-
-    if (body.noLocation) {
-      resolvedLocation = null // explicitly no location
-    } else if (body.allLocations) {
-      // allLocations triggers one run per location — handled below
-    } else if (body.location) {
-      const loc = projectLocations.find(l => l.label === body.location)
-      if (!loc) {
-        throw validationError(`Location "${body.location}" not found. Configure it first.`)
-      }
-      resolvedLocation = loc
-    } else if (project.defaultLocation) {
-      // Auto-apply project's configured default location
-      const loc = projectLocations.find(l => l.label === project.defaultLocation)
-      if (!loc) {
-        throw validationError(`Default location "${project.defaultLocation}" not found. Update the project configuration.`)
-      }
-      resolvedLocation = loc
-    }
+    const resolvedLocation = resolveRunLocation(project, body)
 
     // Handle --all-locations: create one run per configured location.
     //
@@ -476,6 +465,17 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }))
   })
 
+  // Stored-only preview of exactly POST /projects/:name/runs with its default body.
+  app.get<{ Params: { name: string } }>('/projects/:name/run-preview', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    return reply.send(previewManualRun(app.db, {
+      projectId: project.id,
+      runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
+      providerModels: opts.getEffectiveProviderModels?.(),
+    }))
+  })
+
   // GET /runs — list runs newest-first with sensible defaults
   //
   // Default behavior:
@@ -531,6 +531,60 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       .limit(limit)
       .all()
     return reply.send(rows.map(formatRun))
+  })
+
+  // GET /runs/attention — Overview's Activity: each job's latest run that
+  // failed, finished partly, was cancelled, or is still queued or running,
+  // across the projects the key can see. The rule is contracts
+  // `overviewActivityRuns`, applied to every run of the window, so no
+  // newer run elsewhere can push a job's failure out of view. The dashboard,
+  // `canonry activity`, `canonry overview --all` and MCP read this response.
+  app.get<{ Querystring: { since?: string } }>('/runs/attention', async (request, reply) => {
+    const since = parseListSince(request.query.since, new Date(Date.now() - OVERVIEW_ACTIVITY_DEFAULT_DAYS * 24 * 60 * 60 * 1000).toISOString())
+    const filters = [gte(runs.createdAt, since), notProbeRun(), notInArray(runs.kind, [...OVERVIEW_ACTIVITY_EXCLUDED_KINDS])]
+    // A project-scoped key sees only its own project's jobs.
+    const scopedProjectId = request.apiKey?.projectId
+    if (scopedProjectId) filters.push(eq(runs.projectId, scopedProjectId))
+
+    // Job identity and state only: a plan run's manifest can be large, and
+    // only the runs picked below are read in full.
+    const candidates = app.db.select({
+      id: runs.id,
+      projectId: runs.projectId,
+      kind: runs.kind,
+      status: runs.status,
+      trigger: runs.trigger,
+      createdAt: runs.createdAt,
+      location: runs.location,
+      sourceId: runs.sourceId,
+      queries: runs.queries,
+      measurementScope: runs.measurementScope,
+    }).from(runs).where(and(...filters)).all()
+    const picked = overviewActivityRuns(candidates.map(row => ({
+      ...row,
+      kind: row.kind as RunKind,
+      status: row.status as RunStatus,
+      trigger: row.trigger as RunTrigger,
+    })))
+
+    const ids = picked.map(run => run.id)
+    const rowsById = new Map(ids.length === 0 ? [] : app.db.select().from(runs).where(inArray(runs.id, ids)).all().map(row => [row.id, row]))
+    const projectIds = [...new Set(picked.map(run => run.projectId))]
+    const projectsById = new Map(projectIds.length === 0 ? [] : app.db
+      .select({ id: projects.id, name: projects.name, displayName: projects.displayName })
+      .from(projects).where(inArray(projects.id, projectIds)).all()
+      .map(project => [project.id, project]))
+
+    const items = picked.flatMap(run => {
+      const row = rowsById.get(run.id)
+      const project = projectsById.get(run.projectId)
+      if (!row || !project) return []
+      // Activity names the job and its state; it never needs the frozen manifest.
+      const { measurementManifest: _manifest, ...formatted } = formatRun(row)
+      return [{ project, run: formatted }]
+    })
+    // The `RunsAttentionDto` OpenAPI schema (contracts `runsAttentionDtoSchema`).
+    return reply.send({ since, items })
   })
 
   // POST /runs — trigger a run for all projects
@@ -1032,6 +1086,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       model: querySnapshots.model,
       servedModel: querySnapshots.servedModel,
       citationState: querySnapshots.citationState,
+      retrievalStatus: querySnapshots.retrievalStatus,
       answerMentioned: querySnapshots.answerMentioned,
       mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
@@ -1084,7 +1139,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       queryId: s.queryId,
       query: s.query,
       provider: s.provider,
-      citationState: s.citationState,
+      citationState: readCitationState(s),
       answerMentioned,
       // Legacy alias of `mentionState`, retained for backwards compatibility.
       visibilityState: project
@@ -1126,18 +1181,26 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       createdAt: s.createdAt,
     }
   })
-  const identifiedSignals = mappedSnapshots.flatMap(snapshot =>
-    typeof snapshot.queryId === 'string' && snapshot.queryId.length > 0
-      ? [{ queryId: snapshot.queryId, citationState: snapshot.citationState as CitationState, answerMentioned: snapshot.answerMentioned }]
-      : [],
+  // Each query counts under the class it is listed with, so the split matches
+  // the query list (text-classified, or stored by an active Advanced plan).
+  const { queryCounts, queryCountsByClass } = summarizeRunQueryCounts(
+    app.db,
+    project ? { id: run.projectId, ...project } : null,
+    mappedSnapshots,
   )
   return {
     ...formatRun(run),
     providerBatches: readRunProviderBatches(app.db, run.id),
     usage: summarizeRunUsage(snapshots),
     snapshots: mappedSnapshots,
-    queryCounts: identifiedSignals.length === mappedSnapshots.length
-      ? summarizeObservedQueryCounts(identifiedSignals)
+    queryCounts,
+    queryCountsByClass,
+    // Failures so far, for a run still going; a finished run reports them in `error`.
+    providerFailures: (run.status === RunStatuses.queued || run.status === RunStatuses.running)
+      && run.providerFailures && Object.keys(run.providerFailures).length > 0
+      ? run.providerFailures
       : null,
+    // Recorded when the sweep starts; absent before then and on older runs.
+    ...(run.plannedAnswers !== null ? { plannedAnswers: run.plannedAnswers } : {}),
   }
 }

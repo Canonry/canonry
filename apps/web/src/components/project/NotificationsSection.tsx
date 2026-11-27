@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { NOTIFICATION_EVENT_DESCRIPTIONS, notificationEventSchema, type NotificationEvent } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -8,18 +9,47 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { listNotifications, addNotification, removeNotification, sendTestNotification, isEmbed, isPublicDemo, type ApiNotification } from '../../api.js'
 
 // --- Notification events ---
-const NOTIFICATION_EVENTS = [
-  { value: 'citation.lost', label: 'Citation lost' },
-  { value: 'citation.gained', label: 'Citation gained' },
-  { value: 'run.completed', label: 'Run completed' },
-  { value: 'run.failed', label: 'Run failed' },
-] as const
+// Every event the server accepts, in the contract's order. Keyed by the event
+// type, so a new event cannot ship without a label here.
+const EVENT_LABELS: Record<NotificationEvent, string> = {
+  'citation.lost': 'Citation lost',
+  'citation.gained': 'Citation gained',
+  'mention.lost': 'Mention lost',
+  'mention.gained': 'Mention gained',
+  'run.completed': 'Run completed',
+  'run.failed': 'Run failed',
+  'insight.critical': 'Critical insight',
+  'insight.high': 'High-severity insight',
+  'health.degraded': 'Health degraded',
+  'health.recovered': 'Health recovered',
+  'health.urgent': 'Urgent health problem',
+  'health.urgent-resolved': 'Urgent problem resolved',
+  'review.negative': 'Negative review',
+  'review.rating-dropped': 'Rating dropped',
+  'traffic.agent.discovered': 'New bot or agent',
+  'site-health.issue.new': 'New Agent Readiness problem',
+  'sentiment.unfavorable': 'Answer turned unfavorable',
+}
+
+const NOTIFICATION_EVENTS = notificationEventSchema.options.map(value => ({
+  value,
+  label: EVENT_LABELS[value],
+  description: NOTIFICATION_EVENT_DESCRIPTIONS[value],
+}))
+
+/** Both AI visibility signals, lost and gained: a mention and a citation move independently. */
+const DEFAULT_EVENTS: NotificationEvent[] = ['mention.lost', 'mention.gained', 'citation.lost', 'citation.gained']
+
+function eventLabel(event: string): string {
+  const known = notificationEventSchema.safeParse(event)
+  return known.success ? EVENT_LABELS[known.data] : event
+}
 
 export function NotificationsSection({ projectName }: { projectName: string }) {
   const [notifs, setNotifs] = useState<ApiNotification[] | 'loading'>('loading')
   const [adding, setAdding] = useState(false)
   const [webhookUrl, setWebhookUrl] = useState('')
-  const [selectedEvents, setSelectedEvents] = useState<string[]>(['citation.lost', 'citation.gained'])
+  const [selectedEvents, setSelectedEvents] = useState<string[]>(DEFAULT_EVENTS)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testStates, setTestStates] = useState<Record<string, { state: 'testing' | 'ok' | 'fail'; status?: number }>>({})
@@ -47,7 +77,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
       })
       setNotifs(prev => prev === 'loading' ? [result] : [...prev, result])
       setWebhookUrl('')
-      setSelectedEvents(['citation.lost', 'citation.gained'])
+      setSelectedEvents(DEFAULT_EVENTS)
       setAdding(false)
       addToast({
         title: 'Webhook added',
@@ -110,7 +140,6 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Automation</p>
           <h2>Notifications</h2>
         </div>
         {canManage && notifs !== 'loading' && (
@@ -136,7 +165,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
             <label className="text-label-12-strong text-secondary">Trigger on</label>
             <div className="flex flex-wrap gap-3">
               {NOTIFICATION_EVENTS.map(evt => (
-                <label key={evt.value} className="flex items-center gap-1.5 cursor-pointer select-none">
+                <label key={evt.value} title={evt.description} className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     className="rounded border-mono-600 bg-mono-800"
@@ -157,17 +186,17 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               disabled={saving || !webhookUrl.trim() || selectedEvents.length === 0}
               onClick={asyncHandler(handleAdd)}
             >
-              {saving ? 'Adding...' : 'Add webhook'}
+              {saving ? 'Adding…' : 'Add webhook'}
             </Button>
           </div>
         </div>
       )}
 
-      {notifs === 'loading' && <p className="supporting-copy">Loading...</p>}
+      {notifs === 'loading' && <p className="supporting-copy">Loading…</p>}
 
       {notifs !== 'loading' && notifs.length === 0 && !adding && (
         <Card className="surface-card compact-card">
-          <p className="supporting-copy">No webhooks configured. Add one to get alerted when citations change or runs complete.</p>
+          <p className="supporting-copy">No webhooks configured. Add one to get alerted when mentions or citations change or runs complete.</p>
         </Card>
       )}
 
@@ -193,8 +222,8 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
                   <td>
                     <div className="flex flex-wrap gap-1">
                       {n.events.map(evt => (
-                        <span key={evt} className="inline-flex items-center rounded-full border border-strong bg-surface-inset px-2 py-0.5 text-label-12-strong text-secondary normal-case">
-                          {evt.replace('.', ' ')}
+                        <span key={evt} title={evt} className="inline-flex items-center rounded-full border border-strong bg-surface-inset px-2 py-0.5 text-label-12-strong text-secondary normal-case">
+                          {eventLabel(evt)}
                         </span>
                       ))}
                     </div>

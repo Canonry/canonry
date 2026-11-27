@@ -119,6 +119,17 @@ describe('traffic jsonl degrades to json for mutation commands', () => {
     expect(humanOut).toContain('Traffic sync complete for "p"')
     expect(() => JSON.parse(humanOut)).toThrow()
     expect(humanOut).not.toBe(jsonOut)
+    // No browser-agent line when the server reports none, or predates the count.
+    expect(humanOut).not.toContain('Browser agent non-page')
+  })
+
+  it('trafficSync: reports the browser-agent requests that were not page loads', async () => {
+    trafficSyncMock.mockResolvedValue({ ...SYNC_DTO, aiUserFetchHits: 2, aiUserFetchBucketRows: 2, aiUserFetchLikelyFakeHits: 0, aiUserFetchBrowserNonPageHits: 37 })
+    const { trafficSync } = await import('../src/commands/traffic.js')
+
+    const humanOut = await run(() => trafficSync('p', { source: 'src_123' }))
+    expect(humanOut).toContain('  AI user fetches:  2  (2 hourly buckets)')
+    expect(humanOut).toContain('  Browser agent non-page: 37  (files, data calls and form posts; only page loads count as AI user fetches)')
   })
 
   it('trafficConnectCloudRun: --format jsonl emits the same JSON document as --format json', async () => {

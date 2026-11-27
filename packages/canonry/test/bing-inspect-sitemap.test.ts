@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { bingCoverageSnapshots, bingUrlInspections, createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { BingApiError } from '@canonry/canonry-integration-bing'
-import { executeBingInspectSitemap } from '../src/bing-inspect-sitemap.js'
+import { BING_INSPECT_RUN_MAX_URLS, executeBingInspectSitemap } from '../src/bing-inspect-sitemap.js'
 import type { CanonryConfig } from '../src/config.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())
@@ -431,7 +431,7 @@ describe('executeBingInspectSitemap', () => {
 
     beforeEach(() => trackEvent.mockReset())
 
-    it('reports the coverage sweep as the bing sync, with URL counts, after it is saved', async () => {
+    it('reports the coverage sweep as bing inspection, with URL counts, after it is saved', async () => {
       const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(2) })
       server = s.server
       const bingModule = await import('@canonry/canonry-integration-bing')
@@ -443,10 +443,11 @@ describe('executeBingInspectSitemap', () => {
       })
 
       expect(featureCompleted()).toEqual([
-        {
-          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'succeeded',
-          durationBucket: 'under_1s', counts: { urls: 2, failures: 0, skipped: 0 },
-        },
+        expect.objectContaining({
+          feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'succeeded',
+          operationKind: 'url-coverage', diagnostics: { phase: 'persistence', remainingWork: 0 },
+          durationBucket: 'under_1s', counts: { urls: 2, attempts: 2, failures: 0, skipped: 0 },
+        }),
         undefined,
       ])
     })
@@ -466,10 +467,11 @@ describe('executeBingInspectSitemap', () => {
       })
 
       expect(featureCompleted()).toEqual([
-        {
-          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'partial', reasonCode: 'RATE_LIMITED',
-          errorName: 'BingApiError', durationBucket: 'under_1s', counts: { urls: 1, failures: 1, skipped: 0 },
-        },
+        expect.objectContaining({
+          feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'partial', reasonCode: 'RATE_LIMITED',
+          operationKind: 'url-coverage', diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 0, remainingWork: 1 },
+          errorName: 'BingApiError', durationBucket: 'under_1s', counts: { urls: 1, attempts: 2, failures: 1, skipped: 0 },
+        }),
         { errorCode: 'RATE_LIMITED' },
       ])
     })
@@ -486,10 +488,12 @@ describe('executeBingInspectSitemap', () => {
       })).rejects.toThrow(/failed for every URL/i)
 
       expect(featureCompleted()).toEqual([
-        {
-          feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
+        expect.objectContaining({
+          feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'RATE_LIMITED',
           errorName: 'BingApiError', durationBucket: 'under_1s',
-        },
+          operationKind: 'url-coverage', diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 0, remainingWork: 6 },
+          counts: { urls: 0, attempts: 1, failures: 1, skipped: 5 },
+        }),
         { errorCode: 'RATE_LIMITED' },
       ])
     })
@@ -513,13 +517,111 @@ describe('executeBingInspectSitemap', () => {
 
       expect(trackEvent.mock.calls.map((call) => call.slice(1))).toEqual([
         [
-          { feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s' },
+          expect.objectContaining({ feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED', errorName: 'Error', durationBucket: 'under_1s', operationKind: 'url-coverage', diagnostics: { phase: 'setup' } }),
           { errorCode: 'NOT_CONNECTED' },
         ],
         [
-          { feature: 'bing', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s' },
+          expect.objectContaining({ feature: 'bing', operation: 'inspect', trigger: 'manual', status: 'failed', reasonCode: 'PROPERTY_NOT_FOUND', errorName: 'Error', durationBucket: 'under_1s', operationKind: 'url-coverage', diagnostics: { phase: 'setup' } }),
           { errorCode: 'PROPERTY_NOT_FOUND' },
         ],
+      ])
+    })
+
+    it('stops on an exhausted account throttle and resumes with unfinished URLs before refreshing successes', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(5) })
+      server = s.server
+      const bingModule = await import('@canonry/canonry-integration-bing')
+      const throttle = new BingApiError('ThrottleHost', 400, 5, '120')
+      throttle.retryCount = 4
+      const read = vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => {
+        if (url.endsWith('/p2')) throw throttle
+        return { Url: url, HttpStatus: 200, DocumentSize: 1000 }
+      })
+      const opts = { sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant }
+
+      const first = await queueRun()
+      await executeBingInspectSitemap(db, first, projectId, opts)
+
+      expect(read.mock.calls.map((call) => call[2])).toEqual([
+        'https://harborline-coatings.example.com/p0', 'https://harborline-coatings.example.com/p1', 'https://harborline-coatings.example.com/p2',
+      ])
+      expect(db.select().from(runs).where(eq(runs.id, first)).get()).toMatchObject({ status: RunStatuses.partial, error: expect.stringContaining('3 of 5') })
+      expect(db.select().from(bingUrlInspections).where(eq(bingUrlInspections.syncRunId, first)).all()).toHaveLength(2)
+      expect(featureCompleted()).toEqual([
+        expect.objectContaining({
+          operationKind: 'url-coverage', status: 'partial', reasonCode: 'RATE_LIMITED',
+          counts: { urls: 2, attempts: 3, failures: 1, skipped: 2 },
+          diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 4, retryAfterBucket: '1m_to_5m', remainingWork: 3 },
+        }),
+        { errorCode: 'RATE_LIMITED' },
+      ])
+
+      read.mockClear().mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const resumed = await queueRun()
+      await executeBingInspectSitemap(db, resumed, projectId, opts)
+
+      expect(read.mock.calls.slice(0, 3).map((call) => call[2])).toEqual([
+        'https://harborline-coatings.example.com/p2', 'https://harborline-coatings.example.com/p3', 'https://harborline-coatings.example.com/p4',
+      ])
+      expect(db.select().from(runs).where(eq(runs.id, resumed)).get()).toMatchObject({ status: RunStatuses.completed, error: null })
+      expect(db.select().from(bingUrlInspections).all()).toHaveLength(7)
+    })
+
+    it('checks one batch per run, completes it, and rotates the rest in on later runs', async () => {
+      // Bing throttles the shared key long before a sitemap is done, so a run
+      // that kept going until refused ended partial every day. A run plans a
+      // batch under the limit instead, and finishing that batch is complete.
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(45) })
+      server = s.server
+      const bingModule = await import('@canonry/canonry-integration-bing')
+      const read = vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const opts = { sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant }
+      const page = (i: number) => `https://harborline-coatings.example.com/p${i}`
+      const pages = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => page(from + i))
+
+      const first = await queueRun()
+      await executeBingInspectSitemap(db, first, projectId, opts)
+
+      expect(BING_INSPECT_RUN_MAX_URLS).toBe(20)
+      expect(read.mock.calls.map((call) => call[2])).toEqual(pages(0, 19))
+      expect(db.select().from(runs).where(eq(runs.id, first)).get()).toMatchObject({ status: RunStatuses.completed, error: null })
+      expect(featureCompleted()).toEqual([
+        expect.objectContaining({
+          status: 'succeeded', operationKind: 'url-coverage',
+          counts: { urls: 20, attempts: 20, failures: 0, skipped: 25 },
+        }),
+        undefined,
+      ])
+
+      read.mockClear()
+      await executeBingInspectSitemap(db, await queueRun(), projectId, opts)
+      expect(read.mock.calls.map((call) => call[2])).toEqual(pages(20, 39))
+
+      // Never-checked pages first, then the stalest.
+      read.mockClear()
+      const third = await queueRun()
+      await executeBingInspectSitemap(db, third, projectId, opts)
+      expect(read.mock.calls.map((call) => call[2])).toEqual([...pages(40, 44), ...pages(0, 14)])
+      expect(db.select().from(runs).where(eq(runs.id, third)).get()).toMatchObject({ status: RunStatuses.completed, error: null })
+    })
+
+    it('does not start URL requests when crawl enrichment has already exhausted the account throttle', async () => {
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(3) })
+      server = s.server
+      const bingModule = await import('@canonry/canonry-integration-bing')
+      vi.spyOn(bingModule, 'getCrawlIssues').mockRejectedValue(throttled())
+      const read = vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const runId = await queueRun()
+
+      await expect(executeBingInspectSitemap(db, runId, projectId, {
+        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
+      })).rejects.toThrow('ThrottleHost')
+
+      expect(read).not.toHaveBeenCalled()
+      expect(db.select().from(bingCoverageSnapshots).all()).toEqual([])
+      expect(featureCompleted()).toEqual([
+        expect.objectContaining({ status: 'failed', reasonCode: 'RATE_LIMITED', counts: { urls: 0, attempts: 0, failures: 0, skipped: 3 } }),
+        { errorCode: 'RATE_LIMITED' },
       ])
     })
   })

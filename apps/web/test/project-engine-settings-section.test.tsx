@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 
-import { ProjectEngineSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
+import { ENGINE_SETTINGS_COPY, ProjectEngineSettingsSection } from '../src/components/project/ProjectEngineSettingsSection.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { mockFetch, jsonResponse } from './mock-fetch.js'
@@ -17,6 +17,36 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 })
 
 afterEach(() => { cleanup(); resetToasts() })
+
+test('retains unavailable selections when every connection is removed and allows returning to automatic selection', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: {} }, { ...settings, providers: settings.providers.map(provider => ({ ...provider, configured: false })) })
+  const selected = await screen.findByRole('checkbox', { name: /Gemini/ })
+  expect(selected).toHaveProperty('checked', true)
+  expect(selected).toHaveProperty('disabled', false)
+  expect(screen.getByText('Not configured, skipped')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Manage connection' })).toBeTruthy()
+  fireEvent.click(selected)
+  fireEvent.click(screen.getByRole('radio', { name: 'All connected engines' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: [], providerModels: {} }))
+})
+
+test('searching engine choices never removes selected models from the saved project', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini', 'openrouter:google/gemini-model'], providerModels: { gemini: 'gemini-2.5-pro' } }, openRouterSettings)
+  const search = await screen.findByRole('searchbox', { name: 'Search answer engines' })
+  fireEvent.change(search, { target: { value: 'no matching engine' } })
+  expect(screen.getByText('No engines match this filter.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model'], providerModels: { gemini: 'gemini-2.5-pro' } }))
+})
+
+test('an empty custom model draft must be corrected before saving', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: {} })
+  fireEvent.change(await screen.findByLabelText('Model'), { target: { value: '__custom__' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Enter a custom model ID or use the instance setting.')
+  expect(onSave).not.toHaveBeenCalled()
+})
 
 const settings = {
   providers: [{ name: 'gemini', displayName: 'Gemini', configured: true }, { name: 'openai', displayName: 'OpenAI', configured: false }],
@@ -44,8 +74,8 @@ const openRouterSettings = {
   providerCatalog: [...settings.providerCatalog, {
     name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true,
     defaultModel: '', knownModels: [
-      { id: 'google/gemini-model', displayName: 'Gemini via OpenRouter', tier: 'standard' },
-      { id: 'anthropic/claude-model', displayName: 'Claude via OpenRouter', tier: 'flagship' },
+      { id: 'google/gemini-model', displayName: 'Gemini Model', tier: 'standard' },
+      { id: 'anthropic/claude-model', displayName: 'Claude Model', tier: 'flagship' },
     ], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.',
   }],
 }
@@ -80,10 +110,10 @@ test('leads with choosing models when OpenRouter is the only connection', async 
   expect(screen.queryByText('Applies on the next check')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Choose models' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude via OpenRouter' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude Model' }))
   fireEvent.click(screen.getByRole('button', { name: 'Add 1 model' }))
   expect(screen.queryByText('No models selected.')).toBeNull()
-  expect(screen.getByRole('checkbox', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'Claude Model via OpenRouter' })).toHaveProperty('checked', true)
   expect(screen.getByRole('button', { name: 'Add models' })).toBeTruthy()
   expect(screen.getByText('Applies on the next check')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
@@ -93,7 +123,7 @@ test('leads with choosing models when OpenRouter is the only connection', async 
 test('shows only the saved OpenRouter models, with Save engines, once some are chosen', async () => {
   const openRouterOnly = { ...openRouterSettings, providers: [{ name: 'openrouter', displayName: 'OpenRouter', configured: true }] }
   renderSection(undefined, { name: 'demo', providers: ['openrouter:google/gemini-model'], providerModels: {} }, openRouterOnly)
-  expect(await screen.findByRole('checkbox', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(await screen.findByRole('checkbox', { name: 'Gemini Model via OpenRouter' })).toHaveProperty('checked', true)
   expect(screen.queryByText('No models selected.')).toBeNull()
   expect(screen.getByRole('button', { name: 'Save engines' })).toBeTruthy()
   expect(screen.getByText('Applies on the next check')).toBeTruthy()
@@ -102,24 +132,50 @@ test('shows only the saved OpenRouter models, with Save engines, once some are c
 test('adds several concrete OpenRouter models beside direct Gemini, without selecting the connection', async () => {
   const onSave = renderSection(undefined, { name: 'demo', providers: [], providerModels: {} }, openRouterSettings)
   fireEvent.click(await screen.findByRole('button', { name: 'Add OpenRouter models' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Gemini via OpenRouter' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Gemini Model' }))
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search OpenRouter models' }), { target: { value: 'claude' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude via OpenRouter' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Claude Model' }))
   const saveEngines = screen.getByRole('button', { name: 'Save engines' })
   // Nothing to save yet, so Save engines is not the primary action.
   expect(saveEngines.className).not.toContain('bg-accent')
   fireEvent.click(screen.getByRole('button', { name: 'Add 2 models' }))
   expect(screen.getByRole('checkbox', { name: 'Gemini' })).toHaveProperty('checked', true)
-  expect(screen.getByRole('checkbox', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('checked', true)
-  expect(screen.getByRole('checkbox', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'Gemini Model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'Claude Model via OpenRouter' })).toHaveProperty('checked', true)
   // Adding only stages the models: the note and the primary Save engines say what is left.
   expect(screen.getByRole('status').textContent).toBe('2 models added, not saved')
   expect(saveEngines.className).toContain('bg-accent')
   fireEvent.click(saveEngines)
   await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini', 'openrouter:google/gemini-model', 'openrouter:anthropic/claude-model'], providerModels: {} }))
-  await waitFor(() => expect(getToasts().map(toast => toast.title)).toContain('Saved for the next check'))
+  // The confirmation takes the "not saved" note's place beside the button, not a corner toast.
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(ENGINE_SETTINGS_COPY.saved))
+  expect(getToasts()).toEqual([])
   expect(screen.queryByText(/not saved/)).toBeNull()
   expect(saveEngines.className).not.toContain('bg-accent')
+})
+
+test('Save engines confirms beside the button until the next edit', async () => {
+  const onSave = renderSection(undefined, { name: 'demo', providers: ['gemini'], providerModels: {} })
+  const model = await screen.findByLabelText('Model')
+  fireEvent.change(model, { target: { value: 'gemini-2.5-pro' } })
+  expect(screen.queryByRole('status')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith({ providers: ['gemini'], providerModels: { gemini: 'gemini-2.5-pro' } }))
+  const saved = await screen.findByRole('status')
+  expect(saved.textContent).toBe(ENGINE_SETTINGS_COPY.saved)
+  expect(saved.className).toContain('text-positive')
+  // The next edit is unsaved again, so the confirmation goes.
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: '__inherit__' } })
+  expect(screen.queryByRole('status')).toBeNull()
+})
+
+test('a failed save shows the error and no confirmation', async () => {
+  const onSave = renderSection(vi.fn().mockRejectedValue(new Error('Project update refused')), { name: 'demo', providers: ['gemini'], providerModels: {} })
+  fireEvent.change(await screen.findByLabelText('Model'), { target: { value: 'gemini-2.5-pro' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save engines' }))
+  expect((await screen.findByRole('alert')).textContent).toBe('Project update refused')
+  expect(onSave).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('status')).toBeNull()
 })
 
 test('manual OpenRouter models remain selectable after saving and classifier-only routes are refused', async () => {
@@ -127,7 +183,7 @@ test('manual OpenRouter models remain selectable after saving and classifier-onl
     ...settings, providers: [...settings.providers, { name: 'openrouter', displayName: 'OpenRouter', configured: true }],
     providerCatalog: [...settings.providerCatalog, { name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true, defaultModel: '', knownModels: [], modelValidationPattern: { source: '^[a-z0-9._-]+/[a-z0-9._:-]+$', flags: '' }, modelValidationHint: 'Use a vendor/model ID.' }],
   })
-  expect(await screen.findByRole('checkbox', { name: 'vendor/saved-model via OpenRouter' })).toHaveProperty('checked', true)
+  expect(await screen.findByRole('checkbox', { name: 'Vendor: Saved Model via OpenRouter' })).toHaveProperty('checked', true)
   fireEvent.click(screen.getByRole('button', { name: 'Add OpenRouter models' }))
   // Discovery returned nothing, which is a failed load, not an empty search.
   expect(screen.getByText(/^Couldn't load OpenRouter's model list\./).textContent).toBe("Couldn't load OpenRouter's model list. Check the OpenRouter key in Settings, or enter a model ID below.")
@@ -310,7 +366,7 @@ test('groups connected services and keeps their profile order when choosing engi
     ],
   } as typeof settings)
   await screen.findByLabelText('Standard · Fake Answers')
-  expect(screen.getAllByRole('checkbox').map(input => input.closest('label')?.textContent?.trim())).toEqual([
+  expect(screen.getAllByRole('checkbox', { name: /Answers/ }).map(input => input.closest('label')?.textContent?.trim())).toEqual([
     'Standard · Fake Answers', 'Advanced · Fake Answers', 'Low · Other Answers', 'High · Other Answers',
   ])
   expect(screen.getByText('Nothing selected to run.')).toBeTruthy()

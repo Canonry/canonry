@@ -4,6 +4,8 @@ import {
   classifyGbpMetric,
   GBP_CONVERSION_METRICS,
   GBP_REACH_METRICS,
+  gbpWebsiteHost,
+  gbpWebsiteMatchesProject,
 } from '../src/gbp.js'
 
 describe('formatGbpMetricLabel', () => {
@@ -51,4 +53,47 @@ describe('classifyGbpMetric', () => {
     expect(classifyGbpMetric('SOMETHING_UNKNOWN')).toBe('other')
   })
 
+})
+
+describe('gbpWebsiteMatchesProject', () => {
+  const domains = ['hotels.example.com', 'hotels-booking.example']
+
+  it('matches the project domain, its www and other subdomains, and owned domains', () => {
+    expect(gbpWebsiteMatchesProject('https://hotels.example.com/', domains)).toBe(true)
+    expect(gbpWebsiteMatchesProject('http://www.hotels.example.com/rooms?x=1', domains)).toBe(true)
+    expect(gbpWebsiteMatchesProject('https://book.hotels-booking.example', domains)).toBe(true)
+    expect(gbpWebsiteMatchesProject('HTTPS://WWW.HOTELS.EXAMPLE.COM', domains)).toBe(true)
+  })
+
+  it('flags a sibling host under a shared parent, such as another franchisee', () => {
+    expect(gbpWebsiteMatchesProject('https://la.brandfranchise.example/', ['nyc.brandfranchise.example'])).toBe(false)
+    expect(gbpWebsiteMatchesProject('https://shop.example.com/', ['blog.example.com'])).toBe(false)
+    // A project on the root domain still covers its subdomains, and www is ignored.
+    expect(gbpWebsiteMatchesProject('https://shop.example.com/', ['www.example.com'])).toBe(true)
+  })
+
+  it('matches a host without a public suffix or an IP address when it is the project domain', () => {
+    expect(gbpWebsiteMatchesProject('http://intranet.local/', ['intranet.local'])).toBe(true)
+    expect(gbpWebsiteMatchesProject('http://203.0.113.7/', ['203.0.113.7'])).toBe(true)
+    expect(gbpWebsiteMatchesProject('http://203.0.113.8/', ['203.0.113.7'])).toBe(false)
+  })
+
+  it('reads the display host without www', () => {
+    expect(gbpWebsiteHost('https://WWW.Bayview-Hotel.example/rooms')).toBe('bayview-hotel.example')
+    expect(gbpWebsiteHost(null)).toBeNull()
+  })
+
+  it('flags another business\'s website', () => {
+    expect(gbpWebsiteMatchesProject('https://gjelina-like-hotel.example/', domains)).toBe(false)
+    expect(gbpWebsiteMatchesProject('https://hotels.example.org/', domains)).toBe(false)
+    // A host that merely contains the project domain is not on it.
+    expect(gbpWebsiteMatchesProject('https://hotels.example.com.evil.example/', domains)).toBe(false)
+  })
+
+  it('is null without a website or a recognizable domain', () => {
+    expect(gbpWebsiteMatchesProject(null, domains)).toBeNull()
+    expect(gbpWebsiteMatchesProject(undefined, domains)).toBeNull()
+    expect(gbpWebsiteMatchesProject('   ', domains)).toBeNull()
+    expect(gbpWebsiteMatchesProject('not a url', domains)).toBeNull()
+  })
 })

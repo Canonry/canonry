@@ -15,6 +15,7 @@ import { CliError } from '../cli-error.js'
 import { runWithUsageTags, type ApiClient } from '../client.js'
 import {
   CanonryMcpToolNames,
+  DEPRECATED_MCP_TOOL_ALIAS_NAMES,
   type CanonryMcpRegistryTool,
   type CanonryMcpTool,
   type CanonryMcpToolName,
@@ -1002,6 +1003,20 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
   'canonry_seo_run_cancel',
   // Reloading install-wide credentials remains an explicit operator action.
   CanonryMcpToolNames.canonry_providers_reload,
+  CanonryMcpToolNames.canonry_provider_disconnect,
+  CanonryMcpToolNames.canonry_provider_settings_update,
+  // A connection test spends on the operator's provider account with the saved key.
+  CanonryMcpToolNames.canonry_provider_test,
+  // These operations start account authorization, list account-wide sites,
+  // or change the property shared by projects on a domain.
+  CanonryMcpToolNames.canonry_gsc_connect,
+  CanonryMcpToolNames.canonry_gsc_properties,
+  CanonryMcpToolNames.canonry_gsc_set_property,
+  CanonryMcpToolNames.canonry_ga_oauth_start,
+  CanonryMcpToolNames.canonry_ga_connect,
+  CanonryMcpToolNames.canonry_bing_connect,
+  CanonryMcpToolNames.canonry_bing_sites,
+  CanonryMcpToolNames.canonry_bing_set_site,
   // Aero reads stored sentiment. Configuration and backfill submission can
   // start paid classifier work and remain operator actions.
   'canonry_sentiment_configure',
@@ -1019,6 +1034,11 @@ export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set(
   CanonryMcpToolNames.canonry_agent_conversations_resume,
   CanonryMcpToolNames.canonry_agent_conversations_delete,
   CanonryMcpToolNames.canonry_results_clear,
+
+  // Deprecated names (canonry_technical_aeo_*, canonry_site_health_*) answer
+  // exactly like their canonry_agent_readiness_* tools. They exist only for
+  // existing external clients; Aero gets the canonical tools once.
+  ...DEPRECATED_MCP_TOOL_ALIAS_NAMES,
 ])
 
 /**

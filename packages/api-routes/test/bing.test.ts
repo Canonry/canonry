@@ -6,9 +6,10 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
-import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { bingRoutes, __resetBingCrawlIssuesCacheForTest } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bing-routes-test-'))
@@ -34,10 +35,12 @@ function buildApp() {
   }
 
   const app = Fastify()
+  const events: OutcomeTelemetryEvent[] = []
+  app.decorate('emitOutcome', createOutcomeEmitter(event => events.push(event)))
   app.decorate('db', db)
   app.register(bingRoutes, { bingConnectionStore })
 
-  return { app, db, tmpDir, connections }
+  return { app, db, tmpDir, connections, events }
 }
 
 describe('Bing routes', () => {
@@ -46,6 +49,7 @@ describe('Bing routes', () => {
   let tmpDir: string
   let connections: Map<string, BingConnectionRecord>
   let projectId: string
+  let events: OutcomeTelemetryEvent[]
 
   beforeAll(async () => {
     const ctx = buildApp()
@@ -53,6 +57,7 @@ describe('Bing routes', () => {
     db = ctx.db
     tmpDir = ctx.tmpDir
     connections = ctx.connections
+    events = ctx.events
     await app.ready()
 
     projectId = crypto.randomUUID()
@@ -81,6 +86,7 @@ describe('Bing routes', () => {
     db.delete(bingUrlInspections).run()
     db.delete(bingCoverageSnapshots).run()
     connections.clear()
+    events.length = 0
     __resetBingCrawlIssuesCacheForTest()
 
     const now = new Date().toISOString()
@@ -146,6 +152,25 @@ describe('Bing routes', () => {
     expect(inspectRuns[0]!.status).toBe(RunStatuses.completed)
     expect(inspectRuns[0]!.trigger).toBe(RunTriggers.manual)
     expect(rows[0]!.syncRunId).toBe(inspectRuns[0]!.id)
+    expect(events).toMatchObject([{ event: 'feature.completed', properties: {
+      operationKind: 'url-inspection', operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      status: 'succeeded', counts: { urls: 1 }, diagnostics: { phase: 'persistence', remainingWork: 0 },
+    } }])
+    expect(JSON.stringify(events)).not.toContain('https://example.com/page')
+  })
+
+  it('reports a Bing 400 throttle with its real status and unresolved inspection, without provider text', async () => {
+    const bingModule = await import('@canonry/canonry-integration-bing')
+    const error = new bingModule.BingApiError('private account ThrottleHost', 400, 5, '600')
+    error.retryCount = 3
+    vi.spyOn(bingModule, 'getUrlInfo').mockRejectedValue(error)
+    const response = await app.inject({ method: 'POST', url: '/projects/test-project/bing/inspect-url', payload: { url: 'https://example.com/page' } })
+    expect(response.statusCode).toBe(400)
+    expect(events).toMatchObject([{ event: 'feature.completed', properties: {
+      operationKind: 'url-inspection', status: 'failed', reasonCode: 'RATE_LIMITED',
+      diagnostics: { phase: 'provider-request', httpStatus: 400, retryCount: 3, retryAfterBucket: '5m_to_30m', remainingWork: 1 },
+    } }])
+    expect(JSON.stringify(events)).not.toMatch(/private account|example.com/)
   })
 
   it('derives indexed=true from positive DocumentSize', async () => {
@@ -408,25 +433,26 @@ describe('Bing routes', () => {
     expect(body.unknown.map((row) => row.url)).toEqual(['https://example.com/unknown'])
   })
 
-  it('performance normalizes non-finite CTR values to 0', async () => {
+  it('performance returns stored weekly query rows newest first, without calling Bing', async () => {
     const bingModule = await import('@canonry/canonry-integration-bing')
-    vi.spyOn(bingModule, 'getKeywordStats').mockResolvedValue([
-      { Query: 'normal query', Impressions: 100, Clicks: 5, Ctr: 0.05, AverageClickPosition: 3, AverageImpressionPosition: 3 },
-      { Query: 'nan ctr', Impressions: 0, Clicks: 0, Ctr: NaN, AverageClickPosition: 0, AverageImpressionPosition: 0 },
-      { Query: 'infinity ctr', Impressions: 0, Clicks: 0, Ctr: Infinity, AverageClickPosition: 0, AverageImpressionPosition: 0 },
-    ])
+    const live = vi.spyOn(bingModule, 'getQueryStats')
+    const base = { projectId, syncRunId: null, syncedAt: '2026-11-03T00:00:00Z' }
+    db.insert(bingQueryStats).values([
+      { ...base, id: crypto.randomUUID(), date: '2026-10-10', query: 'older week', clicks: 5, impressions: 100, avgClickPosition: 3, avgImpressionPosition: 4 },
+      { ...base, id: crypto.randomUUID(), date: '2026-10-17', query: 'no impressions', clicks: 0, impressions: 0, avgClickPosition: null, avgImpressionPosition: null },
+      { ...base, id: crypto.randomUUID(), date: '2026-10-17', query: 'impression position only', clicks: 2, impressions: 40, avgClickPosition: null, avgImpressionPosition: 6 },
+    ]).run()
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/projects/test-project/bing/performance',
-    })
+    const res = await app.inject({ method: 'GET', url: '/projects/test-project/bing/performance' })
 
     expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ query: string; ctr: number }>
-    expect(body).toHaveLength(3)
-    expect(body[0]!.ctr).toBe(0.05)
-    expect(body[1]!.ctr).toBe(0)
-    expect(body[2]!.ctr).toBe(0)
+    const body = res.json() as Array<{ query: string; date: string; ctr: number; averagePosition: number }>
+    expect(body.map((row) => row.query)).toEqual(['impression position only', 'no impressions', 'older week'])
+    expect(body[0]).toMatchObject({ date: '2026-10-17', ctr: 0.05, averagePosition: 6 })
+    expect(body[1]).toMatchObject({ ctr: 0, averagePosition: 0 })
+    expect(body[2]).toMatchObject({ averagePosition: 3 })
+    expect(live).not.toHaveBeenCalled()
+    db.delete(bingQueryStats).run()
   })
 
   it('allUnindexed submits URLs with not-indexed or unknown status', async () => {
@@ -463,6 +489,7 @@ describe('Bing routes', () => {
     ]).run()
 
     const bingModule = await import('@canonry/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlSubmissionQuota').mockResolvedValue({ DailyQuota: 10, MonthlyQuota: 100 })
     const submitUrlBatchSpy = vi.spyOn(bingModule, 'submitUrlBatch').mockResolvedValue()
 
     const res = await app.inject({
@@ -694,6 +721,13 @@ describe('Bing routes', () => {
       // Fastify renders AppError via its default formatter. The message ride
       // unmolested either way — that's what we assert.
       expect(res.payload).toMatch(/owned by another project/)
+      const selection = await app.inject({
+        method: 'POST',
+        url: '/projects/rogue-project/bing/set-site',
+        payload: { siteUrl: 'https://elsewhere.example/' },
+      })
+      expect(selection.statusCode).toBe(400)
+      expect(connections.get('example.com')!.siteUrl).toBe('https://example.com/')
       // Legitimate connection unchanged.
       expect(connections.get('example.com')!.apiKey).toBe('legit-key')
       expect(connections.get('example.com')!.createdByProjectId).toBe(projectId)

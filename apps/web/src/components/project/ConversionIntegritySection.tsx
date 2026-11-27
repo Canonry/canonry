@@ -530,16 +530,6 @@ const CONVERSION_TO_CHECK_HELP = 'A conversion names the website event, the Goog
 
 const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Manager are connected.'
 
-/**
- * Shown ONLY before anything is connected.
- *
- * Every other state keeps explanation in an InfoTooltip, because a data surface
- * shows values rather than prose. An onboarding state is the documented
- * exception: there is no data to push down, and a reader who does not know what
- * the feature is cannot decide whether to connect two Google accounts to it.
- */
-const CONVERSION_INTEGRITY_PURPOSE = 'Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.'
-
 function ConversionIntegritySetup({
   workspace,
   onPrimaryAction,
@@ -576,9 +566,6 @@ function ConversionIntegritySetup({
   // compact status line instead of two full-width rows that outweigh the action
   // below them. There is no 1/2/3 numbering: the providers are independent, and
   // a sequence that is permanently two-thirds complete describes nothing.
-  // Neither provider settled: the one state where the reader may not know what
-  // this feature is, so the purpose is stated on the page instead of in a tooltip.
-  const nothingConnected = !googleAdsReady && !gtmReady
 
   const connections = [
     {
@@ -610,16 +597,12 @@ function ConversionIntegritySetup({
     <section className="page-section" aria-labelledby="conversion-integrity-title">
       <div className="section-head mb-4">
         <div>
-          <p className="eyebrow">Google marketing</p>
           <div className="mt-1 flex items-center gap-1.5">
             <h2 id="conversion-integrity-title" className="text-heading-20 text-heading">
               Conversion Integrity
             </h2>
             <InfoTooltip text="Canonry reads your Google configuration and never changes or publishes it. Connect Google Ads and Tag Manager, then choose one website conversion to check across both." />
           </div>
-          {nothingConnected ? (
-            <p className="mt-2 max-w-2xl text-copy-14 text-secondary">{CONVERSION_INTEGRITY_PURPOSE}</p>
-          ) : null}
         </div>
       </div>
 
@@ -752,14 +735,11 @@ export function ConversionIntegritySection({
   return (
     <section className="page-section" aria-labelledby="conversion-integrity-title">
       <div className="section-head mb-5">
-        <div>
-          <p className="eyebrow">Google marketing</p>
-          <h2 id="conversion-integrity-title" className="mt-1 text-heading-20 text-heading">
+        <div className="flex items-center gap-1.5">
+          <h2 id="conversion-integrity-title" className="text-heading-20 text-heading">
             Conversion Integrity
           </h2>
-          <p className="lede mt-2">
-            Follow one declared website event through Tag Manager, Google Ads, and the evidence Canonry can verify.
-          </p>
+          <InfoTooltip text="Follow one declared website event through Tag Manager, Google Ads, and the evidence Canonry can verify. Static configuration and observed browser events are checked separately." />
         </div>
       </div>
 
@@ -786,7 +766,7 @@ export function ConversionIntegritySection({
             </details>
           ) : null}
         </div>
-        <div className="shrink-0 lg:max-w-xs">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:max-w-xs">
           {onPrimaryAction ? (
             action.id === 'review-findings'
               || action.id === 'review-runtime-verification'
@@ -816,18 +796,20 @@ export function ConversionIntegritySection({
             </Button>
           ) : state === 'runtime-unverified' ? (
             <Button asChild type="button">
-              <a href="#conversion-integrity-runtime-guidance">Review runtime verification</a>
+              <a href="#conversion-integrity-runtime-guidance" onClick={(event) => {
+                const guidance = event.currentTarget.ownerDocument.getElementById('conversion-integrity-runtime-guidance')
+                if (guidance instanceof HTMLDetailsElement) guidance.open = true
+              }}>Review runtime verification</a>
             </Button>
           ) : null}
-          <p className="mt-2 text-copy-14 text-secondary">{action.detail}</p>
-          {actionError ? <p role="alert" className="mt-2 text-copy-14 text-negative">{actionError}</p> : null}
+          <InfoTooltip text={action.detail} />
+          {actionError ? <p role="alert" className="basis-full text-copy-14 text-negative">{actionError}</p> : null}
         </div>
       </div>
 
       <section className="page-section-divider" aria-labelledby="conversion-integrity-contract-title">
         <div className="section-head section-head-inline">
           <div className="min-w-0">
-            <p className="eyebrow eyebrow-soft">Declared conversion</p>
             <h3 id="conversion-integrity-contract-title" className="min-w-0 break-words text-heading-16 text-heading">
               {workspace.contract?.name ?? (workspace.contractSelectionRequired ? 'Choose a conversion' : 'No conversion declared')}
             </h3>
@@ -903,190 +885,201 @@ export function ConversionIntegritySection({
       {nonPassingFindings.length > 0 ? (
         <section id="conversion-integrity-findings" tabIndex={-1} className="page-section-divider" aria-labelledby="conversion-integrity-findings-title">
           <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Assessment findings</p>
-              <h3 id="conversion-integrity-findings-title" className="text-heading-16 text-heading">Checks to review</h3>
-            </div>
+            <h3 id="conversion-integrity-findings-title" className="text-heading-16 text-heading">Checks to review</h3>
             <ToneBadge tone={findingsTone}>{nonPassingFindings.length} {nonPassingFindings.length === 1 ? 'check' : 'checks'}</ToneBadge>
-          </div>
-          <ul className="divide-y divide-default border-y border-default">
-            {nonPassingFindings.map((finding) => {
-              const item = findingPresentation(finding)
-              return (
-                <li key={`${finding.code}:${finding.subject}`} className="py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 break-words text-copy-14-strong text-heading">{item.label}</p>
-                    <ToneBadge tone={item.tone}>{item.outcome}</ToneBadge>
-                  </div>
-                  <p className="mt-1 break-words text-copy-14 text-secondary">Related item: {finding.subject}</p>
-                  <p className="mt-1 text-copy-13-mono text-muted">Diagnostic: {finding.code}</p>
-                  {finding.evidenceIds.length > 0 ? (
-                    <p className="mt-1 break-words text-copy-13-mono text-muted">Evidence: {finding.evidenceIds.join(', ')}</p>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      <section className="page-section-divider" aria-labelledby="conversion-integrity-progression-title">
-        <div className="section-head section-head-inline">
-          <div className="flex items-center gap-1.5">
-            <h3 id="conversion-integrity-progression-title" className="text-heading-16 text-heading">Evidence progression</h3>
-            <InfoTooltip text="Configured means a contract exists. Static configuration is checked only against saved Google Ads and Tag Manager evidence. Observed requires separate runtime evidence." />
-          </div>
-        </div>
-        <ol className="divide-y divide-default border-y border-default">
-          {[
-            { key: 'configured' as const, title: 'Declared', detail: 'The event and provider identifiers are recorded in one project contract.' },
-            { key: 'static' as const, title: 'Static configuration', detail: 'Sanitized Google Ads and Tag Manager snapshots are compared with that contract.' },
-            { key: 'runtime' as const, title: 'Runtime observation', detail: 'A real browser event, tag firing, and recorded conversion are verified separately.' },
-          ].map((step) => {
-            const tone = evidenceStepTone(step.key, state)
-            return (
-              <li key={step.key} className="grid gap-3 py-3 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(0,1fr)_auto] sm:items-center">
-                <div className="flex items-center gap-2">
-                  <span aria-hidden="true" className={`size-2 rounded-full ${tone === 'positive' ? 'bg-positive-fill' : tone === 'caution' ? 'bg-caution-fill' : tone === 'negative' ? 'bg-negative-fill' : 'bg-neutral-fill'}`} />
-                  <span className="text-label-14-strong text-heading">{step.title}</span>
-                </div>
-                <p className="text-copy-14 text-secondary">{step.detail}</p>
-                <ToneBadge tone={tone}>{evidenceStepLabel(step.key, state)}</ToneBadge>
-              </li>
-            )
-          })}
-        </ol>
-      </section>
-
-      <section className="page-section-divider" aria-labelledby="conversion-integrity-connections-title">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection evidence</p>
-            <h3 id="conversion-integrity-connections-title" className="text-heading-16 text-heading">Google Ads and Tag Manager</h3>
-          </div>
-        </div>
-        <div className="evidence-table-wrap">
-          <table className="evidence-table">
-            <caption className="sr-only">Google Ads and Tag Manager connection and stored evidence state</caption>
-            <thead>
-              <tr>
-                <th scope="col">Source</th>
-                <th scope="col">Connection</th>
-                <th scope="col">Selection</th>
-                <th scope="col">Stored evidence</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {providerRow({
-                label: 'Google Ads',
-                connection: workspace.googleAds,
-                ...(workspace.googleAds.state === 'connected' || workspace.googleAds.state === 'stale'
-                  ? { changeSelectionLabel: 'Change Google Ads account', onChangeSelection: onChangeGoogleAdsSelection }
-                  : {}),
-                actionPending,
-              })}
-              {providerRow({
-                label: 'Google Tag Manager',
-                connection: workspace.gtm,
-                ...(workspace.gtm.state === 'connected' || workspace.gtm.state === 'stale'
-                  ? { changeSelectionLabel: 'Change Tag Manager container', onChangeSelection: onChangeGtmSelection }
-                  : {}),
-                actionPending,
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-3 text-copy-14 text-caution">
-          Static API evidence does not prove that a browser tag fired or that Google Ads recorded a conversion.
-        </p>
-        {(workspace.googleAds.snapshotError || workspace.gtm.snapshotError) && onRetryEvidence ? (
-          <Button type="button" variant="outline" className="mt-3" onClick={onRetryEvidence}>Retry evidence</Button>
-        ) : null}
-      </section>
-
-      {workspace.snapshots.length > 0 ? (
-        <section className="page-section-divider" aria-labelledby="conversion-integrity-snapshots-title">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Recent observations</p>
-              <h3 id="conversion-integrity-snapshots-title" className="text-heading-16 text-heading">Latest sanitized snapshots</h3>
-            </div>
           </div>
           <div className="evidence-table-wrap">
             <table className="evidence-table">
-              <caption className="sr-only">Latest stored Google marketing snapshots</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Source</th>
-                  <th scope="col">Observation</th>
-                  <th scope="col">Captured</th>
-                  <th scope="col">Identifier</th>
-                </tr>
-              </thead>
+              <caption className="sr-only">Conversion checks that need review</caption>
+              <thead><tr><th scope="col">Check</th><th scope="col">Result</th><th scope="col">Details</th></tr></thead>
               <tbody>
-                {workspace.snapshots.slice(0, 5).map((snapshot) => (
-                  <tr key={snapshot.id}>
-                    <td className="text-label-14-strong text-heading">{snapshot.provider === 'google-ads' ? 'Google Ads' : 'Google Tag Manager'}</td>
-                    <td className="text-secondary">{snapshot.kind}</td>
-                    <td className="text-secondary">{formatTimestamp(snapshot.capturedAt)}</td>
-                    <td className="text-label-12-mono text-muted">{shortIdentifier(snapshot.id)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {passingFindings.length > 0 ? (
-        <details className="inline-disclosure mt-8">
-          <summary>{passingFindings.length} {passingFindings.length === 1 ? 'passing check' : 'passing checks'} from the latest assessment</summary>
-          <div className="findings-table-wrap mt-3">
-            <table className="findings-table">
-              <caption className="sr-only">Conversion integrity findings</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Check</th>
-                  <th scope="col">Result</th>
-                  <th scope="col">Subject</th>
-                </tr>
-              </thead>
-              <tbody>
-                {passingFindings.map((finding) => {
+                {nonPassingFindings.map((finding) => {
                   const item = findingPresentation(finding)
                   return (
                     <tr key={`${finding.code}:${finding.subject}`}>
-                      <td className="text-secondary">
-                        <p>{item.label}</p>
-                        <p className="mt-1 text-copy-13-mono text-muted">Diagnostic: {finding.code}</p>
-                        {finding.evidenceIds.length > 0 ? <p className="mt-1 break-words text-copy-13-mono text-muted">Evidence: {finding.evidenceIds.join(', ')}</p> : null}
-                      </td>
+                      <td className="text-label-14-strong text-heading">{item.label}</td>
                       <td><ToneBadge tone={item.tone}>{item.outcome}</ToneBadge></td>
-                      <td className="break-words text-secondary">{finding.subject}</td>
+                      <td>
+                        <details>
+                          <summary className="cursor-pointer text-label-13 text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                            Diagnostic details<span className="sr-only"> for {item.label}</span>
+                          </summary>
+                          <p className="mt-2 break-words text-copy-14 text-secondary">Related item: {finding.subject}</p>
+                          <p className="mt-1 text-copy-13-mono text-muted">Diagnostic: {finding.code}</p>
+                          {finding.evidenceIds.length > 0 ? (
+                            <p className="mt-1 break-words text-copy-13-mono text-muted">Evidence: {finding.evidenceIds.join(', ')}</p>
+                          ) : null}
+                        </details>
+                      </td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
-        </details>
+        </section>
       ) : null}
 
-      {state === 'runtime-unverified' ? (
-        <section id="conversion-integrity-runtime-guidance" className="page-section-divider" aria-labelledby="conversion-integrity-runtime-title">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Runtime verification</p>
-              <h3 id="conversion-integrity-runtime-title" className="text-heading-16 text-heading">Runtime verification checklist</h3>
+      <details
+        className="inline-disclosure mt-6"
+        open={workspace.googleAds.state !== 'connected' || workspace.gtm.state !== 'connected'
+          || Boolean(workspace.googleAds.snapshotState || workspace.gtm.snapshotState
+            || workspace.googleAds.snapshotError || workspace.gtm.snapshotError)}
+      >
+        <summary>Assessment details</summary>
+        <div className="mt-4">
+          <section aria-labelledby="conversion-integrity-progression-title">
+            <div className="section-head section-head-inline">
+              <div className="flex items-center gap-1.5">
+                <h3 id="conversion-integrity-progression-title" className="text-heading-16 text-heading">Evidence progression</h3>
+                <InfoTooltip text="Configured means a contract exists. Static configuration is checked only against saved Google Ads and Tag Manager evidence. Observed requires separate runtime evidence." />
+              </div>
             </div>
-          </div>
-          <ol className="max-w-2xl list-decimal space-y-2 pl-5 text-label-14 text-secondary marker:text-muted">
+            <ol className="divide-y divide-default">
+              {[
+                { key: 'configured' as const, title: 'Declared', detail: 'The event and provider identifiers are recorded in one project contract.' },
+                { key: 'static' as const, title: 'Static configuration', detail: 'Sanitized Google Ads and Tag Manager snapshots are compared with that contract.' },
+                { key: 'runtime' as const, title: 'Runtime observation', detail: 'A real browser event, tag firing, and recorded conversion are verified separately.' },
+              ].map((step) => {
+                const tone = evidenceStepTone(step.key, state)
+                return (
+                  <li key={step.key} className="grid gap-3 py-3 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(0,1fr)_auto] sm:items-center">
+                    <div className="flex items-center gap-2">
+                      <span aria-hidden="true" className={`size-2 rounded-full ${tone === 'positive' ? 'bg-positive-fill' : tone === 'caution' ? 'bg-caution-fill' : tone === 'negative' ? 'bg-negative-fill' : 'bg-neutral-fill'}`} />
+                      <span className="text-label-14-strong text-heading">{step.title}</span>
+                    </div>
+                    <p className="text-copy-14 text-secondary">{step.detail}</p>
+                    <ToneBadge tone={tone}>{evidenceStepLabel(step.key, state)}</ToneBadge>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
+
+          <section className="page-section-divider" aria-labelledby="conversion-integrity-connections-title">
+            <div className="section-head section-head-inline">
+              <div>
+                <h3 id="conversion-integrity-connections-title" className="text-heading-16 text-heading">Google Ads and Tag Manager</h3>
+              </div>
+            </div>
+            <div className="evidence-table-wrap">
+              <table className="evidence-table">
+                <caption className="sr-only">Google Ads and Tag Manager connection and stored evidence state</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Source</th>
+                    <th scope="col">Connection</th>
+                    <th scope="col">Selection</th>
+                    <th scope="col">Stored evidence</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {providerRow({
+                    label: 'Google Ads',
+                    connection: workspace.googleAds,
+                    ...(workspace.googleAds.state === 'connected' || workspace.googleAds.state === 'stale'
+                      ? { changeSelectionLabel: 'Change Google Ads account', onChangeSelection: onChangeGoogleAdsSelection }
+                      : {}),
+                    actionPending,
+                  })}
+                  {providerRow({
+                    label: 'Google Tag Manager',
+                    connection: workspace.gtm,
+                    ...(workspace.gtm.state === 'connected' || workspace.gtm.state === 'stale'
+                      ? { changeSelectionLabel: 'Change Tag Manager container', onChangeSelection: onChangeGtmSelection }
+                      : {}),
+                    actionPending,
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-copy-14 text-caution">
+              Static API evidence does not prove that a browser tag fired or that Google Ads recorded a conversion.
+            </p>
+            {(workspace.googleAds.snapshotError || workspace.gtm.snapshotError) && onRetryEvidence ? (
+              <Button type="button" variant="outline" className="mt-3" onClick={onRetryEvidence}>Retry evidence</Button>
+            ) : null}
+          </section>
+
+          {workspace.snapshots.length > 0 ? (
+            <section className="page-section-divider" aria-labelledby="conversion-integrity-snapshots-title">
+              <div className="section-head section-head-inline">
+                <div>
+                  <h3 id="conversion-integrity-snapshots-title" className="text-heading-16 text-heading">Latest sanitized snapshots</h3>
+                </div>
+              </div>
+              <div className="evidence-table-wrap">
+                <table className="evidence-table">
+                  <caption className="sr-only">Latest stored Google marketing snapshots</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Source</th>
+                      <th scope="col">Observation</th>
+                      <th scope="col">Captured</th>
+                      <th scope="col">Identifier</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workspace.snapshots.slice(0, 5).map((snapshot) => (
+                      <tr key={snapshot.id}>
+                        <td className="text-label-14-strong text-heading">{snapshot.provider === 'google-ads' ? 'Google Ads' : 'Google Tag Manager'}</td>
+                        <td className="text-secondary">{snapshot.kind}</td>
+                        <td className="text-secondary">{formatTimestamp(snapshot.capturedAt)}</td>
+                        <td className="text-label-12-mono text-muted">{shortIdentifier(snapshot.id)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+
+          {passingFindings.length > 0 ? (
+            <details className="inline-disclosure mt-8">
+              <summary>{passingFindings.length} {passingFindings.length === 1 ? 'passing check' : 'passing checks'} from the latest assessment</summary>
+              <div className="findings-table-wrap mt-3">
+                <table className="findings-table">
+                  <caption className="sr-only">Conversion integrity findings</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Check</th>
+                      <th scope="col">Result</th>
+                      <th scope="col">Subject</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {passingFindings.map((finding) => {
+                      const item = findingPresentation(finding)
+                      return (
+                        <tr key={`${finding.code}:${finding.subject}`}>
+                          <td className="text-secondary">
+                            <p>{item.label}</p>
+                            <p className="mt-1 text-copy-13-mono text-muted">Diagnostic: {finding.code}</p>
+                            {finding.evidenceIds.length > 0 ? <p className="mt-1 break-words text-copy-13-mono text-muted">Evidence: {finding.evidenceIds.join(', ')}</p> : null}
+                          </td>
+                          <td><ToneBadge tone={item.tone}>{item.outcome}</ToneBadge></td>
+                          <td className="break-words text-secondary">{finding.subject}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          ) : null}
+        </div>
+      </details>
+
+      {state === 'runtime-unverified' ? (
+        <details id="conversion-integrity-runtime-guidance" className="inline-disclosure mt-3">
+          <summary id="conversion-integrity-runtime-title">Runtime verification checklist</summary>
+          <ol className="mt-4 max-w-2xl list-decimal space-y-2 pl-5 text-label-14 text-secondary marker:text-muted">
             <li>Use a controlled browser session on {runtimeHostSummary(workspace.contract!)} and complete the conversion that emits <span className="font-mono text-heading">{workspace.contract!.eventName}</span>.</li>
             <li>In Tag Manager preview or debugging, confirm tag <span className="font-mono text-heading">{shortIdentifier(workspace.contract!.gtm.tagId)}</span> fires with {runtimeFieldSummary(workspace.contract!)}.</li>
             <li>Confirm Google Ads records the matching conversion action <span className="font-mono text-heading">{shortIdentifier(workspace.contract!.googleAds.conversionActionId)}</span>. Do not change the account or publish a Tag Manager version just to verify it.</li>
           </ol>
-        </section>
+        </details>
       ) : null}
     </section>
   )

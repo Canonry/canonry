@@ -104,9 +104,80 @@ export const authSessionDtoSchema = z.object({
   authRequired: z.boolean(),
   /** The signed-in person, or null when nobody is signed in. */
   user: userDtoSchema.pick({ name: true, role: true }).nullable(),
+  /**
+   * Sign-in methods beyond name and password that the sign-in screen should
+   * offer. Absent on an install that has none, so older dashboards and
+   * clients read the same shape they always did.
+   */
+  signInMethods: z.object({
+    chatgpt: z.boolean(),
+  }).optional(),
 })
 
 export type AuthSessionDto = z.infer<typeof authSessionDtoSchema>
 
 /** The message returned for every failed sign-in, whatever actually went wrong. */
 export const LOGIN_FAILED_MESSAGE = 'Incorrect name or password.'
+
+/**
+ * Invitations let a person who has no account yet sign in with an external
+ * identity (Sign in with ChatGPT). An administrator invites an email address
+ * with a role; the first sign-in whose VERIFIED email matches creates the
+ * account with that role and binds the external identity to it. From then on
+ * the identity, not the email, is what signs that person in.
+ *
+ * An invitation never attaches to an account that already exists: a matching
+ * email on an existing account is refused, and linking an existing account is
+ * done by that account's owner while signed in.
+ */
+export const USER_INVITATION_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+export const UserInvitationStatuses = {
+  pending: 'pending',
+  accepted: 'accepted',
+  revoked: 'revoked',
+  expired: 'expired',
+} as const
+
+export type UserInvitationStatus = (typeof UserInvitationStatuses)[keyof typeof UserInvitationStatuses]
+
+/** Compare invitation emails case-insensitively; addresses are matched, never displayed, in this form. */
+export function normalizeInvitationEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+// Domain labels exclude the dot that separates them, so the pattern cannot
+// backtrack: every character has exactly one place it can match.
+const INVITATION_EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
+
+export const invitationEmailSchema = z.string().trim().min(3).max(320)
+  .regex(INVITATION_EMAIL_PATTERN, 'Enter an email address.')
+
+/** Request body for `POST /users/invitations`. */
+export const createUserInvitationRequestSchema = z.object({
+  email: invitationEmailSchema,
+  role: userRoleSchema,
+})
+
+export type CreateUserInvitationRequest = z.infer<typeof createUserInvitationRequestSchema>
+
+export const userInvitationDtoSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: userRoleSchema,
+  status: z.enum(['pending', 'accepted', 'revoked', 'expired']),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  acceptedAt: z.string().nullable(),
+  /** The account the invitation created, once accepted. */
+  acceptedUserName: z.string().nullable(),
+})
+
+export type UserInvitationDto = z.infer<typeof userInvitationDtoSchema>
+
+/** List response for `GET /users/invitations`. */
+export const userInvitationListDtoSchema = z.object({
+  invitations: z.array(userInvitationDtoSchema),
+})
+
+export type UserInvitationListDto = z.infer<typeof userInvitationListDtoSchema>

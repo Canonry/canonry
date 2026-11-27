@@ -39,6 +39,7 @@ import { addToast } from '../../lib/toast-store.js'
 import { assertCanWrite } from '../../lib/write-guard.js'
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
+import { prefersReducedMotion } from '../../lib/reduced-motion.js'
 import {
   ConversionIntegritySection,
   type ConversionIntegrityConnectionVm,
@@ -802,14 +803,11 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
     globalThis.setTimeout(callback, 0)
   }
 
-  function prefersReducedMotion() {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  }
-
   function focusElement(element: HTMLElement | null) {
     if (!element) return
-    const naturallyFocusable = element.matches('a[href], button, input, select, textarea, [contenteditable="true"]')
+    // `<summary>` is in the tab order on its own. Forcing tabindex=-1 removes
+    // that stop after the runtime checklist action reveals it.
+    const naturallyFocusable = element.matches('a[href], button, input, select, textarea, summary, [contenteditable="true"]')
     if (!naturallyFocusable && !element.hasAttribute('tabindex')) element.tabIndex = -1
     element.focus({ preventScroll: true })
   }

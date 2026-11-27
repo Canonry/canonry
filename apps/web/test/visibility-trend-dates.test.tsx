@@ -62,7 +62,7 @@ const LATEST_SWEEP = '2026-07-20T01:52:51.000Z'
 const NOW = new Date('2026-09-29T14:00:00.000Z')
 
 function provider(citationRate: number, mentionRate: number) {
-  return { citationRate, cited: 1, total: 4, mentionRate, mentionedCount: 2 }
+  return { citationRate, cited: 1, total: 4, citationNotMeasured: 0, mentionRate, mentionedCount: 2 }
 }
 
 type FixtureBucket = Parameters<typeof formatBucketDateLabel>[0]
@@ -75,7 +75,7 @@ function bucket(over: Partial<FixtureBucket>): FixtureBucket {
     dataEndDate: '2026-05-15T19:38:00.000Z',
     sweepCount: 1,
     basketRevision: null,
-    citationRate: 0.25, cited: 1, total: 4, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
+    citationRate: 0.25, cited: 1, total: 4, citationNotMeasured: 0, queryCount: 4, mentionRate: 0.5, mentionedCount: 2,
     mentionShare: { scope: 'non-brand', rate: 0.25, projectMentionSnapshots: 1, competitorMentionSnapshots: 3 },
     byProvider: { gemini: provider(0.25, 0.5) },
     modelEvidenceByProvider: { gemini: { status: 'known', model: 'gemini-2.0-flash' } },

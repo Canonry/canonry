@@ -17,7 +17,7 @@ interface DemoDay {
 }
 
 /** Distinct users over a window are fewer than the sum of each day's: people come back. */
-const DISTINCT_USER_SHARE: Record<GaOverviewWindow, number> = { '7d': 0.86, '30d': 0.71, '90d': 0.62 }
+const DISTINCT_USER_SHARE: Record<GaOverviewWindow, number> = { '7d': 0.86, '30d': 0.71, '90d': 0.62, '180d': 0.55 }
 
 /** A repeatable 0..1 jitter: the demo must render the same every time, so no Math.random. */
 function jitter(seed: number): number {

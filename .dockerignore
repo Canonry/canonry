@@ -1,6 +1,5 @@
 .context
 .git
-apps/vals
 node_modules
 dist
 coverage

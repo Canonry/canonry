@@ -635,7 +635,14 @@ export function SiteGraphSigma({
     }, 0)
   }
 
-  const defaultAriaLabel = `Interactive site map showing ${plural(nodes.length, 'page')} and ${plural(edges.length, 'internal link')}`
+  // The links the map draws: menu and footer links are in `edges` but hidden
+  // unless `showTemplateLinks`, so counting `edges` would name links nobody
+  // can see, beside a header line that says they are hidden.
+  const shownEdgeCount = useMemo(
+    () => showTemplateLinks ? edges.length : edges.filter((edge) => edge.isTemplate !== true).length,
+    [edges, showTemplateLinks],
+  )
+  const defaultAriaLabel = `Interactive site map showing ${plural(nodes.length, 'page')} and ${plural(shownEdgeCount, 'internal link')}`
   const optionId = (nodeKey: string) => `${listboxId}-${nodeKey.replaceAll(/[^\w-]/g, '-')}`
   const unavailableLayout = unavailableLayoutMessage(layoutUnavailableReason)
 
@@ -798,14 +805,14 @@ export function SiteGraphSigma({
           )}
         </div>
         <span className="text-label-13 tabular-nums text-muted">
-          {plural(nodes.length, 'page')} · {plural(edges.length, 'link')}
+          {`${plural(nodes.length, 'page')} on the map · ${plural(shownEdgeCount, 'link')} shown`}
         </span>
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {rendererState === 'unavailable' ? <GraphUnavailableState onOpenInventory={onOpenInventory} /> : rendererState === 'checking' || !theme || !builtGraph || !renderer || !reactSigma || !SigmaContainerComponent ? (
           <div className="flex h-full min-h-80 items-center justify-center px-6 text-center" role="status">
-            <p className="text-copy-14 text-secondary">Preparing the interactive site map...</p>
+            <p className="text-copy-14 text-secondary">Preparing the interactive site map…</p>
           </div>
         ) : (
           <GraphRenderBoundary fallback={fallback} resetToken={renderAttempt}>

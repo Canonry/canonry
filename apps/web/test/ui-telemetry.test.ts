@@ -115,6 +115,30 @@ describe('ui telemetry', () => {
     expect(actions(sent)).toEqual([['sweep.launch', undefined], ['integration.connect', 'ga']])
   })
 
+  it('counts an Agent Readiness audit scan launch on the route the dashboard calls', () => {
+    const { sent } = capture()
+    setUiPageFromRoute('/projects/$projectName/agent-readiness')
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/agent-readiness/runs', status: 202 })
+    expect(sent.map(e => [e.event, e.page, e.tab])).toEqual([
+      ['ui.page_viewed', '/projects/:projectName/agent-readiness', 'agent-readiness'],
+      ['ui.action', '/projects/:projectName/agent-readiness', 'agent-readiness'],
+    ])
+    expect(actions(sent)).toEqual([['site_audit.launch', undefined]])
+    for (const event of sent) expect(uiTelemetryEventSchema.safeParse(event).success).toBe(true)
+  })
+
+  it('counts a sitemap submit from either engine card, tagged with the engine', () => {
+    const { sent } = capture()
+    setUiPageFromRoute('/projects/$projectName/search-console')
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/google/gsc/sitemaps/submit', status: 200 })
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/bing/sitemaps', status: 200 })
+    expect(actions(sent)).toEqual([['sitemap.submit', 'gsc'], ['sitemap.submit', 'bing']])
+    for (const event of sent.filter((e) => e.event === 'ui.action')) {
+      const parsed = uiTelemetryEventSchema.safeParse(event)
+      expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
+    }
+  })
+
   it('counts an OAuth start as connect_started, and the connection only when a property or account is chosen', () => {
     const { sent } = capture()
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/google/connect', status: 200 })
@@ -124,6 +148,7 @@ describe('ui telemetry', () => {
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/google/connections/{type}/property', path: '/api/v1/projects/acme-co/google/connections/ga4/property', status: 200 })
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/google-ads/selection', status: 200 })
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/gtm/selection', status: 200 })
+    recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/gbp/locations/discover', status: 200 })
     recordUiApiResult({ method: 'DELETE', route: '/api/v1/projects/{name}/google/connections/{type}', path: '/api/v1/projects/acme-co/google/connections/gbp', status: 200 })
     expect(actions(sent)).toEqual([
       ['integration.connect_started', 'google'],
@@ -133,6 +158,7 @@ describe('ui telemetry', () => {
       ['integration.connect', 'ga'],
       ['integration.connect', 'google_ads'],
       ['integration.connect', 'gtm'],
+      ['integration.connect', 'gbp'],
       ['integration.disconnect', 'gbp'],
     ])
     expect(JSON.stringify(sent)).not.toContain('acme-co')
@@ -159,7 +185,7 @@ describe('ui telemetry', () => {
     recordUiApiResult({ method: 'PUT', route: '/api/v1/projects/{name}/measurement-plan/draft/actions/upsert-target', status: 412 })
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects/{name}/measurement-plan/draft/actions/publish', status: 409 })
     recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/measurement-plan', status: 404 })
-    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/technical-aeo/runs/{runId}/progress', status: 404 })
+    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress', status: 404 })
     recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/backlinks/domains', status: 404 })
     recordUiApiResult({ method: 'POST', route: '/api/v1/projects', status: 409 })
     recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}', status: 401 })

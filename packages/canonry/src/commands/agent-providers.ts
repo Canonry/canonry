@@ -47,6 +47,10 @@ export async function agentProviders(opts: AgentProvidersOptions): Promise<void>
       console.log(
         `  ${status} ${p.id.padEnd(idWidth)}  ${p.label}  — model ${p.defaultModel} ${source}`.trimEnd(),
       )
+      if (p.backgroundPause) {
+        console.log(`    Automatic work paused: ${p.backgroundPause.reason}; retry after ${p.backgroundPause.retryAt}`)
+        console.log(`    ${p.backgroundPause.recovery}`)
+      }
     }
   } catch (err) {
     printCliError(err, format)

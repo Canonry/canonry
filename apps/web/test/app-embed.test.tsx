@@ -1,10 +1,11 @@
 import { test, expect, beforeAll, afterEach } from 'vitest'
+import { within } from '@testing-library/react'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
-import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import { CANONRY_COMMUNITY_LINKS, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -15,11 +16,12 @@ import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.j
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
+  getApiV1ProjectsQueryKey,
 } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
 type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[]; theme?: Record<string, string>; queries?: { limit: number } }
-type DashboardBlock = { showResourceLinks?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
+type DashboardBlock = { showResourceLinks?: boolean; managedInstance?: boolean; whatsNewOnly?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -37,6 +39,7 @@ async function renderAt(
   embed?: EmbedBlock,
   dashboard?: DashboardBlock,
   withUpdateNotification = false,
+  seedProjectList = false,
 ): Promise<string> {
   if (embed || dashboard) {
     window.__CANONRY_CONFIG__ = {
@@ -71,6 +74,10 @@ async function renderAt(
       getApiV1ProjectsByNameVisibilityReportQueryKey(visibilityReportQuery(entry.project.name, selection)),
       visibilityReportResponse(selection),
     )
+  }
+  // Pages that read the project list directly mount their content once it resolves.
+  if (seedProjectList) {
+    queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), fixture.dashboard.projects.map(entry => entry.project))
   }
   const router = createAppRouter(queryClient, { initialEntries: [pathname] })
   await router.load()
@@ -194,23 +201,55 @@ test('without embed config the full application chrome renders', async () => {
   expect(html).toContain('class="sidebar"')
   expect(html).toContain('class="footer-links"')
   expect(html).toContain('aria-label="GitHub"')
-  expect(html).toContain('aria-label="Docs"')
-  expect(html).toContain('aria-label="Changelog"')
   expect(html).toContain('class="topbar"')
   expect(html).toContain('class="footer"')
   expect(html).toContain('Open navigation')
   expect(html).not.toContain('app-shell-embed')
 })
 
+test('the standalone dashboard links to the official community channels in its footer', async () => {
+  const page = document.createElement('div')
+  page.innerHTML = await renderAt('/')
+  const community = within(page).getByRole('navigation', { name: 'Canonry community' })
+  expect(within(community).getAllByRole('link')).toHaveLength(3)
+  for (const [name, href] of [
+    ['Discord', CANONRY_COMMUNITY_LINKS.discord],
+    ['X', CANONRY_COMMUNITY_LINKS.x],
+    ['YouTube', CANONRY_COMMUNITY_LINKS.youtube],
+  ] as const) {
+    const link = within(community).getByRole('link', { name })
+    expect(link.getAttribute('href')).toBe(href)
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link.getAttribute('title')).toBe(name)
+    expect(link.textContent).toBe('')
+    expect(link.querySelector('svg[aria-hidden="true"] path')).toBeTruthy()
+  }
+})
+
+test('a managed dashboard can show product resources without community links', async () => {
+  const page = document.createElement('div')
+  page.innerHTML = await renderAt('/', undefined, { showResourceLinks: true, managedInstance: true })
+  expect(within(page).getByRole('link', { name: 'GitHub' })).toBeTruthy()
+  expect(within(page).queryByRole('navigation', { name: 'Canonry community' })).toBeNull()
+})
+
 test('dashboard resource-link opt-out removes the sidebar and footer icon clusters', async () => {
-  const html = await renderAt('/', undefined, { showResourceLinks: false })
+  const html = await renderAt('/', undefined, { showResourceLinks: false, managedInstance: false })
   expect(html).toContain('class="sidebar"')
-  expect(html).toContain('class="footer"')
-  expect(html).toContain('class="footer-brand"')
+  expect(html).not.toContain('class="footer"')
   expect(html).not.toContain('class="footer-links"')
+  expect(html).not.toContain('aria-label="Canonry community"')
   expect(html).not.toContain('aria-label="GitHub"')
-  expect(html).not.toContain('aria-label="Docs"')
-  expect(html).not.toContain('aria-label="Changelog"')
+})
+
+test.each([
+  { managedInstance: true },
+  { managedInstance: true, whatsNewOnly: false },
+  { whatsNewOnly: true },
+])('customer-facing release mode hides version labels and the available-update prompt (%j)', async (dashboard) => {
+  const html = await renderAt('/', undefined, dashboard, true)
+  expect(html).not.toContain('New version v4.139.1 available')
+  expect(html).not.toContain('class="brand-version"')
 })
 
 test('dashboard update-notification opt-out removes the version badge without disabling the static version', async () => {
@@ -235,6 +274,7 @@ test('embed mode renders chromeless: no nav / topbar / footer / toaster, only th
   expect(html).not.toContain('class="topbar"')
   expect(html).not.toContain('class="footer"')
   expect(html).not.toContain('id="mobile-nav"')
+  expect(html).not.toContain('aria-label="Canonry community"')
 })
 
 test('embed view allowlist blocks a non-allowlisted route (settings is not reachable)', async () => {
@@ -252,7 +292,7 @@ test('embed view allowlist permits an allowlisted route', async () => {
   expect(html).not.toContain('embed-view-unavailable')
 })
 
-test.each([[['report']], [['report', 'overview']], [['technical-aeo', 'report']]])(
+test.each([[['report']], [['report', 'overview']], [['agent-readiness', 'report']], [['technical-aeo', 'report']]])(
   'a legacy Report embed shows a retirement message without rendering another project tab: %j',
   async (projectTabs) => {
     const html = await renderAt('/projects/project_citypoint/report', { enabled: true, projectTabs })
@@ -275,27 +315,18 @@ test('embed theme applies allowlisted CSS custom properties to the shell', async
 // control that would 403 on click against the read-only project-scoped key,
 // while keeping every read-only view. Not a security boundary (the API key
 // scope is) — purely UI cleanliness. See isEmbed() in src/api.ts.
-test('embed hides the project sweep action that leaks on every tab', async () => {
+test('the embed shows AI Visibility evidence without the operator sweep action', async () => {
   const embed = await renderAt('/projects/project_citypoint', { enabled: true })
   const operator = await renderAt('/projects/project_citypoint')
 
-  // Operator sees the sweep action in the project context row… (the
-  // YAML-export button was removed in favor of the Settings-tab results
-  // downloads + `canonry export`. Deleting the project is no longer here at
-  // all — it moved to the end of the Settings tab, away from the button next
-  // to it.)
-  const operatorDoc = new DOMParser().parseFromString(operator, 'text/html')
-  const embedDoc = new DOMParser().parseFromString(embed, 'text/html')
-  const isSweepAction = (button: Element) => /^(?:Run AI Visibility check|AI Visibility check running…|Starting…)$/.test(button.textContent ?? '')
-  expect([...operatorDoc.querySelectorAll('[data-project-actions] button')].some(isSweepAction)).toBe(true)
-  // …the embed render has no project actions at all, and its page header
-  // carries no button (this renders OUTSIDE the tab switch, so it would
-  // otherwise leak on the default overview embed).
-  expect(embedDoc.querySelector('[data-project-actions]')).toBeNull()
-  expect(embedDoc.querySelectorAll('.page-header button')).toHaveLength(0)
-  // Delete is absent from BOTH headers now, so its absence in the embed is no
-  // longer evidence of anything — assert it left the header instead.
-  expect(operator).not.toContain('Delete project')
+  const operatorPage = document.createElement('div')
+  const embedPage = document.createElement('div')
+  operatorPage.innerHTML = operator
+  embedPage.innerHTML = embed
+  const checks = within(operatorPage).getByRole('group', { name: 'AI Visibility checks' })
+  expect(within(checks).getByRole('button', { name: 'AI Visibility check running…' })).toBeTruthy()
+  expect(within(embedPage).queryByRole('group', { name: 'AI Visibility checks' })).toBeNull()
+  expect(within(embedPage).queryByRole('button', { name: /AI Visibility check/ })).toBeNull()
 
   // A read-only report still renders in the embed, proving we hid controls,
   // not content.
@@ -303,9 +334,30 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   expect(embed).toContain('AI answers over time')
   // The trend chart is the embed's first card too: no Visibility card above it.
   expect(embed).not.toContain('id="overview-brief-title"')
-  expect(embedDoc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
+  expect(embedPage.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
+})
+
+// Agent Readiness's embed tab key was `technical-aeo`. A host that still sends
+// it keeps the tab, under its new name and route, and the retired route opens it.
+test('an embed that still lists technical-aeo shows and opens the Agent Readiness tab', async () => {
+  const tabs = (html: string) => [...parseHtml(html).querySelectorAll('[data-project-tab]')]
+    .map(tab => `${tab.getAttribute('data-project-tab')}:${tab.textContent}`)
+  const links = (html: string) => [...parseHtml(html).querySelectorAll('nav[aria-label="Project sections"] a')]
+    .map(link => `${link.textContent}:${link.getAttribute('href')?.split('?')[0]}`)
+  const embed = { enabled: true, projectTabs: ['overview', 'technical-aeo'] }
+
+  const overview = await renderAt('/projects/project_citypoint', embed)
+  expect(tabs(overview)).toEqual(['overview:AI Visibility', 'agent-readiness:Agent Readiness', 'more:More'])
+  expect(links(overview)).toEqual([
+    'AI Visibility:/projects/Citypoint%20Dental%20NYC',
+    'Agent Readiness:/projects/Citypoint%20Dental%20NYC/agent-readiness',
+  ])
+
+  const retiredRoute = await renderAt('/projects/project_citypoint/technical-aeo', embed)
+  expect(parseHtml(retiredRoute).querySelector('.project-subnav-current')?.textContent).toBe('Agent Readiness')
+  expect(retiredRoute).not.toContain('embed-view-unavailable')
 })
 
 test('the client Queries tab appears only when the embed grants query editing', async () => {
@@ -386,9 +438,10 @@ test('embed hides the operator write controls on the top-level admin pages (defa
   expect(runsEmbed).not.toContain('Run all projects')
   expect(runsEmbed).toContain('Runs') // the read-only page still renders
 
-  // /traffic — "Connect a source" opens the write drawer.
-  const trafficEmbed = await renderAt('/traffic', { enabled: true })
-  const trafficOperator = await renderAt('/traffic')
+  // /traffic — "Connect a source" opens the write drawer. The source panel
+  // that holds it mounts once the project list resolves.
+  const trafficEmbed = await renderAt('/traffic', { enabled: true }, undefined, false, true)
+  const trafficOperator = await renderAt('/traffic', undefined, undefined, false, true)
   expect(trafficOperator).toContain('Connect a source')
   expect(trafficEmbed).not.toContain('Connect a source')
   expect(trafficEmbed).toContain('Traffic sources') // the read-only page still renders

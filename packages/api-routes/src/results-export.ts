@@ -2,14 +2,14 @@ import { and, asc, eq, gte, lte } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { parseJsonColumn, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import {
-  CitationStates,
+  citationStateToCited,
   OutcomeStatuses,
   parseInclusiveEndMs,
+  readCitationState,
   RunKinds,
   runStatusSchema,
   runTriggerSchema,
   validationError,
-  type CitationState,
   type GroundingSource,
   type ResultsExportDto,
   type ResultsExportFormat,
@@ -211,6 +211,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
         model: querySnapshots.model,
         location: querySnapshots.location,
         citationState: querySnapshots.citationState,
+        retrievalStatus: querySnapshots.retrievalStatus,
         answerMentioned: querySnapshots.answerMentioned,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
@@ -233,9 +234,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
 
     const records: ResultsExportRecord[] = rows.map(row => {
       const evidence = readEvidence(row.rawResponse)
-      const citationState: CitationState = row.citationState === CitationStates.cited
-        ? CitationStates.cited
-        : CitationStates['not-cited']
+      const citationState = readCitationState(row)
       return {
         runId: row.runId,
         runKind: RunKinds['answer-visibility'],
@@ -252,7 +251,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
         model: row.model,
         location: row.location,
         citationState,
-        cited: citationState === CitationStates.cited,
+        cited: citationStateToCited(citationState),
         answerMentioned: row.answerMentioned,
         mentionState: recordMentionState(row.answerMentioned),
         citedDomains: row.citedDomains,

@@ -1,6 +1,7 @@
 import { postApiV1TelemetryUi } from '@canonry/canonry-api-client'
 import type { TelemetryEventAcceptedDto, UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { heyClient, isEmbed, isPublicDemo } from '../api.js'
+import { installUiPageTime } from './ui-page-time.js'
 import {
   configureUiTelemetry,
   recordUiApiResult,
@@ -17,6 +18,7 @@ import {
  * the rest of the suite sends nothing.
  */
 let installed = false
+let pageTime: ReturnType<typeof installUiPageTime> | undefined
 
 /**
  * keepalive lets the request outlive the page, so vitals flushed on pagehide /
@@ -35,7 +37,8 @@ export function installUiTelemetry(): void {
   // data: neither is the operator using Canonry.
   if (isEmbed() || isPublicDemo()) return
 
-  configureUiTelemetry({ send: sendUiTelemetryEvent })
+  pageTime = installUiPageTime()
+  configureUiTelemetry({ send: sendUiTelemetryEvent, onDisabled: () => pageTime?.stop() })
 
   // Every generated call carries its route TEMPLATE in `opts.url`
   // (`/api/v1/projects/{name}/runs`), never the real path, so usage and
@@ -89,6 +92,7 @@ export function attachUiTelemetryRouter(router: {
     const leaf = router.state.matches.at(-1)
     // A router that has not resolved yet has no matches: that is not a page.
     if (!leaf) return
+    pageTime?.navigate(leaf.fullPath, router.state.location?.pathname)
     setUiPageFromRoute(leaf.fullPath)
     // Shared filters live in the URL: a change of them on the SAME page is a
     // filter change. Navigating elsewhere with the params carried is not.
@@ -99,7 +103,11 @@ export function attachUiTelemetryRouter(router: {
     previous = { pathname: location.pathname, search }
   }
   report()
-  return router.subscribe('onResolved', report)
+  const unsubscribe = router.subscribe('onResolved', report)
+  return () => {
+    unsubscribe()
+    pageTime?.clear()
+  }
 }
 
 type Rating = 'good' | 'needs-improvement' | 'poor'

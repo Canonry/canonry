@@ -51,6 +51,22 @@ describe('buildProviderScores', () => {
     expect(buildProviderScores(cited(249))[0]).toMatchObject({ cited: 249, total: 250, score: 99.6 })
   })
 
+  it('leaves answers without sources out of the score and says so', () => {
+    const result = buildProviderScores([
+      snap({ provider: 'local', model: 'llama3', citationState: 'not-measured' }),
+      snap({ provider: 'local', model: 'llama3', citationState: 'not-measured' }),
+      snap({ provider: 'gemini', model: 'flash', citationState: 'cited' }),
+      snap({ provider: 'gemini', model: 'flash', citationState: 'not-cited' }),
+      snap({ provider: 'gemini', model: 'flash', citationState: 'not-cited' }),
+      // One answer the same model could not cite from does not dilute the other three.
+      snap({ provider: 'gemini', model: 'flash', citationState: 'not-measured' }),
+    ])
+    // Not "0%, 0 of 2": nothing measured whether Local cites.
+    expect(result.find(r => r.provider === 'local')).toEqual({ provider: 'local', model: 'llama3', score: null, cited: 0, total: 2, citationNotMeasured: 2 })
+    // 1 cited of the 3 checked answers, not of 4.
+    expect(result.find(r => r.provider === 'gemini')).toEqual({ provider: 'gemini', model: 'flash', score: 33.333333, cited: 1, total: 4, citationNotMeasured: 1 })
+  })
+
   it('returns score 0 when no snapshots are cited', () => {
     const snapshots = [
       snap({ citationState: 'not-cited' }),

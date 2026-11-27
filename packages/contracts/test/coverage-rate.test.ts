@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rateOverChecked } from '../src/coverage-rate.js'
+import { rateOverChecked, rateOverCheckedAnswers } from '../src/coverage-rate.js'
 
 describe('rateOverChecked', () => {
   it('takes the rate over the checked answers and counts the rest beside it', () => {
@@ -36,5 +36,22 @@ describe('rateOverChecked', () => {
     expect(() => rateOverChecked(0, 3, 4, 'unchecked')).toThrow(RangeError)
     // A positive from a left-out answer is not on either side of the rate.
     expect(() => rateOverChecked(3, 3, 1, 'unchecked')).toThrow(RangeError)
+  })
+})
+
+describe('rateOverCheckedAnswers', () => {
+  it('leaves a citation rate\'s partly saved and source-less answers out, each under its own count', () => {
+    // Ten saved answers: one partly saved, three from an engine with no sources.
+    expect(rateOverCheckedAnswers(2, 10, { unchecked: 1, citationNotMeasured: 3 }))
+      .toEqual({ numerator: 2, denominator: 6, rate: 2 / 6, unchecked: 1, citationNotMeasured: 3 })
+    // A zero count is absent, as for one reason.
+    expect(rateOverCheckedAnswers(1, 3, { unchecked: 0, citationNotMeasured: 1 }))
+      .toEqual({ numerator: 1, denominator: 2, rate: 0.5, citationNotMeasured: 1 })
+  })
+
+  it('has no rate when every answer was left out, and refuses more left out than answered', () => {
+    expect(rateOverCheckedAnswers(0, 2, { unchecked: 1, citationNotMeasured: 1 })).toBeNull()
+    expect(() => rateOverCheckedAnswers(0, 2, { unchecked: 2, citationNotMeasured: 1 })).toThrow(RangeError)
+    expect(() => rateOverCheckedAnswers(2, 3, { citationNotMeasured: 2 })).toThrow(RangeError)
   })
 })

@@ -46,6 +46,11 @@ export interface HelpResult {
 
 type NotifierHost = { sendToolListChanged(): void }
 
+/** Guidance and tool listings name canonical tools; deprecated aliases stay callable only. */
+function isListed(entry: DynamicCatalogEntry): boolean {
+  return entry.tool.deprecatedAliasOf === undefined
+}
+
 export class DynamicToolCatalog {
   private readonly entries: DynamicCatalogEntry[]
   private readonly loaded = new Set<CanonryMcpToolkitName>()
@@ -91,8 +96,11 @@ export class DynamicToolCatalog {
     if (matches.length === 0) {
       return { status: 'empty', name, tools: [] }
     }
+    // Deprecated aliases are enabled with their toolkit so existing callers
+    // keep working, but every listing names only the canonical tools.
+    const listed = matches.filter(isListed).map(entry => entry.tool.name)
     if (this.loaded.has(name)) {
-      return { status: 'already-loaded', name, tools: matches.map(entry => entry.tool.name) }
+      return { status: 'already-loaded', name, tools: listed }
     }
     this.batchListChanged(() => {
       for (const entry of matches) {
@@ -100,7 +108,7 @@ export class DynamicToolCatalog {
       }
     })
     this.loaded.add(name)
-    return { status: 'loaded', name, tools: matches.map(entry => entry.tool.name) }
+    return { status: 'loaded', name, tools: listed }
   }
 
   helpResult(): HelpResult {
@@ -109,8 +117,10 @@ export class DynamicToolCatalog {
       eager: this.eager,
       loadedToolkits: [...this.loaded].sort(),
       coreTools: this.entries
-        .filter(entry => entry.tool.tier === 'core')
+        .filter(entry => entry.tool.tier === 'core' && isListed(entry))
         .map(entry => entry.tool.name),
+      // An approval list, so it stays complete: a live tool needs approval
+      // under any name it answers to.
       liveTools: this.entries
         .filter(entry => entry.tool.tier === 'core' && toolOperationAccess(entry.tool) === OperationAccesses.live)
         .map(entry => entry.tool.name),
@@ -139,7 +149,7 @@ export class DynamicToolCatalog {
 
   private toolsForToolkit(name: CanonryMcpToolkitName): string[] {
     return this.entries
-      .filter(entry => entry.tool.tier === name)
+      .filter(entry => entry.tool.tier === name && isListed(entry))
       .map(entry => entry.tool.name)
   }
 

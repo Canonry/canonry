@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { queryClassSchema } from './query-class.js'
 import { fraction } from './ratio-unit.js'
+import { trendChangeSchema } from './trends.js'
 
 export const seoCapabilitySchema = z.enum(['keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings', 'competitor-discovery', 'keyword-gaps'])
 export type SeoCapability = z.infer<typeof seoCapabilitySchema>
@@ -527,6 +528,70 @@ export const seoOverviewSchema = z.object({
   keywordGapCount: z.number().int().nonnegative(),
 }).strict()
 export type SeoOverview = z.infer<typeof seoOverviewSchema>
+
+export const seoTrendDaysSchema = z.literal([30, 90, 180])
+export type SeoTrendDays = z.infer<typeof seoTrendDaysSchema>
+export const SEO_TREND_DEFAULT_DAYS: SeoTrendDays = 180
+export const seoTrendKeywordSchema = z.string().trim().min(1).max(512)
+export const seoTrendsQuerySchema = z.object({
+  profileId: z.string().min(1),
+  days: seoTrendDaysSchema.optional(),
+  keyword: seoTrendKeywordSchema.optional(),
+}).strict()
+export type SeoTrendsQuery = z.infer<typeof seoTrendsQuerySchema>
+export const seoTrendKindSchema = z.enum(['domain', 'market', 'ranked'])
+export const SeoTrendKinds = seoTrendKindSchema.enum
+export type SeoTrendKind = z.infer<typeof seoTrendKindSchema>
+export const seoTrendMetricSchema = z.enum(['inTop10', 'organicKeywords', 'estimatedOrganicTraffic', 'page1', 'rankOrganic'])
+export type SeoTrendMetric = z.infer<typeof seoTrendMetricSchema>
+export const SEO_TREND_METRICS_BY_KIND: Record<SeoTrendKind, readonly SeoTrendMetric[]> = {
+  [SeoTrendKinds.domain]: ['inTop10', 'organicKeywords', 'estimatedOrganicTraffic'],
+  [SeoTrendKinds.market]: ['page1'],
+  [SeoTrendKinds.ranked]: ['rankOrganic'],
+}
+
+const seoTrendPointSchema = z.object({
+  runId: z.string(),
+  /** When the provider collected the evidence, or when an unavailable refresh ended. */
+  observedAt: z.string(),
+  organicKeywords: z.number().int().nonnegative().nullable(),
+  inTop10: z.number().int().nonnegative().nullable(),
+  estimatedOrganicTraffic: z.number().nonnegative().nullable(),
+  page1: z.number().int().nonnegative().nullable(),
+  /** The chosen search's organic rank for this saved refresh, if recorded. */
+  rankOrganic: z.number().int().positive().nullable().optional(),
+}).strict()
+export type SeoTrendPoint = z.infer<typeof seoTrendPointSchema>
+
+export const seoTrendsSchema = z.object({
+  /** Null for profiles without a comparable ranking dataset. */
+  kind: seoTrendKindSchema.nullable(),
+  profileId: z.string(),
+  profileRevision: z.number().int().positive().nullable(),
+  target: seoTargetSchema.nullable(),
+  scope: seoScopeSelectionSchema.nullable(),
+  languageCode: z.string(),
+  /** Market rankings use their saved per-market locations. */
+  locationCode: z.number().int().positive().nullable(),
+  days: seoTrendDaysSchema,
+  /** The number of query and market pairs in the unchanged non-brand basket. */
+  marketQueryCount: z.number().int().nonnegative().nullable(),
+  /** At least one usable ranking reading in the default window, regardless of the selected range or search. */
+  hasRankingReadings: z.boolean().optional(),
+  /** The selected search and the available choices from the full comparable window. Ranked trends only. */
+  keyword: seoTrendKeywordSchema.nullable().optional(),
+  rankedKeywords: z.array(seoTrendKeywordSchema).optional(),
+  /** Saved refresh readings oldest first. Null values preserve unavailable observations. */
+  points: z.array(seoTrendPointSchema),
+  changes: z.object({
+    organicKeywords: trendChangeSchema.nullable(),
+    inTop10: trendChangeSchema.nullable(),
+    estimatedOrganicTraffic: trendChangeSchema.nullable(),
+    page1: trendChangeSchema.nullable(),
+    rankOrganic: trendChangeSchema.nullable().optional(),
+  }).strict(),
+}).strict()
+export type SeoTrends = z.infer<typeof seoTrendsSchema>
 
 /** Host-operator-only financial inspection; never embedded in customer run DTOs. */
 const seoMicrosSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)

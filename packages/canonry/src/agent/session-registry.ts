@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq, gt, lte } from 'drizzle-orm'
 import {
+  agentProviderCooldowns,
   agentSessions,
   parseJsonColumn,
   projects,
@@ -8,7 +9,7 @@ import {
 } from '@canonry/canonry-db'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDependency } from '@canonry/canonry-contracts'
+import { agentBusy, AgentProviderIds, OutcomePhases, OutcomeTriggers, ProviderErrorCodes, classifyProviderErrorMessage, describeError, missingDependency } from '@canonry/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -24,7 +25,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, isAgentModelUnchecked, refreshAgentModels, resolveApiKeyFor } from './providers.js'
+import { agentProviderApiKeyEnvVar, buildAgentProvidersResponse, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, isAgentModelUnchecked, refreshAgentModels, resolveApiKeyFor } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -35,11 +36,11 @@ import {
 } from './tools.js'
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
-import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
+import { aeroTurnStatus, configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
 import { trackAeroTurn } from './turn-telemetry.js'
 import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidenceForTurn } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
-import type { AgentViewContext, AgentTurnLimits } from '@canonry/canonry-contracts'
+import type { AgentProviderBackgroundPause, AgentViewContext, AgentTurnLimits, AgentProvidersResponse } from '@canonry/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
 
 const log = createLogger('SessionRegistry')
@@ -114,6 +115,10 @@ interface AgentSessionRow {
  */
 const MAX_HYDRATE_NOTES = 20
 
+// Account failures need operator action. Permit a daily automatic recovery probe.
+const PROVIDER_ACCOUNT_COOLDOWN_MS = 24 * 60 * 60 * 1000
+type ProviderCooldown = typeof agentProviderCooldowns.$inferSelect
+
 /**
  * Soft byte cap for the total memory block rendered into the system prompt.
  * 20 notes × 2 KB value = 40 KB worst case; we truncate to ~32 KB so the
@@ -157,6 +162,8 @@ export function withoutPersistedToolDetails(messages: readonly unknown[]): unkno
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
+  /** Keep suppressing wakes in this process if the durable pause cannot be written. */
+  private readonly providerCooldownFallbacks = new Map<string, ProviderCooldown>()
   /** Last tool scope used on the live Agent for a project. Read in getOrCreate to know when to swap. */
   private readonly scopes = new Map<string, AeroToolScope>()
   /** Last profile used on the live Agent for a project. Paired with scopes when rebuilding tools. */
@@ -237,6 +244,26 @@ export class SessionRegistry {
   /** Read-only access to the config snapshot the registry was built with. */
   getConfig(): CanonryConfig {
     return this.opts.config
+  }
+
+  /** Stored account readiness for the active credentials; this never calls a provider. */
+  providerOptions(): AgentProvidersResponse {
+    const response = buildAgentProvidersResponse(this.opts.config, { models: true })
+    return {
+      ...response,
+      providers: response.providers.map((provider) => {
+        const vendor = getAgentProvider(provider.id).piAiProvider
+        const cooldown = this.providerCooldown(this.providerAccountKey(vendor, resolveApiKeyFor(vendor, this.opts.config)))
+        return {
+          ...provider,
+          backgroundPause: cooldown === null ? undefined : cooldown ? {
+            reason: cooldown.reason,
+            retryAt: new Date(cooldown.retryAt).toISOString(),
+            recovery: this.providerRecovery(cooldown.reason),
+          } : null,
+        }
+      }),
+    }
   }
 
   /**
@@ -730,6 +757,9 @@ export class SessionRegistry {
   queueFollowUp(projectName: string, message: AgentMessage): void {
     // Prompt-only: nothing wakes Aero, so nothing is worth queuing either.
     if (!this.proactive) return
+    // Wake notifications describe stored runs, so skip them during an account
+    // outage instead of building an unbounded backlog of stale prompts.
+    if (this.providerCoolingDown(projectName)) return
     if (this.live.has(projectName)) {
       this.appendPending(projectName, [message])
     } else {
@@ -765,6 +795,7 @@ export class SessionRegistry {
   async drainNow(projectName: string): Promise<void> {
     if (!this.proactive) return
     if (!this.hasPendingWork(projectName)) return
+    if (this.providerCoolingDown(projectName)) return
     try {
       let agent: Agent
       try {
@@ -782,17 +813,20 @@ export class SessionRegistry {
         if ((err as { code?: string }).code === 'AGENT_BUSY') return
         throw err
       }
+      // Another project's turn may have failed while this one was acquiring.
+      if (this.providerCoolingDown(projectName)) return
       const msgs = this.consumePending(projectName)
       if (msgs.length === 0) return
+      const projectId = this.projectIds.get(projectName) ?? this.tryResolveProjectId(projectName)
       await agent.prompt(msgs)
       // Aero woke itself: no request, so the turn is attributed to the system.
       try {
         this.save(projectName)
       } catch (err) {
-        trackAeroTurn(agent, { trigger: OutcomeTriggers.agent, error: err })
+        trackAeroTurn(agent, { trigger: OutcomeTriggers.agent, error: err, phase: OutcomePhases.persistence, projectId })
         throw err
       }
-      trackAeroTurn(agent, { trigger: OutcomeTriggers.agent })
+      trackAeroTurn(agent, { trigger: OutcomeTriggers.agent, projectId })
     } catch (err) {
       log.error('drain.failed', {
         projectName,
@@ -893,13 +927,133 @@ export class SessionRegistry {
    * arrives mid-CLI-turn would sit in pending until someone called drainNow.
    */
   private registerDrainHook(agent: Agent, projectName: string): void {
+    let lastRequest: {
+      accountKey: string
+      fallbackFailureId: string | undefined
+      durableFailureId: string | undefined
+      durableKnown: boolean
+    } | undefined
+    const resolveApiKey = agent.getApiKey
+    agent.getApiKey = async (provider) => {
+      // Config can reload between model calls within one turn. Track the key
+      // actually resolved for this request, not the key at agent_start.
+      lastRequest = undefined
+      const apiKey = await resolveApiKey?.(provider)
+      const accountKey = this.providerAccountKey(provider, apiKey)
+      const { fallback, durable } = this.providerCooldownState(accountKey)
+      lastRequest = {
+        accountKey,
+        fallbackFailureId: fallback?.failureId,
+        durableFailureId: durable?.failureId,
+        durableKnown: durable !== null,
+      }
+      return apiKey
+    }
     agent.subscribe((event) => {
+      if (event.type === 'agent_start') lastRequest = undefined
       if (event.type !== 'agent_end') return
+      if (lastRequest) {
+        const { accountKey, fallbackFailureId, durableFailureId, durableKnown } = lastRequest
+        const reason = classifyProviderErrorMessage(agent.state.errorMessage ?? '')
+        if (reason === ProviderErrorCodes.PROVIDER_AUTH || reason === ProviderErrorCodes.PROVIDER_BILLING) {
+          const retryAt = Date.now() + PROVIDER_ACCOUNT_COOLDOWN_MS
+          const cooldown = { accountKey, failureId: crypto.randomUUID(), retryAt, reason }
+          let persisted = false
+          try {
+            this.opts.db.transaction((tx) => {
+              tx.delete(agentProviderCooldowns).where(lte(agentProviderCooldowns.retryAt, Date.now())).run()
+              tx.insert(agentProviderCooldowns).values(cooldown).onConflictDoUpdate({
+                target: agentProviderCooldowns.accountKey,
+                set: cooldown,
+              }).run()
+            })
+            this.providerCooldownFallbacks.delete(accountKey)
+            persisted = true
+          } catch (error) {
+            this.providerCooldownFallbacks.set(accountKey, cooldown)
+            log.warn('provider.background-pause.persist-failed', { projectName, error: describeError(error) })
+          }
+          log.warn('provider.background-paused', {
+            projectName,
+            provider: agent.state.model.provider,
+            reason,
+            retryAt: new Date(retryAt).toISOString(),
+            recovery: this.providerRecovery(reason),
+            msg: persisted
+              ? 'Automatic Aero work paused; the pause is saved for server restarts.'
+              : 'Automatic Aero work paused in this process; the pause could not be saved for server restarts.',
+          })
+        } else if (aeroTurnStatus(agent)?.reason === 'completed'
+          && durableKnown
+          && (fallbackFailureId || durableFailureId)
+          && this.providerCooldownFallbacks.get(accountKey)?.failureId === fallbackFailureId) {
+          // An unsaved failure can mask an earlier durable hold. Clear only
+          // the two identities observed by this request, and retain the durable
+          // predecessor if a newer unsaved failure still needs its restart protection.
+          try {
+            if (durableFailureId) {
+              this.opts.db.delete(agentProviderCooldowns).where(and(
+                eq(agentProviderCooldowns.accountKey, accountKey),
+                eq(agentProviderCooldowns.failureId, durableFailureId),
+              )).run()
+            }
+            this.providerCooldownFallbacks.delete(accountKey)
+          } catch (error) {
+            // Preserve both the successful turn and the hold until its recovery can be saved.
+            log.warn('provider.background-pause.clear-failed', { projectName, error: describeError(error) })
+          }
+        }
+      }
       if ((this.pending.get(projectName) ?? []).length === 0) return
       // Fire-and-forget — the drain re-invokes prompt() which itself emits a
       // new agent_end, so we stay single-threaded via pi's internal guards.
       void this.drainNow(projectName)
     })
+  }
+
+  private providerAccountKey(provider: string, apiKey: string | undefined): string {
+    const canonical = coerceAgentProvider(provider)
+    const vendor = canonical ? getAgentProvider(canonical).piAiProvider : provider
+    return crypto.createHash('sha256')
+      .update(JSON.stringify([vendor, apiKey ?? '']))
+      .digest('hex')
+  }
+
+  private providerCoolingDown(projectName: string): boolean {
+    const provider = this.turnProvider(projectName)
+    if (provider === undefined) return false
+    const vendor = getAgentProvider(provider).piAiProvider
+    return !!this.providerCooldown(this.providerAccountKey(vendor, resolveApiKeyFor(vendor, this.opts.config)))
+  }
+
+  private providerCooldown(accountKey: string): ProviderCooldown | null | undefined {
+    const { fallback, durable } = this.providerCooldownState(accountKey)
+    return fallback ?? durable
+  }
+
+  private providerCooldownState(accountKey: string): { fallback: ProviderCooldown | undefined; durable: ProviderCooldown | null | undefined } {
+    for (const [key, cooldown] of this.providerCooldownFallbacks) {
+      if (cooldown.retryAt <= Date.now()) this.providerCooldownFallbacks.delete(key)
+    }
+    const fallback = this.providerCooldownFallbacks.get(accountKey)
+    try {
+      const durable = this.opts.db.select().from(agentProviderCooldowns).where(and(
+        eq(agentProviderCooldowns.accountKey, accountKey),
+        gt(agentProviderCooldowns.retryAt, Date.now()),
+      )).get()
+      return { fallback, durable }
+    } catch (error) {
+      // Optional pause storage must not become an error from the model's key resolver.
+      log.warn('provider.background-pause.read-failed', { error: describeError(error) })
+      return { fallback, durable: null }
+    }
+  }
+
+  private providerRecovery(reason: AgentProviderBackgroundPause['reason']): string {
+    const action = reason === ProviderErrorCodes.PROVIDER_BILLING
+      ? 'Restore credit or billing access in the provider account.'
+      : 'Repair the provider key or account access; run canonry settings reload-providers if you changed config.yaml.'
+    return `${action} Then send Aero a prompt to retry now. Automatic work can resume after the pause expires.`
   }
 
   private resolveProjectId(projectName: string): string {

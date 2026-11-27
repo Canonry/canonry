@@ -169,18 +169,23 @@ export const measurementMetricReasonSchema = z.enum([
   'aliasless',
   'no-competitors',
   'no-project-aliases',
+  // Every answer came from an engine that returns no sources (a local model
+  // with no web access), so the citation was never measured.
+  'citation-not-measured',
 ])
 export type MeasurementMetricReason = z.infer<typeof measurementMetricReasonSchema>
 
 /**
  * A rate is either measured or wholly unavailable. A missing answer never
- * shrinks a denominator. Two kinds of saved answer leave both sides of a rate
+ * shrinks a denominator. Three kinds of saved answer leave both sides of a rate
  * and are counted beside it instead (absent means none):
  * - `unattributed`, on a mention rate: the answer's identity could not be tied
  *   to one Property.
  * - `unchecked`, on a citation rate: the answer's source-link capture was
  *   incomplete. A link it did capture is not counted either.
- * One rate reads one signal, so the two never appear together.
+ * - `citationNotMeasured`, on a citation rate: the answer's engine returns no
+ *   sources (a local model with no web access), so it is never a miss.
+ * One rate reads one signal, so `unattributed` never appears beside the other two.
  */
 export const measurementRateSchema = z.union([
   z.object({
@@ -189,6 +194,7 @@ export const measurementRateSchema = z.union([
     rate: fraction(z.number().min(0).max(1)),
     unattributed: z.number().int().positive().optional(),
     unchecked: z.number().int().positive().optional(),
+    citationNotMeasured: z.number().int().positive().optional(),
   }).strict(),
   z.object({
     numerator: z.null(),
@@ -202,6 +208,9 @@ export const measurementRateSchema = z.union([
   }
   if (value.numerator !== null && value.unattributed !== undefined && value.unchecked !== undefined) {
     ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+  }
+  if (value.numerator !== null && value.unattributed !== undefined && value.citationNotMeasured !== undefined) {
+    ctx.addIssue({ code: 'custom', path: ['citationNotMeasured'], message: 'A rate reads one signal: unattributed (mention) and citationNotMeasured (citation) cannot share it' })
   }
 })
 export type MeasurementRate = z.infer<typeof measurementRateSchema>
@@ -262,6 +271,13 @@ export const measurementCompletenessSchema = z.object({
    * basis a rate stands on rather than assuming it covered every answer.
    */
   sourceCompleteObservations: z.number().int().nonnegative(),
+  /**
+   * Executed answers whose engine returns no sources (a local model), so their
+   * citation was never measured. Outside `sourceCompleteObservations` and never
+   * a reason for `sourceComplete` to be false: nothing was left uncaptured.
+   * Defaults to 0 for a server that predates the field.
+   */
+  citationNotMeasuredObservations: z.number().int().nonnegative().default(0),
   answerComplete: z.boolean(),
 }).strict()
 export type MeasurementCompleteness = z.infer<typeof measurementCompletenessSchema>
@@ -399,9 +415,17 @@ export const measurementAnswerEvidenceSchema = z.object({
   mentionIdentity: z.union([mentionIdentitySchema, z.null()]).default(null),
   /**
    * Null where citation capture was incomplete and nothing matched: with the
-   * sources unseen, "not cited" is a claim the run does not support.
+   * sources unseen, "not cited" is a claim the run does not support. Also null
+   * when the engine returns no sources at all (`citationMeasured: false`).
    */
   cited: z.boolean().nullable(),
+  /**
+   * False when the answer's engine returns no sources (a local model with no
+   * web access): its citation was never measured, which is not the same as
+   * sources only partly saved (`evidenceComplete: false`). Defaults to true for
+   * a row from a server that predates the field.
+   */
+  citationMeasured: z.boolean().default(true),
   sources: z.array(measurementAnswerSourceSchema),
   /** Always the FULL count, so a capped `sources` array cannot read as complete. */
   sourceCount: z.number().int().nonnegative(),
@@ -453,6 +477,8 @@ export const measurementReportDiagnosticsSchema = z.object({
   bridgedObservationIds: z.array(z.string()),
   historicalObservationIds: z.array(z.string()),
   evidenceIncompleteObservationIds: z.array(z.string()),
+  /** Answers whose engine returns no sources; never evidence-incomplete or historical. */
+  citationNotMeasuredObservationIds: z.array(z.string()).default([]),
   ambiguousObservationIds: z.array(z.string()),
   unmatchedObservationIds: z.array(z.string()),
 }).strict()

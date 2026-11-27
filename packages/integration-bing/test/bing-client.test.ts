@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getSites, addSite, getUrlInfo, submitUrl, submitUrlBatch, getKeywordStats, getCrawlStats, getCrawlIssues, __resetBingThrottleCooldownForTest } from '../src/bing-client.js'
+import { getSites, addSite, getUrlInfo, submitUrl, submitUrlBatch, getCrawlStats, getCrawlIssues, __resetBingThrottleCooldownForTest } from '../src/bing-client.js'
 import { BING_WMT_API_BASE } from '../src/constants.js'
 
 // The throttle cooldown is module-level state keyed by API key — global on
@@ -246,33 +246,6 @@ describe('submitUrlBatch', () => {
     expect(callCount).toBe(2)
     expect(capturedBatches[0]!.length).toBe(500)
     expect(capturedBatches[1]!.length).toBe(250)
-  })
-})
-
-describe('getKeywordStats', () => {
-  let originalFetch: typeof globalThis.fetch
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch
-  })
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  it('returns keyword stats', async () => {
-    const mockStats = {
-      d: [
-        { Query: 'test query', Impressions: 100, Clicks: 10, Ctr: 0.1, AverageClickPosition: 5.2, AverageImpressionPosition: 6.0 },
-      ],
-    }
-
-    globalThis.fetch = async () => new Response(JSON.stringify(mockStats), { status: 200 })
-
-    const stats = await getKeywordStats('key', 'https://example.com/')
-    expect(stats.length).toBe(1)
-    expect(stats[0]!.Query).toBe('test query')
-    expect(stats[0]!.Clicks).toBe(10)
   })
 })
 

@@ -462,6 +462,12 @@ export const measurementPropertyQuestionRowSchema = z.discriminatedUnion('status
     mentioned: z.boolean().nullable(),
     /** Null when citation capture is partial or otherwise cannot support a verdict. */
     cited: z.boolean().nullable(),
+    /**
+     * False when the engine returns no sources (a local model), so `cited` is
+     * null because citation was never measured, not because capture was
+     * partial. Defaults to true for a server that predates the field.
+     */
+    citationMeasured: z.boolean().default(true),
     recommendedInstead: z.array(measurementDemoRecommendedNameSchema),
     answerExcerpt: z.string().nullable(),
   }).strict(),
@@ -522,6 +528,8 @@ export const measurementQuestionResultResponseSchema = z.object({
   }).strict(),
   mentioned: z.boolean().nullable(),
   cited: z.boolean().nullable(),
+  /** False when the engine returns no sources, so `cited` is null because citation was never measured. */
+  citationMeasured: z.boolean().default(true),
   recommendedInstead: z.array(measurementDemoRecommendedNameSchema),
   answer: z.string().nullable(),
   sources: z.array(measurementQuestionResultSourceSchema),

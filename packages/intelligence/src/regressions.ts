@@ -12,25 +12,25 @@ export function detectRegressions(currentRun: RunData, previousRun: RunData): Re
   }
   const regressions: Regression[] = []
 
-  const previousCited = new Map<string, { citationUrl?: string; position?: number }>()
+  const previousCited = new Map<string, { citationUrl?: string }>()
   for (const snap of previousRun.snapshots) {
-    if (snap.cited) {
+    if (snap.cited === true) {
       previousCited.set(snapshotKey(snap), {
         citationUrl: snap.citationUrl,
-        position: snap.position,
       })
     }
   }
 
   for (const snap of currentRun.snapshots) {
     const key = snapshotKey(snap)
-    if (!snap.cited && previousCited.has(key)) {
+    // A loss needs a measured "not cited" now. An answer whose engine returns
+    // no sources (`cited === null`) observed nothing about citation.
+    if (snap.cited === false && previousCited.has(key)) {
       const prev = previousCited.get(key)!
       regressions.push({
         query: snap.query,
         provider: snap.provider,
         previousCitationUrl: prev.citationUrl,
-        previousPosition: prev.position,
         currentRunId: currentRun.runId,
         previousRunId: previousRun.runId,
       })

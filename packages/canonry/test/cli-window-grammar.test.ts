@@ -6,9 +6,11 @@ vi.mock('../src/client.js', () => ({ createApiClient }))
 
 const metrics = ['7d', '30d', '90d', 'all']
 const selections: Array<[string[], string[]]> = [
-  ...['acquisition', 'traffic', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history'].map(name => [['ga', name], metrics] as [string[], string[]]),
+  [['ga', 'acquisition'], metrics],
+  ...['traffic', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history'].map(name => [['ga', name], ['7d', '30d', '90d', '180d', 'all']] as [string[], string[]]),
+  [['ga', 'overview'], ['7d', '30d', '90d', '180d']],
   [['ga', 'measurement-analysis'], ['30d', '60d', '90d']],
-  [['ga', 'search-landing-pages'], ['7d', '28d', '90d']],
+  [['ga', 'search-landing-pages'], ['7d', '28d', '90d', '180d']],
   [['analytics'], metrics], [['sources'], metrics], [['competitor', 'landscape'], metrics],
   ...['performance', 'performance-daily', 'top-pages', 'query-totals'].map(name => [['google', name], metrics] as [string[], string[]]),
   [['google-ads', 'performance'], ['7d', '14d', '30d']],
@@ -38,7 +40,7 @@ describe('public window grammar', () => {
 
   it('prints all GA traffic windows in contextual help', async () => {
     const result = await invokeCli(['ga', 'traffic', '--help'])
-    expect(result.stdout).toContain('[--window 7d|30d|90d|all]')
+    expect(result.stdout).toContain('[--window 7d|30d|90d|180d|all]')
     expect(result.stdout).not.toContain('[--window 30d]')
     expect(createApiClient).not.toHaveBeenCalled()
   })

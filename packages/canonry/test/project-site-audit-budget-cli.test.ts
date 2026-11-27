@@ -14,7 +14,7 @@ import { CliError } from '../src/cli-error.js'
 import { prepareCliReadFixture } from './cli-read-fixture.js'
 import { invokeCli } from './cli-test-utils.js'
 
-// The saved Site Health page budget through the real routes: what `project
+// The saved Agent Readiness page budget through the real routes: what `project
 // create|update|show --site-audit-max-pages` writes and prints, and that a scan
 // started without a budget, from the CLI or MCP, runs with the saved one.
 
@@ -116,11 +116,11 @@ describe('project --site-audit-max-pages against the API', () => {
 
   it('project show prints the saved budget, or the full site when none is saved, and JSON carries the field', async () => {
     const { api } = await harness()
-    expect((await cli(['project', 'show', PROJECT])).lines).toContain('  Site Health page budget: full site (up to 50,000 pages)')
+    expect((await cli(['project', 'show', PROJECT])).lines).toContain('  Agent Readiness page budget: full site (up to 50,000 pages)')
     expect(JSON.parse((await cli(['project', 'show', PROJECT], 'json')).lines.join('\n'))).toMatchObject({ siteAuditMaxPages: null })
 
     await api.putProject(PROJECT, { displayName: 'Northwind', canonicalDomain: 'northwind.example', country: 'US', language: 'en', siteAuditMaxPages: 2_500 })
-    expect((await cli(['project', 'show', PROJECT])).lines).toContain('  Site Health page budget: 2,500 pages')
+    expect((await cli(['project', 'show', PROJECT])).lines).toContain('  Agent Readiness page budget: 2,500 pages')
     expect(JSON.parse((await cli(['project', 'show', PROJECT], 'json')).lines.join('\n'))).toMatchObject({ siteAuditMaxPages: 2_500 })
   })
 
@@ -174,17 +174,17 @@ describe('a scan started without a page budget runs with the saved one', () => {
     return rows[0]!.effectiveOptions.maxPages
   }
 
-  it('technical-aeo run without --max-pages uses the budget project update saved', async () => {
+  it('agent-readiness run without --max-pages uses the budget project update saved', async () => {
     const { db, scanBudgets } = await harness()
     await cli(['project', 'update', PROJECT, '--site-audit-max-pages', '2500'])
-    const { error, lines } = await cli(['technical-aeo', 'run', PROJECT], 'json')
+    const { error, lines } = await cli(['agent-readiness', 'run', PROJECT], 'json')
     expect(error).toBeUndefined()
     expect(JSON.parse(lines.join('\n'))).toMatchObject({ status: 'queued' })
     expect(scanBudgets).toEqual([2_500])
     expect(recordedBudget(db)).toBe(2_500)
   })
 
-  it('technical-aeo run without --max-pages covers the full site when the budget was reset with "full"', async () => {
+  it('the deprecated technical-aeo run without --max-pages covers the full site when the budget was reset with "full"', async () => {
     const { db, scanBudgets } = await harness()
     await cli(['project', 'update', PROJECT, '--site-audit-max-pages', '2500'])
     await cli(['project', 'update', PROJECT, '--site-audit-max-pages', 'full'])
@@ -193,7 +193,7 @@ describe('a scan started without a page budget runs with the saved one', () => {
     expect(recordedBudget(db)).toBe(50_000)
   })
 
-  it('MCP: the budget canonry_project_upsert saves and canonry_apply_config keeps is the one canonry_technical_aeo_run uses', async () => {
+  it('MCP: the budget canonry_project_upsert saves and canonry_apply_config keeps is the one canonry_agent_readiness_run uses', async () => {
     const { db, api, scanBudgets } = await harness()
     const server = createCanonryMcpServer({ eager: true, clientFactory: () => api })
     const mcp = new Client({ name: 'site-audit-budget-test', version: '1' })
@@ -214,7 +214,7 @@ describe('a scan started without a page budget runs with the saved one', () => {
       .toMatchObject({ siteAuditMaxPages: 300 })
     expect(stored(db).siteAuditMaxPages).toBe(300)
 
-    expect(await call('canonry_technical_aeo_run', { project: PROJECT })).toMatchObject({ status: 'queued' })
+    expect(await call('canonry_agent_readiness_run', { project: PROJECT })).toMatchObject({ status: 'queued' })
     expect(scanBudgets).toEqual([300])
     expect(recordedBudget(db)).toBe(300)
   })

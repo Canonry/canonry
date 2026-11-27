@@ -45,8 +45,8 @@ export const museAdapter: ProviderAdapter = {
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     return validateConfig(toMuseConfig(config))
   },
-  healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    return healthcheck(toMuseConfig(config))
+  healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    return healthcheck(toMuseConfig(config), signal)
   },
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
     const raw = await executeTrackedQuery({ ...input, config: toMuseConfig(config) })

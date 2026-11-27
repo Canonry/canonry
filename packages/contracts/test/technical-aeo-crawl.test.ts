@@ -66,7 +66,7 @@ describe('Technical AEO crawl contracts', () => {
     // (pages x 50, floored at 100,000) on any crawl over 2,000 pages, so an
     // omitted maxEdges must stay null all the way to the executor.
     expect(normalizeSiteAuditRunRequest({})).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sitemapUrl: null,
       maxPages: 50_000,
       maxEdges: null,
@@ -74,6 +74,7 @@ describe('Technical AEO crawl contracts', () => {
       checkDeadLinks: false,
       includeGeo: false,
       includeAgentSkills: true,
+      sites: [],
     })
     expect(normalizeSiteAuditRunRequest({ maxEdges: 435_000 })).toMatchObject({ maxEdges: 435_000 })
   })
@@ -167,9 +168,9 @@ describe('Technical AEO crawl contracts', () => {
     expect(JSON.parse(unset)[3]).toBeNull()
     expect(JSON.parse(explicitOldDefault)[3]).toBe(100_000)
     // A version-1 key (omitted maxEdges stored as 100000) can never be read as
-    // a version-3 request, so a pre-upgrade in-flight run refuses instead of
-    // silently absorbing a crawl with different budget semantics.
-    expect(JSON.parse(unset)[0]).toBe(3)
+    // a version-4 request, so a pre-upgrade in-flight run refuses instead of
+    // silently absorbing a crawl with different budget semantics or sites.
+    expect(JSON.parse(unset)[0]).toBe(4)
   })
 
   it('accepts a page budget of whole pages from 1 to the 50,000 hard limit, and nothing else', () => {
@@ -203,7 +204,7 @@ describe('Technical AEO crawl contracts', () => {
 
     // The saved budget changes only the page budget...
     expect(normalizeSiteAuditRunRequest({}, 2_500)).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sitemapUrl: null,
       maxPages: 2_500,
       maxEdges: null,
@@ -211,6 +212,7 @@ describe('Technical AEO crawl contracts', () => {
       checkDeadLinks: false,
       includeGeo: false,
       includeAgentSkills: true,
+      sites: [],
     })
     // ...and is part of identity: it is the same request as asking for that
     // budget explicitly, and a different one from the full site.

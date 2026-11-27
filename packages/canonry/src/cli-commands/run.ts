@@ -147,6 +147,16 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
 
 export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
+    path: ['run', 'preview'],
+    usage: 'canonry run preview <project> [--format json]',
+    access: 'stored',
+    help: 'Preview the next full manual sweep using saved project defaults. Makes no provider calls. Does not preview scoped or forced launches.',
+    run: async (input) => {
+      const { previewRun } = await import('../commands/run.js')
+      await previewRun(requireProject(input, 'run.preview', 'canonry run preview <project> [--format json]'), input.format)
+    },
+  },
+  {
     path: ['run', 'show'],
     usage: 'canonry run show <id> [--format json]',
     run: async (input) => {

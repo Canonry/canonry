@@ -5,8 +5,11 @@ import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
   validationError, notFound, normalizeProjectDomain, parseWindow,
-  forbidden, quotaExceeded, providerError, escapeLikePattern, AppError,
-  hostMatchesDomain,
+  forbidden, operationInProgress, quotaExceeded, providerError, escapeLikePattern, AppError,
+  isSitemapOwnedByProperty,
+  effectiveDomains,
+  gbpWebsiteHost,
+  gbpWebsiteMatchesProject,
   hostOf,
   type GoogleConnectionType,
   gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema, gbpSyncRequestSchema,
@@ -41,9 +44,10 @@ import {
   readEarliestGscDataDate, readEarliestGscQueryDataDate, readLatestGscDataDate,
   resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
-import { assertNotProjectScoped } from './auth.js'
+import { assertNotProjectScoped, isInstanceAdministrator, requireGooglePropertyDiscovery, requireInstanceAdministrator } from './auth.js'
 import type { Ga4CredentialStore } from './ga.js'
-import { clearGaDataOnPropertyChange, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { clearGaDataOnPropertyChange, projectsSharingGoogleConnection, readGa4Properties } from './ga-property-data.js'
+import { changeSearchSite, isSameSearchSite } from './search-site-change.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { startRouteOutcome } from './feature-outcome.js'
@@ -206,35 +210,6 @@ function scopesForConnectionType(type: GoogleConnectionType): string[] {
   }
 }
 
-function isSitemapOwnedByProperty(sitemapUrl: string, propertyId: string, canonicalDomain: string): boolean {
-  let sitemap: URL
-  try {
-    sitemap = new URL(sitemapUrl)
-  } catch {
-    return false
-  }
-  if (sitemap.protocol !== 'http:' && sitemap.protocol !== 'https:') return false
-
-  if (/^sc-domain:/i.test(propertyId)) {
-    const domain = propertyId.slice('sc-domain:'.length).toLowerCase()
-    return hostMatchesDomain(sitemap.hostname, domain)
-  }
-
-  if (/^\d+$/.test(propertyId)) {
-    return hostOf(sitemap.hostname) === hostOf(canonicalDomain)
-  }
-
-  try {
-    const property = new URL(propertyId)
-    if (property.protocol !== 'http:' && property.protocol !== 'https:') return false
-    if (sitemap.origin !== property.origin) return false
-    const prefix = property.pathname.endsWith('/') ? property.pathname : `${property.pathname}/`
-    return sitemap.pathname === property.pathname || sitemap.pathname.startsWith(prefix)
-  } catch {
-    return false
-  }
-}
-
 export interface GoogleConnectionRecord {
   domain: string
   connectionType: GoogleConnectionType
@@ -255,6 +230,13 @@ export interface GoogleConnectionRecord {
   gbpAccountName?: string | null
   createdAt: string
   updatedAt: string
+}
+
+function retainedGscSitemap(connection: GoogleConnectionRecord | undefined, propertyId: string | null): string | null {
+  if (!connection?.sitemapUrl) return null
+  return !propertyId || isSitemapOwnedByProperty(connection.sitemapUrl, propertyId, connection.domain)
+    ? connection.sitemapUrl
+    : null
 }
 
 /** Public connection fields only. Tokens stay in the connection store. */
@@ -482,6 +464,23 @@ function gscErrorToAppError(err: unknown, context: string): AppError {
   return providerError(`${context}: ${describeError(err)}`)
 }
 
+/**
+ * Every synced Business Profile table keyed by project and location. Disconnect
+ * and an account switch clear them for a project, and a deselect for one
+ * location. A test fails when a table with a location column is missing here.
+ */
+export const GBP_LOCATION_DATA_TABLES = [
+  gbpDailyMetrics,
+  gbpKeywordImpressions,
+  gbpKeywordMonthly,
+  gbpPlaceActions,
+  gbpLodgingSnapshots,
+  gbpAttributesSnapshots,
+  gbpPlaceDetails,
+  gbpReviews,
+  gbpReviewRatings,
+] as const
+
 export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptions) {
   // State signing is the only thing keeping an attacker from forging an OAuth
   // callback that lands a connection on an account they control — there is no
@@ -535,7 +534,14 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // that domain to another GA4 property, or to none. Read where each stands
   // first, so `clearGaDataOnPropertyChange` can clear the ones that moved.
   function ga4PropertiesBefore(type: string, domain: string) {
-    return type === 'ga4' ? readGa4Properties(opts, projectsSharingGa4Connection(app.db, domain)) : []
+    return type === 'ga4' ? readGa4Properties(opts, projectsSharingGoogleConnection(app.db, domain)) : []
+  }
+
+  function changeConnection<T>(
+    type: string, domain: string, previous: string | null | undefined, next: string | null | undefined,
+    write: (tx: Parameters<Parameters<typeof app.db.transaction>[0]>[0]) => T, actor = 'api',
+  ): T {
+    return type === 'gsc' ? changeSearchSite(app.db, 'google', domain, previous, next, write, actor) : app.db.transaction(write)
   }
 
   // GET /projects/:name/google/connections
@@ -565,6 +571,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const project = resolveProject(app.db, request.params.name)
     if (telemetryRead(() => opts.googleConnectionStore?.getConnection(project.canonicalDomain, type), undefined)) attempt.update({ action: 'reauth' })
+    const adminGrant = isInstanceAdministrator(request)
+    if (type !== 'gbp' && !adminGrant) {
+      if (propertyId !== undefined) throw forbidden('Selecting a Google property requires an instance administrator.')
+      if (projectsSharingGoogleConnection(app.db, project.canonicalDomain).some(other => other.id !== project.id)) {
+        throw forbidden('Authorizing a shared Google connection requires an instance administrator.')
+      }
+    }
 
     let redirectUri: string
     if (publicUrl) {
@@ -591,6 +604,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       {
         projectId: project.id,
         projectName: project.name,
+        ...(adminGrant && type !== 'gbp' ? { instanceAdministrator: true } : {}),
         domain: project.canonicalDomain,
         type,
         propertyId,
@@ -756,24 +770,35 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             `before re-connecting from "${escapeHtml(projectName ?? '')}".`,
         )
     }
+    if (type === 'gsc' || type === 'ga4') {
+      // Check after the remote token exchange. The project may have moved or another project may now share its connection.
+      const sharing = projectsSharingGoogleConnection(app.db, domain)
+      if (!sharing.some(other => other.id === projectId)) {
+        attempt.failed(undefined, 'OAUTH_STATE_INVALID')
+        return reply.status(400).send('The project or its domain changed. Restart Google authorization.')
+      }
+      if (stateData.instanceAdministrator !== true && (propertyId !== undefined || sharing.length > 1)) {
+        attempt.failed(undefined, 'AUTH_DENIED')
+        return reply.status(403).send('Selecting a property or authorizing a shared connection requires an instance administrator. Restart Google authorization.')
+      }
+    }
 
     const ga4Before = ga4PropertiesBefore(type, domain)
-    store.upsertConnection({
-      domain,
-      connectionType: type as GoogleConnectionType,
-      propertyId: propertyId ?? existing?.propertyId ?? null,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
-      tokenExpiresAt: expiresAt,
-      scopes: tokens.scope?.split(' ') ?? [],
-      // Stamp ownership on first write; subsequent same-project re-connects
-      // preserve it.
-      createdByProjectId: existing?.createdByProjectId ?? projectId,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    })
-
-    app.db.transaction((tx) => {
+    const nextPropertyId = propertyId ?? existing?.propertyId ?? null
+    changeConnection(type, domain, existing?.propertyId, nextPropertyId, (tx) => {
+      store.upsertConnection({
+        domain,
+        connectionType: type as GoogleConnectionType,
+        propertyId: nextPropertyId,
+        ...(type === 'gsc' ? { sitemapUrl: retainedGscSitemap(existing, nextPropertyId) } : {}),
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
+        tokenExpiresAt: expiresAt,
+        scopes: tokens.scope?.split(' ') ?? [],
+        createdByProjectId: existing?.createdByProjectId ?? projectId,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      })
       clearGaDataOnPropertyChange(tx, opts, ga4Before, 'oauth')
       writeAuditLog(tx, {
         projectId: null,
@@ -783,7 +808,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         entityId: type,
         diff: { domain, type, propertyId },
       })
-    })
+    }, 'oauth')
 
     attempt.succeeded()
     return reply.type('text/html').send(googleOAuthSuccessHtml(type as GoogleConnectionType))
@@ -792,7 +817,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // GET /google/callback — shared OAuth redirect target (excluded from auth middleware)
   app.get<{
     Querystring: { code?: string; state?: string; error?: string }
-  }>('/google/callback', async (request, reply) => {
+  }>('/google/callback', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     return handleOAuthCallback(request, reply)
   })
 
@@ -800,7 +825,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { code?: string; state?: string; error?: string }
-  }>('/projects/:name/google/callback', async (request, reply) => {
+  }>('/projects/:name/google/callback', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     return handleOAuthCallback(request, reply)
   })
 
@@ -830,13 +855,14 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const ga4Before = ga4PropertiesBefore(type, project.canonicalDomain)
-    const deleted = store.deleteConnection(project.canonicalDomain, type)
-    if (!deleted) {
-      attempt.failed(undefined, 'NOT_CONNECTED')
-      throw notFound('Google connection', type)
+    if ((type === 'gsc' || type === 'ga4') && projectsSharingGoogleConnection(app.db, project.canonicalDomain).length > 1) {
+      requireInstanceAdministrator(request)
     }
-
-    app.db.transaction((tx) => {
+    changeConnection(type, project.canonicalDomain, existing.propertyId, null, (tx) => {
+      if (!store.deleteConnection(project.canonicalDomain, type)) {
+        attempt.failed(undefined, 'NOT_CONNECTED')
+        throw notFound('Google connection', type)
+      }
       clearGaDataOnPropertyChange(tx, opts, ga4Before)
       writeAuditLog(tx, {
         projectId: project.id,
@@ -851,10 +877,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   }))
 
   // GET /projects/:name/google/properties
-  app.get<{ Params: { name: string } }>('/projects/:name/google/properties', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/google/properties', { config: { paidRead: true } }, async (request) => {
     // Answers for the OAuth PRINCIPAL, not this project: every verified
     // Search Console property the operator can see, other clients included.
-    assertNotProjectScoped(request, 'listing Search Console properties')
+    requireGooglePropertyDiscovery(request)
 
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
@@ -1442,6 +1468,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         throw outcome.refuse(OutcomeReasonCodes.PROPERTY_NOT_FOUND, validationError('No GSC property configured for this connection'))
       }
       result = await gscInspectUrl(accessToken, url, propertyId)
+      if (!isSameSearchSite(store.getConnection(project.canonicalDomain, 'gsc')?.propertyId, propertyId)) {
+        throw operationInProgress('The Search Console property changed during inspection. Retry with the current property.')
+      }
     } catch (err) {
       outcome.report({ status: OutcomeStatuses.failed, ...gscOutcomeFailure(err) })
       throw gscErrorToAppError(err, 'Failed to inspect URL in Search Console')
@@ -2009,6 +2038,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const integration = googleIntegration(request.params.type)
     return integration ? { integration, action: 'select' } : undefined
   }, async (request, _reply, attempt) => {
+    if (request.params.type === 'gsc' || request.params.type === 'ga4') requireInstanceAdministrator(request)
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -2018,18 +2048,21 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const ga4Before = ga4PropertiesBefore(request.params.type, project.canonicalDomain)
-    const conn = store.updateConnection(
-      project.canonicalDomain,
-      request.params.type as GoogleConnectionType,
-      { propertyId, updatedAt: new Date().toISOString() },
-    )
-    if (!conn) {
-      attempt.failed(undefined, 'NOT_CONNECTED')
-      throw notFound('Google connection', request.params.type)
-    }
-    app.db.transaction((tx) => clearGaDataOnPropertyChange(tx, opts, ga4Before))
-
-    return googleConnectionDto(conn)
+    const type = request.params.type as GoogleConnectionType
+    const previous = store.getConnection(project.canonicalDomain, type)
+    return changeConnection(type, project.canonicalDomain, previous?.propertyId, propertyId, (tx) => {
+      const conn = store.updateConnection(project.canonicalDomain, type, {
+        propertyId,
+        ...(type === 'gsc' ? { sitemapUrl: retainedGscSitemap(previous, propertyId) } : {}),
+        updatedAt: new Date().toISOString(),
+      })
+      if (!conn) {
+        attempt.failed(undefined, 'NOT_CONNECTED')
+        throw notFound('Google connection', type)
+      }
+      clearGaDataOnPropertyChange(tx, opts, ga4Before)
+      return googleConnectionDto(conn)
+    })
   }))
 
   // POST /projects/:name/google/indexing/request
@@ -2196,7 +2229,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     return providerError(`${context}: ${err.message}`, { reason: err.reason ?? undefined, status: err.status })
   }
 
-  function rowToDto(row: typeof gbpLocations.$inferSelect): GbpLocationDto {
+  /** The domains a location's website is checked against: canonical plus owned. */
+  function projectDomainsOf(project: { canonicalDomain: string; ownedDomains?: string[] | null }): string[] {
+    return effectiveDomains({ canonicalDomain: project.canonicalDomain, ownedDomains: project.ownedDomains ?? [] })
+  }
+
+  function rowToDto(row: typeof gbpLocations.$inferSelect, projectDomains: readonly string[]): GbpLocationDto {
     return {
       id: row.id,
       projectId: row.projectId,
@@ -2216,15 +2254,18 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       openStatus: row.openStatus ?? null,
       openingDate: row.openingDate ?? null,
       selected: Boolean(row.selected),
+      websiteMatchesProject: gbpWebsiteMatchesProject(row.websiteUri, projectDomains),
+      websiteDomain: gbpWebsiteHost(row.websiteUri),
       syncedAt: row.syncedAt ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }
   }
 
-  function listSelectionResponse(projectId: string): GbpLocationListResponse {
-    const rows = app.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
-    const dtos = rows.map(rowToDto)
+  function listSelectionResponse(project: { id: string; canonicalDomain: string; ownedDomains?: string[] | null }): GbpLocationListResponse {
+    const rows = app.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, project.id)).all()
+    const projectDomains = projectDomainsOf(project)
+    const dtos = rows.map((row) => rowToDto(row, projectDomains))
     return {
       locations: dtos,
       totalDiscovered: dtos.length,
@@ -2237,16 +2278,24 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // switch (where the old account's data must not linger). These data tables
   // cascade only on PROJECT deletion, so they have to be cleared explicitly.
   function clearGbpProjectData(tx: Pick<DatabaseClient, 'delete'>, projectId: string): void {
-    tx.delete(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, projectId)).run()
-    tx.delete(gbpKeywordImpressions).where(eq(gbpKeywordImpressions.projectId, projectId)).run()
-    tx.delete(gbpKeywordMonthly).where(eq(gbpKeywordMonthly.projectId, projectId)).run()
-    tx.delete(gbpPlaceActions).where(eq(gbpPlaceActions.projectId, projectId)).run()
-    tx.delete(gbpLodgingSnapshots).where(eq(gbpLodgingSnapshots.projectId, projectId)).run()
-    tx.delete(gbpAttributesSnapshots).where(eq(gbpAttributesSnapshots.projectId, projectId)).run()
-    tx.delete(gbpPlaceDetails).where(eq(gbpPlaceDetails.projectId, projectId)).run()
-    tx.delete(gbpReviews).where(eq(gbpReviews.projectId, projectId)).run()
-    tx.delete(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).run()
+    for (const table of GBP_LOCATION_DATA_TABLES) {
+      tx.delete(table).where(eq(table.projectId, projectId)).run()
+    }
     tx.delete(gbpLocations).where(eq(gbpLocations.projectId, projectId)).run()
+  }
+
+  // Clear one location's synced data from a project, keeping the location row.
+  // Deselecting a location calls this, so data from a location tracked by
+  // mistake (for example another business on the same Google account) leaves
+  // the project's reviews, stats and reports. Selecting it again fetches the
+  // current sync windows only: rating history, older snapshots, older keyword
+  // months and reviews Google no longer returns do not come back. Its reviews
+  // start from a silent baseline because the rating rows that mark one are
+  // cleared too.
+  function clearGbpLocationData(tx: Pick<DatabaseClient, 'delete'>, projectId: string, locationName: string): void {
+    for (const table of GBP_LOCATION_DATA_TABLES) {
+      tx.delete(table).where(and(eq(table.projectId, projectId), eq(table.locationName, locationName))).run()
+    }
   }
 
   // The account a project currently tracks, derived from its locations (they
@@ -2263,7 +2312,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
   // POST /projects/:name/gbp/locations/discover
   // Re-discover locations from Google and upsert them. New rows get
-  // `selected = body.selectAllNew`. Existing rows keep their selected state.
+  // `selected = body.selectAllNew`, except a location whose website is not one
+  // of the project's domains, which stays unselected until someone tracks it.
+  // Existing rows keep their selected state.
   // Account selection is per project: an explicit `accountName` discovers that
   // account's locations; omitting it reuses the account the project already
   // tracks (falling back to the first visible account on the first discover).
@@ -2285,6 +2336,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError(parsed.error.issues[0]?.message ?? 'Invalid discover request')
     }
     const { selectAllNew, accountName: requestedAccount, switchAccount } = parsed.data
+    const projectDomains = projectDomainsOf(project)
 
     const { accessToken } = await getValidToken(
       store, project.canonicalDomain, 'gbp', googleClientId, googleClientSecret,
@@ -2385,7 +2437,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             placeId: remote.metadata?.placeId ?? null,
             mapsUri: remote.metadata?.mapsUri ?? null,
             ...profile,
-            selected: selectAllNew,
+            selected: selectAllNew && gbpWebsiteMatchesProject(remote.websiteUri ?? null, projectDomains) !== false,
             createdAt: now,
             updatedAt: now,
           }).run()
@@ -2400,7 +2452,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       })
     })
 
-    return listSelectionResponse(project.id)
+    return listSelectionResponse(project)
   })
 
   // GET /projects/:name/gbp/accounts — accounts the OAuth user can access, so
@@ -2448,7 +2500,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Querystring: { selected?: string }
   }>('/projects/:name/gbp/locations', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const response = listSelectionResponse(project.id)
+    const response = listSelectionResponse(project)
     const filter = request.query.selected
     if (filter === 'true' || filter === 'false') {
       const want = filter === 'true'
@@ -2481,17 +2533,20 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const now = new Date().toISOString()
     app.db.transaction((tx) => {
       tx.update(gbpLocations).set({ selected, updatedAt: now }).where(eq(gbpLocations.id, existing.id)).run()
+      // Also on a repeat deselect, so data left by an earlier deselect is cleared.
+      if (!selected) clearGbpLocationData(tx, project.id, locationName)
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: selected ? 'gbp.location.selected' : 'gbp.location.deselected',
         entityType: 'gbp_location',
         entityId: locationName,
+        ...(selected ? {} : { diff: { clearedLocationData: true } }),
       })
     })
 
     const refreshed = app.db.select().from(gbpLocations).where(eq(gbpLocations.id, existing.id)).get()!
-    return rowToDto(refreshed)
+    return rowToDto(refreshed, projectDomainsOf(project))
   }))
 
   // DELETE /projects/:name/gbp/connection
@@ -2504,6 +2559,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.delete<{ Params: { name: string } }>('/projects/:name/gbp/connection', connectionRoute(app, () => ({ integration: 'gbp', action: 'disconnect' }), async (request, reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     const store = requireConnectionStore()
+
+    // Cross-project takeover defense, as on DELETE /google/connections/:type:
+    // projects tracking the same domain share one GBP connection, so only the
+    // project that created it (or any project, for a legacy row with no owner)
+    // may remove it. Refuse before clearing anything.
+    const existing = store.getConnection(project.canonicalDomain, 'gbp')
+    if (existing?.createdByProjectId && existing.createdByProjectId !== project.id) {
+      throw validationError(
+        'This Google GBP connection is owned by a different project. Disconnect from the owning project instead.',
+      )
+    }
 
     app.db.transaction((tx) => {
       clearGbpProjectData(tx, project.id)

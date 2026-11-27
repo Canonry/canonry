@@ -40,7 +40,7 @@ test('offers explicit CSV and JSON tracking-results downloads in Project Setting
   )
 
   expect(screen.getByRole('heading', { name: 'Tracking results' })).toBeTruthy()
-  expect(screen.getByText(/historical citation and mention observations/i)).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Each exported row is one query and engine result/ })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Download CSV' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Download JSON' })).toBeTruthy()
 

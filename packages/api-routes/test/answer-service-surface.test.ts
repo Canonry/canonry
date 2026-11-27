@@ -158,7 +158,7 @@ describe('research with an answer service connected', () => {
     expect(providers.find(option => option.name === RESULTS)).toMatchObject({ kind: 'answer-service', connection: FAKE_SERVICE_ID, selectionKind: 'profile', profiles: [{ id: 'results' }] })
   })
 
-  it('returns stored evidence and citation measurability only for rows that recorded evidence', async () => {
+  it('returns citation measurability for rows that recorded evidence or come from an engine without sources', async () => {
     const { app, db } = await harness()
     const now = new Date().toISOString()
     const evidence = { version: 1, citationMeasurable: false, citationBasis: 'none' }
@@ -169,6 +169,20 @@ describe('research with an answer service connected', () => {
     expect(detail.queries[0]).toMatchObject({ evidence, citationMeasured: false, citationState: null })
     expect(detail.queries[1]).not.toHaveProperty('evidence')
     expect(detail.queries[1]).not.toHaveProperty('citationMeasured')
+
+    // Local returns no sources and records no evidence. Its rows hold null
+    // (written since `not-measured` existed), not-cited (before it) or cited
+    // (domains taken from the answer text, before #871); none was measured.
+    db.insert(researchRuns).values({ id: 'l', projectId: 'alpha', status: 'completed', provider: 'local', resolvedModel: 'llama3', totalQueries: 3, completedQueries: 3, failedQueries: 0, createdAt: now }).run()
+    for (const [position, citationState] of ([null, 'not-cited', 'cited'] as const).entries()) {
+      db.insert(researchRunQueries).values({ id: `l${position}`, researchRunId: 'l', position, queryText: `l${position}`, status: 'completed', resolvedModel: 'llama3', answerText: 'Alpha is a good pick.', groundingSources: [], citedDomains: [], searchQueries: [], answerMentioned: true, citationState, createdAt: now }).run()
+    }
+    const local = (await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs/l' })).json() as { queries: Array<Record<string, unknown>> }
+    expect(local.queries.map(query => ({ citationState: query.citationState, citationMeasured: query.citationMeasured, answerMentioned: query.answerMentioned, evidence: 'evidence' in query }))).toEqual([
+      { citationState: null, citationMeasured: false, answerMentioned: true, evidence: false },
+      { citationState: null, citationMeasured: false, answerMentioned: true, evidence: false },
+      { citationState: null, citationMeasured: false, answerMentioned: true, evidence: false },
+    ])
   })
 })
 

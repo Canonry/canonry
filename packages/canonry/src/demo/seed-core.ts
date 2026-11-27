@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import {
+  CitationStates,
   buildSimpleMeasurementDefinition,
   buildMeasurementExecutionIdentity,
   canonicalMeasurementExecutionIdentityJson,
@@ -245,7 +246,9 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
         ],
         queries: simpleQueries.map(item => ({ queryId: item.id, queryText: item.query, provenance: 'demo-core' })),
       })
-      tx.insert(runs).values({ id: simpleRunId, projectId: context.simple.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', queries: simpleQueries.map(item => item.query), startedAt: createdAt, finishedAt: createdAt, createdAt }).run()
+      // A full sweep stores no query list, as a real one does; a list marks a
+      // spot check, which the trends and latest-sweep reads leave out.
+      tx.insert(runs).values({ id: simpleRunId, projectId: context.simple.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: createdAt, finishedAt: createdAt, createdAt }).run()
       tx.insert(simpleMeasurementDefinitions).values({
         runId: simpleRunId, projectId: context.simple.id, definition: simpleDefinition,
         checksum: sha256(canonicalSimpleMeasurementDefinitionJson(simpleDefinition)), capturedAt: createdAt,
@@ -274,7 +277,7 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
         return {
           id: `${portfolioRunId}-${node.stableKey}-${identity.provider}`, runId: portfolioRunId, queryId: node.queryId, queryText: node.queryText,
           provider: identity.provider, model: identity.requestedModel, servedModel: identity.servedModel,
-          citationState: cited ? 'cited' : 'not-cited', answerMentioned: cited,
+          citationState: cited ? CitationStates.cited : CitationStates['not-cited'], answerMentioned: cited,
           answerText: cited ? `Fictional answer: ${target.label} is a Harbor Resorts option for this stay.` : `Fictional answer: ${providerIndex === 1 ? 'Coastal Stays' : 'Seaside Collection'} is recommended instead.`,
           citedDomains: cited ? [context.portfolio.domain] : [competitor],
           citedUrls: cited ? [`https://${context.portfolio.domain}${target.urlMatchers[0]!.kind === 'prefix' ? target.urlMatchers[0].pathPrefix : '/'}`] : [`https://${competitor}/guides/luxury-stays`],

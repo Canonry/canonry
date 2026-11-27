@@ -1,8 +1,9 @@
 import { useAccount } from '../../contexts/account-context.js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
+import { WorkspaceTabs } from '../shared/WorkspaceTabs.js'
 import { Link } from '@tanstack/react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { GscPerformanceDailyDto, MetricsWindow } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -15,6 +16,8 @@ import {
   useClientTable,
 } from '../shared/DataTableControls.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { ActionMenu } from '../shared/ActionMenu.js'
+import { SitemapsCard } from './SitemapsCard.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import {
   CHART_NEUTRAL,
@@ -25,7 +28,8 @@ import {
   formatChartDateTick,
   type TrendChartSeries,
 } from '../shared/ChartPrimitives.js'
-import { calendarDateRange, formatPercent, formatRunErrorOneLine, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
+import { TrendCard, levelTrendChange, sharedLevelBasis, type TrendCardChange, type TrendCardFigure, type TrendCardGroup, type TrendCardTone } from '../shared/TrendCard.js'
+import { calendarDateRange, describeError, formatPercent, formatPointDelta, formatRunErrorOneLine, formatTenthsMagnitude, RunKinds, RunStatuses, type GscPeriodComparison } from '@canonry/canonry-contracts'
 import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
@@ -34,17 +38,14 @@ import { gscActionNeededFromError, type GscActionNeeded } from '../../lib/gsc-re
 import { safeExternalUrl } from '../../lib/safe-url.js'
 import {
   fetchSettings,
-  googleConnect,
   googleDisconnect,
   saveGoogleProperty,
   inspectGscUrl,
   saveSitemapUrl,
-  fetchGscSitemaps,
   submitGscSitemaps,
   requestIndexing,
   isPublicDemo,
   heyClient,
-  type ApiGscSitemap,
   type ApiGoogleConnection,
   type ApiGoogleProperty,
   type ApiGscPerformanceRow,
@@ -61,8 +62,9 @@ import {
   getApiV1ProjectsByNameGoogleGscInspectionsOptions,
   getApiV1ProjectsByNameGoogleGscPerformanceDailyOptions,
   getApiV1ProjectsByNameGoogleGscPerformanceOptions,
-  getApiV1ProjectsByNameGoogleGscSitemapsQueryKey,
   getApiV1ProjectsByNameGooglePropertiesOptions,
+  getApiV1ProjectsByNameTrendsOptions,
+  getApiV1ProjectsByNameSitemapsOptions,
 } from '@canonry/canonry-api-client/react-query'
 import {
   useTriggerGscSync,
@@ -70,6 +72,7 @@ import {
 } from '../../queries/mutations.js'
 import { GSC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { startGoogleOAuthPopup } from '../../lib/google-oauth-popup.js'
 
 export const GSC_MANAGED_EMPTY_COPY = 'Search Console is not connected yet. Your Canonry team can set this up.'
 
@@ -117,43 +120,55 @@ const GSC_CHART_METRICS = [
 
 type GscChartMetric = (typeof GSC_CHART_METRICS)[number]['key']
 const COVERAGE_PAGE_SIZE = 25
-const GOOGLE_OAUTH_COMPLETE_MESSAGE = 'canonry:google-oauth-complete'
 
 /**
- * Express the trailing period's change against the equal period before it.
+ * The trailing period's change against the equal period before it, as a trend
+ * card change line.
  *
- * This replaced a percentage taken off the fitted trend line's own start value.
- * That baseline was a value the property never had: the fit is unconstrained,
- * so it predicted a NEGATIVE day-one figure for impressions on a real property
- * and the tile printed nothing at all on a metric that had grown six-fold. Where
- * it did print, it described the line rather than the data — average position
- * read as a 45.8% improvement across a window in which the real position got
- * worse. Both periods here are stretches the property actually recorded.
+ * Both periods are stretches the property actually recorded. This replaced a
+ * percentage taken off the fitted trend line's own start value, a value the
+ * property never had: the unconstrained fit predicted a NEGATIVE day-one figure
+ * for impressions on a real property, and read average position as a 45.8%
+ * improvement across a window in which the real position got worse.
  *
- * Position reverses only the desirability arrow, not the math: a rank number
- * going UP is a WORSE result, so `inverted` flips which direction reads as an
- * improvement.
+ * Clicks and impressions move as a percentage. CTR moves in points and position
+ * in places when the server sent `difference`: a ratio of a rate or a rank says
+ * little. The arrow follows the number; `inverted` (position, where a smaller
+ * number is a better rank) flips only whether that is good news.
  *
- * `comparison.days` is the length of ONE period, and under
- * `basis: 'split-window'` that is half the selected window — which is why
- * pressing `90d` could produce "vs prior 45d". The number was always accurate;
- * it names the period it measured, not the button. Every string here is built
- * from `days` for that reason, and the heading tooltip explains which basis is
- * in force.
+ * `comparison.days` is the length of ONE period, and under `basis:
+ * 'split-window'` that is half the selected window, which is why pressing `90d`
+ * can read "vs prior 45 days". Every string names the period it measured, and
+ * the heading tooltip explains which basis is in force.
  */
-export function formatGscPeriodChange(
+export function gscTrendChange(
   comparison: GscPeriodComparison | null | undefined,
   metric: GscChartMetric,
   inverted: boolean | undefined,
-): string {
+): TrendCardChange {
   // A server older than this field, or a window too short to split, gives us
   // nothing to compare. Say so plainly rather than imply a flat period.
-  if (!comparison) return 'no comparison period'
-
-  const days = comparison.days
+  if (!comparison) return { kind: 'note', text: 'No comparison period' }
   // Any dimensioned fallback makes property totals unavailable. This can be
   // true even when both halves carry the same source.
-  if (!comparison.comparable) return 'property-level comparison unavailable'
+  if (!comparison.comparable) return { kind: 'note', text: 'Property-level comparison unavailable' }
+
+  const span = `${comparison.days} ${comparison.days === 1 ? 'day' : 'days'}`
+  const basis = `vs prior ${span}`
+  const tone = (rising: boolean): TrendCardTone => rising !== Boolean(inverted) ? 'better' : 'worse'
+
+  const difference = metric === 'ctr' || metric === 'position' ? comparison.difference?.[metric] : undefined
+  if (difference !== undefined && difference !== null && Number.isFinite(difference)) {
+    if (difference === 0) return { kind: 'delta', amount: metric === 'ctr' ? '0 pts' : '0', direction: 'flat', tone: 'neutral', basis }
+    return {
+      kind: 'delta',
+      // Points for CTR, places for position: either way a real movement under a tenth reads <0.1, never 0.0.
+      amount: metric === 'ctr' ? `${formatPointDelta(Math.abs(difference)).magnitude} pts` : formatTenthsMagnitude(difference),
+      direction: difference > 0 ? 'up' : 'down',
+      tone: tone(difference > 0),
+      basis,
+    }
+  }
 
   const ratio = comparison.change[metric]
   // The prior period was zero or unmeasured. Growth from nothing has no
@@ -161,21 +176,23 @@ export function formatGscPeriodChange(
   if (ratio === null || !Number.isFinite(ratio)) {
     const prior = comparison.prior[metric]
     const trailing = comparison.trailing[metric]
-    if (prior !== null && trailing !== null && prior <= 0 && trailing > 0) {
-      return `new in the last ${days}d`
-    }
-    if (prior === null || prior <= 0) return `no prior ${days}d to compare`
-    if (trailing === null) return `no value in the last ${days}d`
-    return 'comparison unavailable'
+    if (prior !== null && trailing !== null && prior <= 0 && trailing > 0) return { kind: 'note', text: `New in the last ${span}` }
+    if (prior === null || prior <= 0) return { kind: 'note', text: `No prior ${span} to compare` }
+    if (trailing === null) return { kind: 'note', text: `No value in the last ${span}` }
+    return { kind: 'note', text: 'Comparison unavailable' }
   }
-
-  if (ratio === 0) return `→ no change vs prior ${days}d`
-
+  if (ratio === 0) return { kind: 'delta', amount: '0%', direction: 'flat', tone: 'neutral', basis }
   // The arrow carries the direction, so the size is formatted unsigned. A real
   // movement never reads as flat: `formatPercent` prints `<0.1%` below a tenth.
-  const improving = inverted ? ratio < 0 : ratio > 0
-  return `${improving ? '↑' : '↓'} ${formatPercent(Math.abs(ratio))} vs prior ${days}d`
+  return { kind: 'delta', amount: formatPercent(Math.abs(ratio)), direction: ratio > 0 ? 'up' : 'down', tone: tone(ratio > 0), basis }
 }
+
+/** Indexed pages per search engine, from the stored coverage trend; a never-connected engine has no entry. */
+const INDEXED_METRICS = [
+  { key: 'google-indexed' as const, engine: 'google', color: CHART_SERIES_COLORS[0] },
+  { key: 'bing-indexed' as const, engine: 'bing', color: CHART_SERIES_COLORS[6] },
+]
+type GscChartKey = GscChartMetric | (typeof INDEXED_METRICS)[number]['key']
 
 /**
  * The sentence in the section tooltip that says which two periods the tiles
@@ -212,25 +229,28 @@ export function gscComparisonBasisText(
     + ' to compare it against.'
 }
 
-function sitemapDiscoveredUrlCount(sitemap: ApiGscSitemap): number {
-  return sitemap.contents?.reduce((total, content) => total + Number(content.submitted || 0), 0) ?? 0
+/**
+ * A sitemap URL as a list reads it: just the path when it sits on the
+ * property's own site, otherwise the host and path without the scheme (a
+ * domain property can hold sitemaps on several hosts). The full URL stays in
+ * the row's title.
+ */
+export function sitemapPathLabel(url: string, propertyId: string | null | undefined): string {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return url
+  }
+  const path = `${parsed.pathname}${parsed.search}`
+  if (propertyId?.startsWith('sc-domain:')) {
+    if (parsed.hostname === propertyId.slice('sc-domain:'.length)) return path
+  } else if (propertyId && url.startsWith(propertyId.replace(/\/?$/, '/'))) {
+    return `/${url.slice(propertyId.replace(/\/?$/, '/').length)}`
+  }
+  return `${parsed.host}${path}`
 }
 
-function sitemapIssueText(sitemap: ApiGscSitemap): string {
-  const errors = Number(sitemap.errors ?? 0)
-  const warnings = Number(sitemap.warnings ?? 0)
-  return [
-    errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : '',
-    warnings > 0 ? `${warnings} warning${warnings === 1 ? '' : 's'}` : '',
-  ].filter(Boolean).join(' · ')
-}
-
-function sitemapGoogleStatus(sitemap: ApiGscSitemap): string {
-  if (sitemap.isPending) return 'Processing'
-  if (Number(sitemap.errors ?? 0) > 0) return 'Errors'
-  if (Number(sitemap.warnings ?? 0) > 0) return 'Warnings'
-  return 'Success'
-}
 
 export function GscSection({
   projectName,
@@ -255,8 +275,22 @@ export function GscSection({
   const [syncDays, setSyncDays] = useState('30')
   const [fullSync, setFullSync] = useState(false)
   const [gscWindow, setGscWindow] = useState<MetricsWindow>('30d')
+  // The custom Start/End range the chart's daily read last used, or null for the window.
+  const [chartRange, setChartRange] = useState<{ startDate?: string; endDate?: string } | null>(null)
+  // Indexed pages over the same period as the chart, from the stored coverage
+  // trend. A failed read leaves the performance figures standing without them,
+  // and a window change keeps the old figures until the new ones arrive.
+  const coverageTrend = useQuery({
+    ...getApiV1ProjectsByNameTrendsOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: chartRange ? { surface: 'index-coverage', ...chartRange } : { surface: 'index-coverage', window: gscWindow },
+    }),
+    staleTime: GSC_STALE_MS,
+    placeholderData: keepPreviousData,
+  })
   // Clicks + impressions selected by default, matching Search Console.
-  const [chartMetrics, setChartMetrics] = useState<GscChartMetric[]>(['clicks', 'impressions'])
+  const [chartMetrics, setChartMetrics] = useState<GscChartKey[]>(['clicks', 'impressions'])
   const [showTrend, setShowTrend] = useState(true)
   // The day the table is drilled into, or null for the whole window. Bumping
   // the nonce is what re-runs the fetch, so re-clicking the same day still
@@ -286,21 +320,13 @@ export function GscSection({
   const [inspecting, setInspecting] = useState(false)
   const [coverage, setCoverage] = useState<ApiGscCoverageSummary | null>(null)
   const [loadingCoverage, setLoadingCoverage] = useState(false)
-  const [listingSitemaps, setListingSitemaps] = useState(false)
-  const [discoveredSitemaps, setDiscoveredSitemaps] = useState<ApiGscSitemap[] | null>(null)
-  const [sitemapSummary, setSitemapSummary] = useState<{ total: number; indexes: number; files: number } | null>(null)
-  const [preferredSubmissionUrls, setPreferredSubmissionUrls] = useState<string[]>([])
-  const [expandedSitemapIndexes, setExpandedSitemapIndexes] = useState<Set<string>>(new Set())
-  const [sitemapChildren, setSitemapChildren] = useState<Partial<Record<string, ApiGscSitemap[]>>>({})
-  const [loadingSitemapChildren, setLoadingSitemapChildren] = useState<Set<string>>(new Set())
-  const [sitemapSearch, setSitemapSearch] = useState('')
   const [sitemapSubmissionProgress, setSitemapSubmissionProgress] = useState<{ completed: number; total: number } | null>(null)
-  const [sitemapUrlInput, setSitemapUrlInput] = useState('')
   const [savingSitemap, setSavingSitemap] = useState(false)
   const [submittingSitemaps, setSubmittingSitemaps] = useState(false)
   const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageHistoryExpanded, setCoverageHistoryExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
+  const coverageTabsId = useId()
   const [perfSort, setPerfSort] = useState<{ key: SearchMetric; dir: 'asc' | 'desc' } | null>(null)
 
   // Expanded mode: when any filter or sort is active, fetch up to EXPANDED_PERFORMANCE_LIMIT
@@ -326,10 +352,6 @@ export function GscSection({
     pageSize: DEFAULT_TABLE_PAGE_SIZE,
   })
   const displayedPerformanceRows = performanceDisplayedExpanded ? performanceTable.rows : sortedPerformance
-  const sitemapTable = useClientTable({
-    rows: (discoveredSitemaps ?? []).filter((sitemap) => sitemap.path.toLowerCase().includes(sitemapSearch.trim().toLowerCase())),
-    pageSize: DEFAULT_TABLE_PAGE_SIZE,
-  })
   const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const [coveragePage, setCoveragePage] = useState<number>(1)
@@ -414,12 +436,18 @@ export function GscSection({
 
   const gscConn = connections.find((c) => c.connectionType === 'gsc')
   const canSubmitSitemaps = (gscConn?.scopes ?? []).includes('https://www.googleapis.com/auth/webmasters')
-  const primarySitemapSubmissionUrls = preferredSubmissionUrls.length > 0
-    ? preferredSubmissionUrls
-    : (discoveredSitemaps ?? []).map((sitemap) => sitemap.path)
-  const preferredIndexCount = primarySitemapSubmissionUrls.filter((url) =>
-    discoveredSitemaps?.some((sitemap) => sitemap.path === url && sitemap.isSitemapsIndex),
-  ).length
+  // Google's stored list (read by every Google sync); null until the first read.
+  const sitemapCoverage = useQuery({
+    ...getApiV1ProjectsByNameSitemapsOptions({ client: heyClient, path: { name: projectName } }),
+    staleTime: GSC_STALE_MS,
+    enabled: Boolean(gscConn?.propertyId) && !publicDemo,
+  })
+  const storedSitemaps = sitemapCoverage.data?.google?.sitemaps ?? []
+  const topLevelSitemaps = storedSitemaps.filter((sitemap) => sitemap.parentUrl === null)
+  // Resubmitting an index rereads every file it lists, so the indexes go first.
+  const storedIndexUrls = topLevelSitemaps.filter((sitemap) => sitemap.isIndex).map((sitemap) => sitemap.url)
+  const primarySitemapSubmissionUrls = storedIndexUrls.length > 0 ? storedIndexUrls : topLevelSitemaps.map((sitemap) => sitemap.url)
+  const preferredIndexCount = storedIndexUrls.length
   const primarySitemapSubmissionLabel = preferredIndexCount === 1
     ? 'Resubmit sitemap index'
     : preferredIndexCount > 1
@@ -528,6 +556,10 @@ export function GscSection({
         staleTime: GSC_STALE_MS,
       })
       setPerformanceDaily(data)
+      // Indexed pages follow the chart's own period: a custom range when it used one.
+      setChartRange(queryParams.startDate || queryParams.endDate
+        ? { ...(queryParams.startDate ? { startDate: queryParams.startDate } : {}), ...(queryParams.endDate ? { endDate: queryParams.endDate } : {}) }
+        : null)
     } catch {
       setPerformanceDaily(null)
     }
@@ -632,56 +664,10 @@ export function GscSection({
     }
   }
 
-  async function handleListSitemaps() {
-    setListingSitemaps(true)
-    setError(null)
-    try {
-      const result = await fetchGscSitemaps(projectName)
-      queryClient.setQueryData(
-        getApiV1ProjectsByNameGoogleGscSitemapsQueryKey({ client: heyClient, path: { name: projectName } }),
-        result,
-      )
-      setDiscoveredSitemaps(result.sitemaps)
-      setSitemapSummary(result.summary)
-      setPreferredSubmissionUrls(result.preferredSubmissionUrls)
-      setExpandedSitemapIndexes(new Set())
-      setSitemapChildren({})
-      if (result.sitemaps.length === 0) {
-        setNotice('No sitemaps found in this GSC property. Submit one here to start Google processing it.')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to list sitemaps')
-    } finally {
-      setListingSitemaps(false)
-    }
-  }
-
-  async function toggleSitemapIndex(sitemapIndex: string) {
-    const isExpanded = expandedSitemapIndexes.has(sitemapIndex)
-    setExpandedSitemapIndexes((current) => {
-      const next = new Set(current)
-      if (isExpanded) next.delete(sitemapIndex)
-      else next.add(sitemapIndex)
-      return next
-    })
-    if (isExpanded || sitemapChildren[sitemapIndex]) return
-    setLoadingSitemapChildren((current) => new Set(current).add(sitemapIndex))
-    try {
-      const result = await fetchGscSitemaps(projectName, sitemapIndex)
-      setSitemapChildren((current) => ({ ...current, [sitemapIndex]: result.sitemaps }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sitemap files')
-    } finally {
-      setLoadingSitemapChildren((current) => {
-        const next = new Set(current)
-        next.delete(sitemapIndex)
-        return next
-      })
-    }
-  }
-
-  async function handleSubmitSitemaps(sitemapUrls: string[]) {
-    if (!canSubmitSitemaps || sitemapUrls.length === 0) return
+  /** Submit to Google in batches; resolves with the sitemaps Google accepted, so a caller never marks a failure as sent. */
+  async function handleSubmitSitemaps(sitemapUrls: string[]): Promise<string[]> {
+    const acceptedUrls: string[] = []
+    if (!canSubmitSitemaps || sitemapUrls.length === 0) return acceptedUrls
     const uniqueUrls = [...new Set(sitemapUrls)]
     setSubmittingSitemaps(true)
     setError(null)
@@ -695,6 +681,7 @@ export function GscSection({
         const batch = uniqueUrls.slice(start, start + 50)
         try {
           const result = await submitGscSitemaps(projectName, batch)
+          acceptedUrls.push(...result.results.filter((entry) => entry.status === 'accepted').map((entry) => entry.sitemapUrl))
           accepted += result.summary.accepted
           failed += result.summary.failed
           attempted += batch.length
@@ -714,7 +701,7 @@ export function GscSection({
             dedupeKey: `gsc:sitemap-submit:${projectName}`,
             dedupeMode: 'replace',
           })
-          return
+          return acceptedUrls
         }
       }
       const total = uniqueUrls.length
@@ -727,49 +714,21 @@ export function GscSection({
         dedupeKey: `gsc:sitemap-submit:${projectName}`,
         dedupeMode: 'replace',
       })
-      setSitemapUrlInput('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit sitemap to Google')
     } finally {
       setSubmittingSitemaps(false)
       setSitemapSubmissionProgress(null)
-      await handleListSitemaps()
       if (partialFailureMessage) setError(partialFailureMessage)
     }
+    return acceptedUrls
   }
 
+  /** Every file Google reads: each file on its own, and an index with no stored files as itself. */
   async function handleResubmitAllFiles() {
-    setSubmittingSitemaps(true)
-    const topLevel = discoveredSitemaps ?? []
-    try {
-      const indexes = topLevel.filter((sitemap) => sitemap.isSitemapsIndex)
-      const expandedIndexUrls: string[] = []
-      for (let start = 0; start < indexes.length; start += 4) {
-        const batch = await Promise.all(indexes.slice(start, start + 4).map(async (index) => {
-          const cachedChildren = sitemapChildren[index.path]
-          if (cachedChildren) return cachedChildren
-          const result = await fetchGscSitemaps(projectName, index.path)
-          setSitemapChildren((current) => ({ ...current, [index.path]: result.sitemaps }))
-          return result.sitemaps
-        }))
-        batch.forEach((children, index) => {
-          expandedIndexUrls.push(...(
-            children.length > 0
-              ? children.map((sitemap) => sitemap.path)
-              : [indexes[start + index]!.path]
-          ))
-        })
-      }
-      await handleSubmitSitemaps(
-        [
-          ...topLevel.filter((sitemap) => !sitemap.isSitemapsIndex).map((sitemap) => sitemap.path),
-          ...expandedIndexUrls,
-        ],
-      )
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sitemap files')
-      setSubmittingSitemaps(false)
-    }
+    const files = storedSitemaps.filter((sitemap) => !sitemap.isIndex).map((sitemap) => sitemap.url)
+    const emptyIndexes = storedIndexUrls.filter((index) => !storedSitemaps.some((sitemap) => sitemap.parentUrl === index))
+    await handleSubmitSitemaps([...files, ...emptyIndexes])
   }
 
   async function handleSetDefaultSitemap(sitemapUrl: string) {
@@ -848,9 +807,6 @@ export function GscSection({
   useEffect(() => {
     setProperties([])
     setSetupExpanded(false)
-    setDiscoveredSitemaps(null)
-    setSitemapSummary(null)
-    setPreferredSubmissionUrls([])
     setSavedSyncError(null)
     setActionNeeded(null)
     setNotice(null)
@@ -858,8 +814,15 @@ export function GscSection({
 
   // Reloads on mount, on project switch, and when a project-level "Refresh search data"
   // bumps refreshNonce (after it syncs Google data and invalidates the cache).
+  // The coverage query loads itself on mount and on a project switch, so only
+  // a refresh asks it again.
+  const coverageRefreshNonce = useRef(refreshNonce)
   useEffect(() => {
     void loadSection()
+    if (coverageRefreshNonce.current !== refreshNonce) {
+      coverageRefreshNonce.current = refreshNonce
+      void coverageTrend.refetch()
+    }
   }, [projectName, refreshNonce, isAdmin])
 
   useEffect(() => {
@@ -922,51 +885,18 @@ export function GscSection({
     setError(null)
     setNotice(null)
     try {
-      const { authUrl, redirectUri } = await googleConnect(projectName, 'gsc')
-      if (!authUrl.startsWith('https://accounts.google.com/')) {
-        setError('Unexpected OAuth redirect URL. Please try again.')
-        return
-      }
-      const popup = window.open(authUrl, '_blank', 'width=600,height=700')
-      if (!popup) {
-        window.location.assign(authUrl)
-        return
-      }
-      const callbackOrigin = redirectUri ? new URL(redirectUri).origin : window.location.origin
-      let refreshStarted = false
-      let timer: number | null = null
-
-      const cleanup = () => {
-        if (timer !== null) window.clearInterval(timer)
-        window.removeEventListener('message', handleOAuthComplete)
-      }
-      const refreshConnection = async (completed: boolean) => {
-        if (refreshStarted) return
-        refreshStarted = true
-        cleanup()
-        setNotice(completed ? 'Google connected. Refreshing access…' : 'Refreshing Google connection…')
-        try {
-          await invalidateProjectQueryDomain(queryClient, 'google')
-          await loadSection()
-        } finally {
-          setNotice(null)
-        }
-      }
-      function handleOAuthComplete(event: MessageEvent) {
-        if (event.source !== popup || event.origin !== callbackOrigin) return
-        if (!event.data || typeof event.data !== 'object') return
-        const message = event.data as { type?: unknown; connectionType?: unknown }
-        if (message.type !== GOOGLE_OAUTH_COMPLETE_MESSAGE || message.connectionType !== 'gsc') return
-        void refreshConnection(true)
-      }
-
-      window.addEventListener('message', handleOAuthComplete)
-      setNotice('Finish the Google consent flow in the popup. This page will refresh automatically.')
-      timer = window.setInterval(() => {
-        if (popup.closed) {
-          void refreshConnection(false)
-        }
-      }, 1000)
+      const opened = await startGoogleOAuthPopup(projectName, 'gsc', (completed) => {
+        void (async () => {
+          setNotice(completed ? 'Google connected. Refreshing access…' : 'Refreshing Google connection…')
+          try {
+            await invalidateProjectQueryDomain(queryClient, 'google')
+            await loadSection()
+          } finally {
+            setNotice(null)
+          }
+        })()
+      })
+      if (opened === 'popup') setNotice('Finish the Google consent flow in the popup. This page will refresh automatically.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start OAuth flow')
     } finally {
@@ -1051,10 +981,9 @@ export function GscSection({
   }
 
   return (
-    <section className="page-section-divider">
+    <section className="page-section">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Search Console</p>
           <h2>Google Search Console</h2>
         </div>
       </div>
@@ -1154,14 +1083,13 @@ export function GscSection({
             <Card className="surface-card">
               <div className="section-head section-head-inline">
                 <div>
-                  <p className="eyebrow eyebrow-soft">Connection</p>
                   <h3>Domain authorization</h3>
                 </div>
                 <ToneBadge tone={googleConfigured ? 'caution' : 'negative'}>
                   {googleConfigured ? 'Ready to connect' : 'App credentials missing'}
                 </ToneBadge>
               </div>
-              <div className="mt-3 material-base px-4 py-5">
+              <div className="mt-3">
                 <p className="text-copy-14 text-neutral">
                   {googleConfigured
                     ? 'Generate a Google OAuth link for this project and have the client sign in with a Google account that already has access to the correct Search Console property.'
@@ -1193,7 +1121,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Performance</p>
                     <div className="flex items-center gap-1.5">
                       <h3>Search performance</h3>
                       <InfoTooltip text={`${gscComparisonBasisText(performanceDaily?.periodComparison)} The optional trend line shows the fitted direction. Click any day to filter the table below to that date. Query and page filters match case-insensitive substrings and run on Apply filters. Filtering and sorting examine up to ${EXPANDED_PERFORMANCE_LIMIT.toLocaleString()} matching rows while the table shows ${DEFAULT_TABLE_PAGE_SIZE} per page.`} />
@@ -1234,112 +1161,137 @@ export function GscSection({
                   </div>
                 </div>
 
-                {/* Search-performance chart — one axis PER METRIC (Search
-                    Console's own shape), driven by the daily aggregate endpoint
-                    so it reflects the whole window, not the current page. The
-                    dashed fits come from the API; nothing is regressed here. */}
+                {/* Search performance: the figures are the trend card's toggles, as in
+                    Search Console, and the chart gives each metric its own axis, driven
+                    by the daily aggregate endpoint so it reflects the whole window, not
+                    the current page. The dashed fits come from the API. */}
                 {performanceDaily && performanceDaily.daily.length > 0 && (() => {
-                  // `trends` is optional at RUNTIME: a server older than the
-                  // field omits it, and the chart must degrade to plain lines
-                  // rather than crash. Same skew guard as `window`.
+                  // `trends`, `window` and `periodComparison` are optional at RUNTIME: a
+                  // server older than the field omits it, and the card must degrade to
+                  // plain lines and a stated absence rather than crash.
                   const { totals, daily, trends, periodComparison } = performanceDaily
-                  const selected = GSC_CHART_METRICS.filter((m) => chartMetrics.includes(m.key))
-                  const series: TrendChartSeries[] = selected.map((m) => ({
-                    dataKey: m.key,
-                    label: m.label,
-                    color: m.color,
-                    axisId: m.key,
-                    inverted: m.inverted,
-                    formatValue: m.format,
-                    trend: showTrend ? trends?.[m.key] ?? null : null,
-                  }))
-                  // `undefined` when the server predates the field; a missing
-                  // metric is the same "not measured" as an explicit null, and
-                  // must never reach a formatter.
+                  // `undefined` when the server predates the field; a missing metric is
+                  // the same "not measured" as an explicit null, and must never reach a
+                  // formatter.
                   const totalFor = (key: GscChartMetric): number | null => totals[key] ?? null
+                  const indexed = INDEXED_METRICS.flatMap((metric) => {
+                    const group = coverageTrend.data?.groups.find((g) => g.key === metric.engine)
+                    const figure = group?.figures.find((f) => f.key === 'indexed')
+                    return group && figure ? [{ ...metric, label: group.label, figure }] : []
+                  })
 
-                  // Plot one row per CALENDAR DAY, not per returned row.
-                  // `daily` holds only dates that produced data, but the server
-                  // fits over the calendar, so its `startIndex`/`endIndex` only
-                  // line up with a calendar-dense series — against row
-                  // positions the trend line traversed a fraction of its range
-                  // and ended on the wrong value. It is also the honest x-axis:
-                  // a six-day quiet stretch should look like six days.
+                  // Plot one row per CALENDAR DAY, not per returned row, from the first
+                  // day with data. `daily` holds only dates that produced data, but the
+                  // server fits over the calendar, so its `startIndex`/`endIndex` line up
+                  // only with a calendar-dense series that starts where `daily` starts.
+                  // It is also the honest x-axis: a six-day quiet stretch should look
+                  // like six days. Indexed pages can run past Google's latest data; the
+                  // range extends forward only, so every fit index stays put.
                   const byDate = new Map(daily.map((d) => [d.date, d]))
-                  const chartRows = daily.length === 0
-                    ? []
-                    : calendarDateRange(daily[0]!.date, daily[daily.length - 1]!.date)
-                      .map((date) => byDate.get(date) ?? { date })
+                  const coverageByDate = new Map(indexed.map((metric) => [metric.key, new Map(metric.figure.series.map((point) => [point.date, point.value]))]))
+                  const lastPerformance = daily[daily.length - 1]!.date
+                  const lastIndexed = indexed
+                    .filter((metric) => chartMetrics.includes(metric.key))
+                    .map((metric) => metric.figure.series.at(-1)?.date)
+                    .filter((date): date is string => Boolean(date))
+                    .sort()
+                    .at(-1)
+                  const endDate = lastIndexed && lastIndexed > lastPerformance ? lastIndexed : lastPerformance
+                  const chartRows = calendarDateRange(daily[0]!.date, endDate).map((date) => {
+                    const row: Record<string, unknown> = { ...(byDate.get(date) ?? { date }) }
+                    for (const metric of indexed) row[metric.key] = coverageByDate.get(metric.key)?.get(date) ?? null
+                    return row
+                  })
+                  const series: TrendChartSeries[] = [
+                    ...GSC_CHART_METRICS.filter((m) => chartMetrics.includes(m.key)).map((m) => ({
+                      dataKey: m.key,
+                      label: m.label,
+                      color: m.color,
+                      axisId: m.key,
+                      inverted: m.inverted,
+                      formatValue: m.format,
+                      trend: showTrend ? trends?.[m.key] ?? null : null,
+                    })),
+                    ...indexed.filter((metric) => chartMetrics.includes(metric.key)).map((metric) => ({
+                      dataKey: metric.key,
+                      label: `${metric.label} indexed pages`,
+                      color: metric.color,
+                      axisId: metric.key,
+                      formatValue: (v: number) => v.toLocaleString(),
+                      connectNulls: true,
+                    })),
+                  ]
+                  const performanceGroup: TrendCardGroup = {
+                    key: 'performance',
+                    label: 'Google search',
+                    basis: periodComparison?.comparable ? `vs prior ${periodComparison.days} ${periodComparison.days === 1 ? 'day' : 'days'}` : undefined,
+                    figures: GSC_CHART_METRICS.map((m): TrendCardFigure => {
+                      const value = totalFor(m.key)
+                      return {
+                        key: m.key,
+                        label: m.label,
+                        color: m.color,
+                        value: value === null ? '\u2014' : m.format(value),
+                        change: gscTrendChange(periodComparison, m.key, m.inverted),
+                        // An unmeasured metric is shown as absent and cannot be charted:
+                        // never as 0, which would read as an impossibly good rank.
+                        interactive: true,
+                        disabled: value === null,
+                      }
+                    }),
+                  }
+                  const indexedGroup: TrendCardGroup | null = indexed.length === 0 ? null : {
+                    key: 'indexed',
+                    label: 'Indexed pages',
+                    basis: sharedLevelBasis(indexed.map((metric) => metric.figure)),
+                    figures: indexed.map((metric): TrendCardFigure => ({
+                      key: metric.key,
+                      label: metric.label,
+                      color: metric.color,
+                      value: metric.figure.value === null ? '\u2014' : metric.figure.value.toLocaleString(),
+                      change: levelTrendChange(metric.figure.change, metric.figure.unit),
+                      interactive: true,
+                      disabled: metric.figure.value === null,
+                    })),
+                  }
 
                   return (
                     <div className="mt-3">
-                      {/* Tiles are the metric selector, as in Search Console:
-                          pressing one adds or removes its line. The last
-                          selected tile cannot be turned off — an empty chart
-                          is a dead end, not a state worth reaching. */}
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {GSC_CHART_METRICS.map((m) => {
-                          const on = chartMetrics.includes(m.key)
-                          const value = totalFor(m.key)
-                          const unavailable = value === null
-                          return (
-                            <button
-                              key={m.key}
-                              type="button"
-                              aria-pressed={on}
-                              disabled={unavailable}
-                              className={`rounded-md border px-3 py-2 text-left transition-colors ${
-                                on ? 'border-strong bg-surface-active' : 'border-subtle bg-surface-subtle hover:bg-surface-hover'
-                              } ${unavailable ? 'cursor-not-allowed opacity-50' : ''}`}
-                              onClick={() => {
-                                setChartMetrics((current) => current.includes(m.key)
-                                  ? (current.length === 1 ? current : current.filter((k) => k !== m.key))
-                                  : [...current, m.key])
-                              }}
-                            >
-                              <span className="flex items-center gap-1.5">
-                                <span
-                                  className="inline-block h-2 w-2 rounded-full"
-                                  style={{ backgroundColor: on ? m.color : 'transparent', border: `1px solid ${m.color}` }}
-                                />
-                                <span className="text-label-12 text-secondary">{m.label}</span>
-                              </span>
-                              <span className="mt-0.5 block text-label-18 tabular-nums text-strong">
-                                {value === null ? '—' : m.format(value)}
-                              </span>
-                              <span className="block text-label-12 tabular-nums text-muted">
-                                {/* Position improves downward, so the arrow
-                                    tracks BETTER/WORSE, not up/down. */}
-                                {formatGscPeriodChange(periodComparison, m.key, m.inverted)}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-
-                      <div className="mt-2 flex items-center justify-end">
-                        <label className="flex cursor-pointer items-center gap-1.5 text-label-12 text-secondary">
-                          <input
-                            type="checkbox"
-                            className="accent-mono-400"
-                            checked={showTrend}
-                            onChange={(e) => setShowTrend(e.target.checked)}
+                      <TrendCard
+                        name="Search performance figures"
+                        frame="none"
+                        mode="compare"
+                        groups={indexedGroup ? [performanceGroup, indexedGroup] : [performanceGroup]}
+                        selected={chartMetrics}
+                        // As in Search Console, pressing a figure adds or removes its
+                        // line. The last one cannot be turned off: an empty chart is a
+                        // dead end, not a state worth reaching.
+                        onSelect={(key) => setChartMetrics((current) => current.includes(key as GscChartKey)
+                          ? (current.length === 1 ? current : current.filter((k) => k !== key))
+                          : [...current, key as GscChartKey])}
+                        chart={(
+                          <MultiAxisTrendChart
+                            data={chartRows}
+                            xKey="date"
+                            series={series}
+                            xTickFormatter={formatChartDateTick}
+                            labelFormatter={formatChartDateLabel}
+                            onSelectX={selectDay}
+                            selectedX={drillDay}
                           />
-                          Trend line
-                        </label>
-                      </div>
-
-                      <div className="mt-1">
-                        <MultiAxisTrendChart
-                          data={chartRows}
-                          xKey="date"
-                          series={series}
-                          xTickFormatter={formatChartDateTick}
-                          labelFormatter={formatChartDateLabel}
-                          onSelectX={selectDay}
-                          selectedX={drillDay}
-                        />
-                      </div>
+                        )}
+                        legendExtra={(
+                          <label className="flex min-h-9 cursor-pointer items-center gap-2 pointer-coarse:min-h-11">
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                              checked={showTrend}
+                              onChange={(e) => setShowTrend(e.target.checked)}
+                            />
+                            Trend line
+                          </label>
+                        )}
+                      />
 
                       {/* Keyboard + screen-reader path to the same drill-in the
                           chart offers on click. Recharts owns the SVG and gives
@@ -1508,7 +1460,6 @@ export function GscSection({
              <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Coverage</p>
                     <div className="flex items-center gap-1.5">
                       <h3>Index coverage</h3>
                       <InfoTooltip text="Google's Indexing API is intended for eligible JobPosting and BroadcastEvent pages. Sitemap resubmission is the general-site bulk path." />
@@ -1622,32 +1573,23 @@ export function GscSection({
                     </div>
 
 
-                    <div className="mt-3 flex border-b border-default" role="tablist" aria-label="Coverage status">
-                      {(['indexed', 'notIndexed', 'deindexed'] as const).map((tab) => {
-                        const count = tab === 'indexed' ? coverage.indexed.length
-                          : tab === 'notIndexed' ? coverage.notIndexed.length
-                          : coverage.deindexed.length
-                        const label = tab === 'indexed' ? 'Indexed' : tab === 'notIndexed' ? 'Not Indexed' : 'Deindexed'
-                        return (
-                          <button
-                            key={tab}
-                            type="button"
-                            role="tab"
-                            aria-selected={coverageTab === tab}
-                            className={`border-b-2 px-3 py-2 text-button-14 transition-colors ${
-                              coverageTab === tab
-                                ? 'border-accent text-heading'
-                                : 'border-transparent text-secondary hover:border-mono-600 hover:text-strong'
-                            }`}
-                            onClick={() => { setCoverageTab(tab); setSelectedReason(null) }}
-                          >
-                            {label} ({count})
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <WorkspaceTabs
+                      id={coverageTabsId}
+                      label="Coverage status"
+                      value={coverageTab}
+                      onChange={(tab) => { setCoverageTab(tab); setSelectedReason(null) }}
+                      className="mt-3 flex border-b border-default"
+                      tabClassName="border-b-2 px-3 py-2 text-button-14 transition-colors"
+                      activeTabClassName="border-accent text-heading"
+                      inactiveTabClassName="border-transparent text-secondary hover:border-mono-600 hover:text-strong"
+                      options={[
+                        ['indexed', `Indexed (${coverage.indexed.length})`],
+                        ['notIndexed', `Not Indexed (${coverage.notIndexed.length})`],
+                        ['deindexed', `Deindexed (${coverage.deindexed.length})`],
+                      ]}
+                    />
 
-                    <div className="mt-3 overflow-x-auto">
+                    <div id={`${coverageTabsId}-panel`} role="tabpanel" aria-labelledby={`${coverageTabsId}-${coverageTab}`} tabIndex={0} className="mt-3 overflow-x-auto">
                       {/* Indexed URL table */}
                       {coverageTab === 'indexed' && coverage.indexed.length > 0 && (
                         <table className="data-table w-full text-label-14">
@@ -1742,7 +1684,7 @@ export function GscSection({
                                 {'\u2190'} Back to reasons
                               </button>
                             </div>
-                            <div className="mb-3 flex items-center justify-between material-base p-3">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <p className="text-copy-14-strong text-strong">{group.reason}</p>
                                 <p className="mt-1 text-copy-13 text-muted">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
@@ -1860,141 +1802,54 @@ export function GscSection({
               </Card>
 
               {!publicDemo && <>
-              <Card className="surface-card">
-                <div className="section-head section-head-inline">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Sitemaps</p>
-                    <div className="flex items-center gap-1.5">
-                      <h3>Sitemap operations</h3>
-                      <InfoTooltip text="Submitting asks Google to refetch these sitemaps. Indexing is not guaranteed." />
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={listingSitemaps || !gscConn?.propertyId}
-                    onClick={() => void handleListSitemaps()}
-                  >
-                    {listingSitemaps ? 'Loading\u2026' : discoveredSitemaps === null ? 'Load from Google' : 'Reload from Google'}
-                  </Button>
-                </div>
-                <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                  <input
-                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                    type="url"
-                    placeholder="https://example.com/sitemap.xml"
-                    value={sitemapUrlInput}
-                    onChange={(event) => setSitemapUrlInput(event.target.value)}
-                    onKeyDown={(event) => event.key === 'Enter' && void handleSubmitSitemaps([sitemapUrlInput.trim()])}
+              <SitemapsCard
+                engine="Google"
+                data={sitemapCoverage.isError ? null : sitemapCoverage.isPending && sitemapCoverage.fetchStatus !== 'idle' ? undefined : (sitemapCoverage.data?.google ?? null)}
+                loadError={sitemapCoverage.isError ? describeError(sitemapCoverage.error) : null}
+                label={(url) => sitemapPathLabel(url, gscConn?.propertyId)}
+                canSubmit={canSubmitSitemaps}
+                submitBlocked={gscConn ? (
+                  <>
+                    <InfoTooltip tone="caution" label="Read-only access" text="Canonry's Google access can read Search Console but not submit sitemaps. Reconnect to allow submitting." />
+                    <Button type="button" variant="outline" size="sm" onClick={asyncHandler(handleConnect)}>Reconnect</Button>
+                  </>
+                ) : undefined}
+                onSubmit={handleSubmitSitemaps}
+                submitting={submittingSitemaps}
+                defaultUrl={gscConn?.sitemapUrl ?? null}
+                onSetDefault={(url) => void handleSetDefaultSitemap(url)}
+                settingDefault={savingSitemap}
+                onInspect={(url) => void handleInspectSitemap(url)}
+                inspecting={triggerInspectSitemapMutation.isPending}
+                notRead={<p className="text-copy-14 text-secondary">Google&apos;s sitemap list arrives with the next Google sync. Refresh search data to read it now.</p>}
+                bulk={topLevelSitemaps.length > 0 ? (
+                  <ActionMenu
+                    label={sitemapSubmissionProgress ? `Submitting ${sitemapSubmissionProgress.completed} of ${sitemapSubmissionProgress.total}` : 'Resubmit all'}
+                    menuLabel="Resubmit sitemaps to Google"
+                    disabled={!canSubmitSitemaps || submittingSitemaps}
+                    items={[
+                      {
+                        key: 'primary',
+                        label: primarySitemapSubmissionLabel,
+                        description: preferredIndexCount > 0 ? 'Google rereads every sitemap the index lists.' : 'Each sitemap in the list, once.',
+                        disabled: primarySitemapSubmissionUrls.length === 0,
+                        onSelect: () => void handleSubmitSitemaps(primarySitemapSubmissionUrls),
+                      },
+                      {
+                        key: 'files',
+                        label: 'Resubmit all files',
+                        description: 'Every file inside each index, one by one.',
+                        onSelect: () => void handleResubmitAllFiles(),
+                      },
+                    ]}
                   />
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!canSubmitSitemaps || submittingSitemaps || !sitemapUrlInput.trim()}
-                    onClick={() => void handleSubmitSitemaps([sitemapUrlInput.trim()])}
-                  >
-                    {submittingSitemaps ? 'Submitting\u2026' : 'Submit sitemap to Google'}
-                  </Button>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!canSubmitSitemaps || submittingSitemaps || primarySitemapSubmissionUrls.length === 0}
-                    onClick={() => void handleSubmitSitemaps(primarySitemapSubmissionUrls)}
-                  >
-                    {submittingSitemaps ? 'Resubmitting\u2026' : primarySitemapSubmissionLabel}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!canSubmitSitemaps || submittingSitemaps || !discoveredSitemaps?.length}
-                    onClick={() => void handleResubmitAllFiles()}
-                  >
-                    Resubmit all files
-                  </Button>
-                  {sitemapSummary && (
-                    <span className="text-label-12 text-muted">
-                      Top level: {sitemapSummary.indexes} index{sitemapSummary.indexes === 1 ? '' : 'es'}, {sitemapSummary.files} file{sitemapSummary.files === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  {sitemapSubmissionProgress && <span className="text-label-12 text-secondary">Submitting {sitemapSubmissionProgress.completed}/{sitemapSubmissionProgress.total}</span>}
-                </div>
-                {!canSubmitSitemaps && gscConn && (
-                  <div className="mt-2 flex items-center gap-2 text-label-12 text-caution">
-                    <span>Reconnect to let Canonry submit sitemaps. Your current Canonry OAuth grant is read-only.</span>
-                    <button type="button" className="text-secondary underline hover:text-strong" onClick={asyncHandler(handleConnect)}>Reconnect</button>
-                  </div>
-                )}
-                {discoveredSitemaps === null && <p className="mt-3 text-copy-14 text-secondary">Load sitemaps from Google to view them and enable resubmission.</p>}
-                {discoveredSitemaps && (
-                  <div className="mt-3 overflow-x-auto">
-                    {discoveredSitemaps.length > 0 ? (
-                      <>
-                        <DataTableSearch value={sitemapSearch} onChange={(value) => { setSitemapSearch(value); sitemapTable.setPage(1) }} label="Filter sitemaps" placeholder="Filter sitemaps…" />
-                        <table className="data-table mt-3 w-full text-label-14">
-                        <thead>
-                          <tr>
-                            <th className="text-left">Sitemap</th>
-                            <th className="text-left">Type</th>
-                            <th className="text-left">Google status</th>
-                            <th className="text-left">Last submitted</th>
-                            <th className="text-left">Last read</th>
-                            <th className="text-right">Discovered URLs</th>
-                            <th className="text-left">Issues</th>
-                            <th className="text-left">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sitemapTable.rows.flatMap((sitemap) => {
-                            const discoveredUrls = sitemapDiscoveredUrlCount(sitemap)
-                            const issues = sitemapIssueText(sitemap)
-                            const googleStatus = sitemapGoogleStatus(sitemap)
-                            const children = sitemapChildren[sitemap.path] ?? []
-                            const expanded = expandedSitemapIndexes.has(sitemap.path)
-                            const row = (
-                              <tr key={sitemap.path}>
-                                <td className="max-w-xs text-strong"><MiddleTruncatedText value={sitemap.path} /></td>
-                                <td className="text-secondary">{sitemap.isSitemapsIndex ? <button type="button" className="text-secondary hover:text-strong" aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} files in ${sitemap.path}`} onClick={() => void toggleSitemapIndex(sitemap.path)}>{loadingSitemapChildren.has(sitemap.path) ? 'Loading…' : `${expanded ? '▾' : '▸'} Index${sitemapChildren[sitemap.path] ? ` (${children.length})` : ''}`}</button> : 'Sitemap'}</td>
-                                <td className="text-secondary">{googleStatus}</td>
-                                <td className="text-secondary">{sitemap.lastSubmitted ? sitemap.lastSubmitted.split('T')[0] : '—'}</td>
-                                <td className="text-secondary">{sitemap.lastDownloaded ? sitemap.lastDownloaded.split('T')[0] : '—'}</td>
-                                <td className="text-right tabular-nums text-neutral">{discoveredUrls.toLocaleString()}</td>
-                                <td className="max-w-48 text-secondary">{issues || '—'}</td>
-                                <td><div className="flex flex-wrap gap-2"><button type="button" className="text-button-14 text-secondary hover:text-strong" disabled={!canSubmitSitemaps || submittingSitemaps} onClick={() => void handleSubmitSitemaps([sitemap.path])}>{sitemap.lastSubmitted ? 'Resubmit to Google' : 'Submit to Google'}</button>{gscConn?.sitemapUrl === sitemap.path ? <span className="text-label-12 text-muted" title="Used when no sitemap URL is provided for Canonry GSC operations.">Default sitemap</span> : <button type="button" className="text-button-14 text-secondary hover:text-strong" disabled={savingSitemap} title="Use this sitemap by default for Canonry GSC operations." onClick={() => void handleSetDefaultSitemap(sitemap.path)}>Set as default</button>}<button type="button" className="text-button-14 text-secondary hover:text-strong" disabled={triggerInspectSitemapMutation.isPending} onClick={() => void handleInspectSitemap(sitemap.path)}>Inspect URLs</button></div></td>
-                              </tr>
-                            )
-                            const childRows = sitemap.isSitemapsIndex && expanded ? children.map((child) => (
-                              <tr key={`${sitemap.path}:${child.path}`}>
-                                <td className="max-w-xs pl-6 text-secondary"><MiddleTruncatedText value={child.path} /></td>
-                                <td className="text-secondary">File</td>
-                                <td className="text-secondary">{sitemapGoogleStatus(child)}</td>
-                                <td className="text-secondary">{child.lastSubmitted ? child.lastSubmitted.split('T')[0] : '—'}</td>
-                                <td className="text-secondary">{child.lastDownloaded ? child.lastDownloaded.split('T')[0] : '—'}</td>
-                                <td className="text-right tabular-nums text-neutral">{sitemapDiscoveredUrlCount(child).toLocaleString()}</td>
-                                <td className="text-secondary">{sitemapIssueText(child) || '—'}</td>
-                                <td><div className="flex flex-wrap gap-2"><button type="button" className="text-button-14 text-secondary hover:text-strong" disabled={!canSubmitSitemaps || submittingSitemaps} onClick={() => void handleSubmitSitemaps([child.path])}>Resubmit</button>{gscConn?.sitemapUrl === child.path ? <span className="text-label-12 text-muted" title="Used when no sitemap URL is provided for Canonry GSC operations.">Default sitemap</span> : <button type="button" className="text-button-14 text-secondary hover:text-strong" disabled={savingSitemap} title="Use this sitemap by default for Canonry GSC operations." onClick={() => void handleSetDefaultSitemap(child.path)}>Set as default</button>}<button type="button" className="text-button-14 text-secondary hover:text-strong" disabled={triggerInspectSitemapMutation.isPending} onClick={() => void handleInspectSitemap(child.path)}>Inspect URLs</button></div></td>
-                              </tr>
-                            )) : []
-                            return [row, ...childRows]
-                          })}
-                        </tbody>
-                      </table>
-                      <DataTablePagination page={sitemapTable.page} pageSize={DEFAULT_TABLE_PAGE_SIZE} visibleRows={sitemapTable.rows.length} totalRows={sitemapTable.totalRows} onPageChange={sitemapTable.setPage} itemLabel="sitemaps" />
-                      </>
-                    ) : <p className="text-copy-14 text-muted">No sitemaps found for this property.</p>}
-                  </div>
-                )}
-              </Card>
+                ) : undefined}
+              />
 
              {/* URL Inspection */}
               <Card className="surface-card">
                 <div className="section-head">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Inspection</p>
                     <h3>Inspect a URL</h3>
                   </div>
                 </div>
@@ -2013,19 +1868,19 @@ export function GscSection({
                 </div>
                 {inspectionResult && (
                   <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Indexing state</p>
                       <p className="mt-1 text-copy-14 text-strong">{inspectionResult.indexingState ?? 'Unknown'}</p>
                     </div>
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Verdict</p>
                       <p className="mt-1 text-copy-14 text-strong">{inspectionResult.verdict ?? 'Unknown'}</p>
                     </div>
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Mobile friendly</p>
                       <p className="mt-1 text-copy-14 text-strong">{formatBooleanState(inspectionResult.isMobileFriendly ?? null)}</p>
                     </div>
-                    <div className="material-base p-3">
+                    <div className="min-w-0">
                       <p className="text-label-12 normal-case text-muted">Last crawl</p>
                       <p className="mt-1 text-copy-14 text-strong">{formatTimestamp(inspectionResult.crawlTime)}</p>
                     </div>
@@ -2038,7 +1893,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
-                    <p className="eyebrow eyebrow-soft">History</p>
                     <h3>Inspection log</h3>
                   </div>
                   <Button type="button" variant="outline" size="sm" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
@@ -2046,14 +1900,17 @@ export function GscSection({
                   </Button>
                 </div>
                 <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                  <input
-                    className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter exact URL"
-                    value={inspectionFilterUrl}
-                    onChange={(e) => setInspectionFilterUrl(e.target.value)}
-                  />
-                  <Button type="button" size="sm" variant="outline" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
+                  <label className="flex flex-1 flex-col gap-1 text-label-13 text-secondary">
+                    Filter exact URL
+                    <input
+                      className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
+                      type="text"
+                      placeholder="https://example.com/page"
+                      value={inspectionFilterUrl}
+                      onChange={(e) => setInspectionFilterUrl(e.target.value)}
+                    />
+                  </label>
+                  <Button type="button" size="sm" variant="outline" className="self-end" disabled={loadingInspections} onClick={() => void loadInspectionHistory(true)}>
                     Apply filter
                   </Button>
                 </div>
@@ -2093,7 +1950,6 @@ export function GscSection({
               <Card className="surface-card">
                 <div className="section-head">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Deindexed</p>
                     <h3>Recent indexing losses</h3>
                   </div>
                 </div>
@@ -2156,7 +2012,6 @@ export function GscSection({
                     <Card className="surface-card">
                       <div className="section-head">
                         <div>
-                          <p className="eyebrow eyebrow-soft">Property</p>
                           <div className="flex items-center gap-1.5">
                             <h3>Pick the Search Console property</h3>
                             <InfoTooltip text="The selected property is used for future syncs and URL inspections for this project." />
@@ -2196,7 +2051,6 @@ export function GscSection({
                     <Card className="surface-card">
                       <div className="section-head">
                         <div>
-                          <p className="eyebrow eyebrow-soft">Sync</p>
                           <h3>Import GSC performance data</h3>
                         </div>
                       </div>

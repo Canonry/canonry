@@ -1,10 +1,9 @@
-# Why we use model providers' APIs directly (not a router)
+# How Canonry selects models and measures answers
 
 Canonry measures how AI answers mention your brand and cite your website.
-Direct provider adapters keep answer capture, mention measurement, and citation
-evidence explicit. Each adapter defines the request policy and reads the
-provider's evidence.
-A model catalog alone cannot establish that measurement contract.
+API sweeps can use direct providers and explicitly selected OpenRouter routes.
+Each adapter defines its request policy and records the evidence that the service
+returns.
 
 ## The measurement is more than the model
 
@@ -19,26 +18,24 @@ sources that support the final answer.
 Direct adapters preserve evidence that their provider returns. For example,
 the Gemini adapter retains grounding chunks, answer-support mappings, and
 issued search queries. These fields help explain a visibility change.
-Not every provider returns every field. Missing evidence is not proof of zero
-visibility. The [provider guides](README.md#provider-specific-documentation)
-describe these differences.
+Available evidence varies by provider. See the
+[provider guides](README.md#provider-specific-documentation) for the fields that
+each adapter records.
 
-## Why direct APIs instead of model routers
+## Direct APIs and OpenRouter routes
 
-Model routers offer broad model access through a shared API. API compatibility alone does not
-prove equivalent answer and citation measurements.
+Each direct adapter uses its provider's search controls and citation format.
+An [OpenRouter route](openrouter.md) pins a model with an
+`openrouter:<publisher>/<model>` provider ID. Routes share one OpenRouter
+connection and its quota. Select each route explicitly for a sweep.
 
-A model router integration needs explicit checks for model selection, request
-translation, search behavior, and fallback policies. It also needs to preserve
-answer text, available source evidence, and returned model identity.
+The OpenRouter adapter requests web search and disables provider fallback. It
+records the requested model and any served model the response identifies. Its
+`url_citation` annotations supply source links. The adapter records a requested
+location as ignored.
 
-These checks matter for both signals. A change in the request or search context
-can affect which brands an answer mentions and which websites it cites.
-
-Canonry uses direct provider adapters for visibility sweeps. This decision does
-not mean that model routers cannot support grounded answers. A router-based
-measurement needs its own evidence contract and baseline, not a direct-provider
-label.
+The direct and OpenRouter versions of a model have separate results and
+history. Use the route identity and its evidence rules when you compare results.
 
 ## How we choose a model
 
@@ -65,17 +62,11 @@ Some adapters also accept custom model IDs. An accepted ID or successful text
 completion does not certify the full measurement contract. Model changes need
 a review of the evidence contract and historical comparability.
 
-## Richer evidence for visibility measurement
+## Evidence limits
 
-Direct adapters let Canonry control each request and retain the provider's
-available search details and source evidence. This detail helps explain why
-brand mentions or website citations change. Each adapter has its own provider
-key and tests for the evidence it records.
-
-Direct APIs do not guarantee identical answers across runs. They also do not
-reproduce the consumer ChatGPT, Claude, or Gemini applications. Browser
-measurements use a separate adapter. Local models have their own documented
-evidence limits.
+Answers can vary between API runs. Browser measurements use a separate adapter
+for consumer chat applications. [Local models](local.md) measure mentions and
+report citations as unmeasured.
 
 ## The same rules for both portfolio types
 

@@ -4,23 +4,18 @@ Canonry runs as a self-hosted server. This guide covers common deployment patter
 
 ## Tenancy model (read this first)
 
-**Canonry is single-tenant.** Every deployment — local `canonry serve` or the
-Cloud Run `apps/api` shape — is designed to host exactly one trust boundary:
-one operator's projects, or one team's projects. There is no per-tenant
-isolation inside an instance.
+**Canonry is single-tenant.** Each deployment serves one operator or team.
 
-What this means:
-- Every valid `cnry_…` API key can read and write every project on the
-  instance. Treat each key like a root credential.
-- Two projects on the same instance that track the same `canonicalDomain`
-  share their Google Search Console / Bing OAuth connections by design.
-- `PUT /api/v1/settings/*` rewrites global provider keys and OAuth client
-  secrets — anyone with any key can flip them.
+- A full-instance wildcard key (`*`) can read and write every project.
+  Read-only keys block writes. Project-scoped keys limit project access.
+- Global settings routes use their own permissions. For example, provider
+  configuration requires `settings.write` or a wildcard grant.
+- Projects with the same `canonicalDomain` share their Google Search
+  Console and Bing Webmaster Tools connections.
 
-If you need to host multiple unrelated teams, deploy one Cloud Run service
-per team, with separate databases and OAuth clients. Multi-tenancy as a
-schema feature is **not** on the current roadmap — see root `AGENTS.md`
-→ "Deployment Posture" for what it would take to build it.
+For unrelated teams, deploy a separate instance, database, and OAuth client
+for each team. See [Deployment Posture](../AGENTS.md#deployment-posture-critical)
+for the trust boundary.
 
 ### Trusted reverse proxies
 
@@ -31,6 +26,13 @@ Use `true` only when network access guarantees that every connection comes
 through a trusted proxy. The standalone server defaults to `false`; Cloud Run
 requires an explicit setting.
 
+## Standalone Cloud Run API
+
+The `apps/api` entry point mounts the shared REST routes. Set `DATABASE_URL`
+to a writable SQLite file path, such as `/data/canonry/data.db`. The API opens
+that path as a local file. Use `canonry serve` to run the full engine,
+including scheduled jobs and the dashboard.
+
 ## Local (default)
 
 ```bash
@@ -38,12 +40,12 @@ canonry bootstrap
 canonry serve
 ```
 
-Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No provider credential is needed for Page Health.
+Opens at [http://127.0.0.1:4100](http://127.0.0.1:4100). No provider credential is needed for Agent Readiness.
 
 Local state defaults to `~/.canonry/config.yaml` and `~/.canonry/data.db`.
 Set `CANONRY_CONFIG_DIR=/private/path` consistently for `canonry bootstrap`,
 the server, and all CLI/MCP clients to isolate an install in another directory.
-Provider credentials are optional for bootstrap and Page Health.
+Provider credentials are optional for bootstrap and Agent Readiness.
 
 > **Use `127.0.0.1`, not `localhost`.** `canonry serve` binds the IPv4 loopback
 > `127.0.0.1` (override with `CANONRY_HOST`). On machines where `localhost`
@@ -126,19 +128,65 @@ bindings also requires a new sign-in.
 > proxy. Never expose an engine with `requirePassword: false` directly to the
 > internet.
 
-To remove optional dashboard chrome, set either option to false:
+Set any of these options to `false` to hide the corresponding dashboard controls.
 
 ```yaml
 dashboard:
+  showFeedback: false
   showResourceLinks: false
   showUpdateNotification: false
 ```
 
-`showResourceLinks` removes the GitHub, documentation, and changelog icons
-from the sidebar and page footer, plus repository documentation links on Agent
-Setup. `showUpdateNotification` removes the
-available-version badge from the sidebar but keeps update checks and CLI
-notices active.
+The dashboard has no feedback form; feedback goes through `canonry feedback` or
+the `canonry_feedback` MCP tool. `showFeedback: false` stops the dashboard
+pointing people to feedback, such as the What's new note about
+`canonry feedback`. `canonry serve --hide-feedback` and
+`canonry start --hide-feedback` do the same, as does
+`CANONRY_DASHBOARD_SHOW_FEEDBACK=0` in the environment; restart the server after
+changing it. The command-line flag takes precedence over the environment, which
+overrides YAML.
+
+The self-hosted navigation footer links to GitHub, Discord, X, and YouTube.
+Managed instances (`CANONRY_RUNTIME_MODE=cloud`) and the public demo show only
+GitHub. Embedded views omit the footer. Set the runtime mode when provisioning
+the managed engine.
+
+`showResourceLinks: false` hides the footer links, repository guides on Agent
+Setup, and release highlights that invite users to an external community.
+
+Self-hosted dashboards show available updates in the top bar. The version
+badge opens the release page. After installation, users can open **What’s new**
+to read highlights. An unread dot marks authored minor and major
+releases. Opening the panel clears the dot across tabs for that dashboard
+and account. Users can reopen it to read the notes again. A patch update
+keeps existing notes available and does not add an unread dot.
+
+The first visit features the latest applicable note at or below the running
+version. Returning users who skipped releases can read their missed
+highlights together. The server includes its installed version in the
+dashboard document, so an open tab keeps the notes for the build it loaded.
+
+Live health views refresh service status every 15 seconds while visible.
+Elsewhere, a stale status used by the dashboard refreshes when you return to the
+tab. Release notes use the build in the document and make no network request.
+
+Managed Canonry engine dashboards run in **What’s new only** mode. Customers see product
+highlights after an administrator rolls out a release. Releases without
+applicable highlights are quiet. This mode hides version numbers in the
+navigation, available-version prompts, and package or source links in the
+panel. A release can invite customers to the Canonry Discord. Set
+`dashboard.showResourceLinks: false` to hide that invitation. Public demos
+and embedded views omit release notices.
+
+To use the same presentation on a standalone dashboard, set
+`dashboard.whatsNewOnly: true` in the YAML config or
+`CANONRY_DASHBOARD_WHATS_NEW_ONLY=1` in the container environment. The
+environment takes precedence over YAML on standalone instances.
+`CANONRY_RUNTIME_MODE=cloud` selects this mode automatically.
+
+`showUpdateNotification: false` hides the available-update badge and **What’s new**
+on both self-hosted and managed engine dashboards.
+Update checks and CLI notices stay active.
 
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.
@@ -159,8 +207,12 @@ The environment value overrides YAML; `1` restores local instructions. Blank or
 unrecognized environment values fall back to YAML, then the default `true`.
 
 This setting changes only Agent Setup presentation. CLI, API, MCP, permissions,
-and hosted connector readiness stay the same. The page does not infer the
-audience from public URL, readiness, or user role. Both views include hosted
+and hosted connector readiness stay the same. Whether local instructions appear
+depends only on this setting, not on public URL, readiness, or user role. With
+them on, a dashboard opened on the computer running Canonry (localhost) leads
+with the agent setup request and plugin commands until hosted setup is ready;
+any other dashboard leads with hosted setup and keeps local instructions
+collapsed. Both views include hosted
 connection steps when configured; the client view never falls back to local
 commands if hosted setup needs attention. `showResourceLinks: false` hides
 repository documentation links while retaining the ChatGPT and Claude help
@@ -218,11 +270,11 @@ Simple and Advanced Measurement dashboards use the same presentation policy:
   sweep and schedule writes on the server; see below.
 - `site-audit` hides scan launch and retry controls, plus next-scan settings, for
   **viewers only**. Admins retain scan controls so they can investigate failures
-  from Site Health. Both scan dispatchers also suppress managed viewer launches.
+  from Agent Readiness. Both scan dispatchers also suppress managed viewer launches.
   This role-aware scan policy deliberately differs from the legacy sweep policy.
 
 Managed status reads the corresponding schedule's actual `nextRunAt`.
-Site Health shows “Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry
+Agent Readiness shows “Next scan Thursday 1 Oct, 06:00 UTC · managed by your Canonry
 team” when that is the enabled schedule's time. Without a usable schedule time,
 it shows “Scans are run by your Canonry team”, with no invented date. The sweep
 status shows the next date in the schedule's own timezone, such as “Next sweep:
@@ -245,7 +297,7 @@ neither setting, the injected client config is byte-identical;
 When `answer-visibility` is managed, Aero does not get the tools that start
 or fill a run, write or delete a schedule, or apply a project config (an
 applied spec replaces the schedule). Its cancel tool refuses answer-visibility
-sweeps but still stops the site audits and syncs Aero can start. This holds in
+sweeps but still stops the Agent Readiness audit scans and syncs Aero can start. This holds in
 every tool scope, so a write-scope Aero turn from the API or
 `canonry agent ask` cannot start a sweep either. Aero can still read runs and
 schedules. The operator's own `canonry run` and `canonry schedule` commands are
@@ -607,35 +659,54 @@ sudo systemctl enable --now canonry
 
 ## Docker
 
+### Repository image
+
+The repository image runs `canonry bootstrap` at startup. Its configuration and
+SQLite data live in `/data/canonry` by default.
+
+```bash
+docker build -t canonry .
+docker run -d --name canonry \
+  -p 4100:4100 \
+  -v canonry-data:/data/canonry \
+  canonry
+```
+
+### Custom image from npm
+
+Save this example as `Dockerfile.npm`. It uses the root user's default
+configuration directory, `/root/.canonry`.
+
 ```dockerfile
 FROM node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e
 RUN npm install -g @canonry/canonry
 # Tells update notices to upgrade by rebuilding this image.
 ENV CANONRY_INSTALL_METHOD=docker
 EXPOSE 4100
-CMD ["canonry", "serve", "--host", "0.0.0.0"]
+CMD ["sh", "-c", "canonry bootstrap && exec canonry serve --host 0.0.0.0"]
 ```
 
 ```bash
-docker build -t canonry .
-docker run -d \
+docker build -f Dockerfile.npm -t canonry-npm .
+docker run -d --name canonry-npm \
   -p 4100:4100 \
-  -v $HOME/.canonry:/root/.canonry \
-  -e CANONRY_BASE_PATH=/canonry/ \
-  canonry
+  -v canonry-npm-data:/root/.canonry \
+  canonry-npm
 ```
 
-Direct access through `localhost` or the Docker host's IP address requires no
-`publicUrl`. For a DNS name, configure `publicUrl` as described under
-"Behind a Reverse Proxy".
+### Open the dashboard
 
-The container binds `0.0.0.0`, so the first-run password setup always asks
-for the root API key, also from the Docker host. In the example above, the key
-is `apiKey` in the mounted `$HOME/.canonry/config.yaml`. For a container
-without that mount, read it from the container:
+Open `http://127.0.0.1:4100` from the Docker host. For a DNS name, configure
+`publicUrl` as described in [Behind a Reverse Proxy](#behind-a-reverse-proxy).
+If you serve Canonry under `/canonry/`, add `-e CANONRY_BASE_PATH=/canonry/`
+to `docker run`. Open the dashboard at `http://127.0.0.1:4100/canonry/`.
+
+Both examples bind to `0.0.0.0`. First-run password setup requires the root API
+key. Read `apiKey` from the running container. For the custom image, replace
+`canonry` with `canonry-npm` in the command.
 
 ```bash
-docker exec <container> sh -c 'grep "^apiKey:" "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"'
+docker exec canonry sh -c 'grep "^apiKey:" "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"'
 ```
 
 ---

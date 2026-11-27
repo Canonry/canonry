@@ -1854,6 +1854,9 @@ describe('googleRoutes: GET /projects/:name/google/gsc/performance/daily', () =>
           source: 'property-daily',
         },
         change: { clicks: 3, impressions: 1, ctr: 1, position: -0.2 },
+        // The same movement in each metric's own unit: 40 - 10 clicks, a CTR
+        // 5 points higher (0.1 - 0.05), and a rank 2 places better (8 - 10).
+        difference: { clicks: 30, impressions: 200, ctr: 0.05, position: -2 },
       })
     }
   })

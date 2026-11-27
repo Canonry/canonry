@@ -1,15 +1,16 @@
 import crypto from 'node:crypto'
-import { AppError, agentBusy } from '@canonry/canonry-contracts'
+import { AgentProviderIds, AppError, agentBusy, CHATGPT_AERO_ERRORS, ChatGptPlanStatuses } from '@canonry/canonry-contracts'
 import type { AgentViewContext } from '@canonry/canonry-contracts'
 import { apiKeys, dashboardSessions, type DatabaseClient } from '@canonry/canonry-db'
-import { hashApiKey } from '@canonry/canonry-api-routes'
+import { ChatGptPlanError, hashApiKey, type ChatGptAccounts } from '@canonry/canonry-api-routes'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import { and, eq, isNotNull, like } from 'drizzle-orm'
 import { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import { CanonryMcpToolNames, canonryMcpTools, type CanonryMcpToolName } from '../mcp/tool-registry.js'
 import { configureAeroRuntime, setAeroSystemPrompt } from './runtime.js'
-import { refreshAgentModels } from './providers.js'
+import { PROVIDER_MODELS, refreshAgentModels } from './providers.js'
+import { applyChatGptPlanTurn, chatGptPlanStreamFn, fundingKey, preferredChatGptModel, type ViewerFunding } from './chatgpt-plan.js'
 import { createAeroSession, loadAeroSystemPrompt, resolveSessionProviderAndModel } from './session.js'
 import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
@@ -64,6 +65,14 @@ export const VIEWER_AERO_MAX_PROMPT_CHARS = 4_000
 /** Turns one viewer may run per project per UTC day. Every turn spends the operator's LLM budget. */
 export const VIEWER_AERO_DAILY_TURN_LIMIT = 50
 
+/**
+ * The same limit for a viewer whose turns run on their own ChatGPT plan. The
+ * plan pays for the model, so this only bounds the load each turn puts on the
+ * install (its tool calls read this server). OpenAI applies the plan's own
+ * limits on top.
+ */
+export const VIEWER_AERO_PLAN_DAILY_TURN_LIMIT = 200
+
 export function viewerAeroDailyLimitExceeded(limit: number): AppError {
   return new AppError(
     'QUOTA_EXCEEDED',
@@ -71,6 +80,22 @@ export function viewerAeroDailyLimitExceeded(limit: number): AppError {
     429,
     { metric: 'aero.viewer.turns', limit },
   )
+}
+
+/** A plan that cannot fund the turn, as an API error the viewer can act on. */
+export function chatGptPlanAppError(error: ChatGptPlanError): AppError {
+  switch (error.kind) {
+    case 'usage-limit':
+      return new AppError('QUOTA_EXCEEDED', error.message, 429, { reason: 'chatgpt-usage-limit' })
+    case 'not-eligible':
+      return new AppError('FORBIDDEN', error.message, 403, { reason: 'chatgpt-not-eligible' })
+    case 'unavailable':
+      return new AppError('PROVIDER_ERROR', error.message, 503, { reason: 'chatgpt-unavailable' })
+    case 'not-connected':
+      return new AppError('VALIDATION_ERROR', error.message, 409, { reason: 'chatgpt-connect-required' })
+    default:
+      return new AppError('VALIDATION_ERROR', error.message, 409, { reason: 'chatgpt-reconnect' })
+  }
 }
 
 /** Name prefix of the per-turn keys, so a restart can remove any a crash left behind. */
@@ -106,6 +131,11 @@ export interface ViewerAeroOptions {
   selfApiUrl: string
   managedSweeps?: boolean
   now?: () => number
+  /**
+   * Sign in with ChatGPT. A viewer who connected their ChatGPT plan has their
+   * turns run on it; everyone else uses the install's Aero as before.
+   */
+  chatgpt?: ChatGptAccounts
 }
 
 /**
@@ -145,6 +175,8 @@ interface ViewerSession {
    * every finished turn, even one another tab started.
    */
   updatedAt: string | null
+  /** What the conversation runs on (`fundingKey`). A change starts a fresh conversation. */
+  funding: string
 }
 
 export interface ViewerTurn {
@@ -218,17 +250,25 @@ export class ViewerAeroSessions {
     this.evictIdle()
     const key = this.key(project.name, userId)
     if (this.isBusy(project.name, userId)) throw agentBusy(project.name)
+    const funding = await this.resolveFunding(userId)
+    preferences.signal?.throwIfAborted()
+    if (this.isBusy(project.name, userId)) throw agentBusy(project.name)
     const today = new Date(this.now()).toISOString().slice(0, 10)
     const used = this.turnsToday.get(key)
     const count = used?.date === today ? used.count : 0
-    if (count >= VIEWER_AERO_DAILY_TURN_LIMIT) throw viewerAeroDailyLimitExceeded(VIEWER_AERO_DAILY_TURN_LIMIT)
+    const limit = funding.kind === 'plan' ? VIEWER_AERO_PLAN_DAILY_TURN_LIMIT : VIEWER_AERO_DAILY_TURN_LIMIT
+    if (count >= limit) throw viewerAeroDailyLimitExceeded(limit)
     // Mint before reserving the lane: a failed insert must not leave it busy.
     const minted = mintViewerAeroKey(this.opts.db, userId, new Date(this.now()))
     this.acquisitions.add(key)
     let handedOff = false
     try {
       const client = new ApiClient(this.opts.selfApiUrl, minted.raw, { skipProbe: true, surface: 'aero' })
-      const agent = this.sessions.get(key)?.agent ?? await this.createAgent(project, client, preferences.signal)
+      // A conversation stays on what it started on: connecting or
+      // disconnecting a ChatGPT plan starts a fresh one.
+      const existing = this.sessions.get(key)
+      const reusable = existing && existing.funding === fundingKey(funding) ? existing.agent : undefined
+      const agent = reusable ?? await this.createAgent(project, client, preferences.signal, funding, userId)
       // Count and trim conversation turns only; the leading system message is
       // rebuilt below.
       agent.state.messages = trimViewerTranscript(agent.state.messages.filter(message => message.role !== 'system'))
@@ -245,7 +285,10 @@ export class ViewerAeroSessions {
       // function limits (128 on some), and the tools the project shape names
       // are visible from the start so the first calls it suggests never miss.
       configureAeroRuntime(agent, [...buildViewerAeroTools(client, project.name, this.opts.managedSweeps), buildAeroViewTool(view, evidence)], undefined, true, shape.pinned)
-      this.sessions.set(key, { agent, lastUsedAt: this.now(), updatedAt: this.sessions.get(key)?.updatedAt ?? null })
+      if (funding.kind === 'plan') {
+        applyChatGptPlanTurn(agent, { accounts: this.opts.chatgpt!, userId, modelId: funding.modelId, config: this.opts.config })
+      }
+      this.sessions.set(key, { agent, lastUsedAt: this.now(), updatedAt: existing?.updatedAt ?? null, funding: fundingKey(funding) })
       this.turnsToday.set(key, { date: today, count: count + 1 })
       handedOff = true
       let released = false
@@ -274,7 +317,32 @@ export class ViewerAeroSessions {
     }
   }
 
-  private async createAgent(project: { id: string; name: string }, client: ApiClient, signal?: AbortSignal): Promise<Agent> {
+  private async createAgent(
+    project: { id: string; name: string },
+    client: ApiClient,
+    signal: AbortSignal | undefined,
+    funding: ViewerFunding,
+    userId: string,
+  ): Promise<Agent> {
+    if (funding.kind === 'plan') {
+      const accounts = this.opts.chatgpt!
+      // Built as an OpenAI agent so tools, prompt and runtime are identical to
+      // the install's; the per-turn setup then points it at the person's plan.
+      // The plan stream goes in here, before Aero's runtime wraps it.
+      return createAeroSession({
+        projectName: project.name,
+        client,
+        config: this.opts.config,
+        provider: AgentProviderIds.openai,
+        modelId: PROVIDER_MODELS[AgentProviderIds.openai].agent,
+        systemPromptOverride: loadAeroSystemPrompt(undefined, { extras: false }) + VIEWER_AERO_PROMPT,
+        toolScope: AeroToolScopes.readOnly,
+        managedSweeps: this.opts.managedSweeps,
+        db: this.opts.db,
+        projectId: project.id,
+        streamFn: chatGptPlanStreamFn(() => accounts.markReconnectRequired(userId, funding.connectionId)),
+      })
+    }
     const { provider, modelId } = resolveSessionProviderAndModel(this.opts.config)
     // On OpenRouter, load the live list before the model is resolved.
     await refreshAgentModels(provider, signal)
@@ -291,6 +359,30 @@ export class ViewerAeroSessions {
       projectId: project.id,
     })
   }
+
+  /**
+   * What this viewer's next turn runs on. A connected ChatGPT plan wins; a plan
+   * that needs connecting again is refused rather than quietly charged to the
+   * install; no plan means the install's Aero, as before.
+   */
+  private async resolveFunding(userId: string): Promise<ViewerFunding> {
+    const accounts = this.opts.chatgpt
+    if (!accounts?.planUsageEnabled()) return { kind: 'install' }
+    const plan = accounts.status(userId).account?.plan
+    if (!plan || plan.status === ChatGptPlanStatuses.notConnected) {
+      // An install that never funds viewer Aero asks for the plan instead.
+      if (accounts.planRequired()) throw chatGptPlanAppError(new ChatGptPlanError('not-connected', CHATGPT_AERO_ERRORS.connectRequired))
+      return { kind: 'install' }
+    }
+    try {
+      const { access, modelId } = await accounts.resolveModel(userId, preferredChatGptModel(this.opts.config))
+      return { kind: 'plan', connectionId: access.connectionId, modelId }
+    } catch (error) {
+      if (error instanceof ChatGptPlanError) throw chatGptPlanAppError(error)
+      throw error
+    }
+  }
+
 
   /**
    * Delete the turn's key rather than revoke it: the key list shows revoked

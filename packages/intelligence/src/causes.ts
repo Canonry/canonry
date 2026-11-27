@@ -9,7 +9,7 @@ export function analyzeCause(regression: Regression, currentSnapshots: Snapshot[
   // miss a sibling snapshot that has the tracked competitor. Scan the
   // full set and prefer the strongest signal explicitly.
   const matchingSnaps = currentSnapshots.filter(
-    s => s.query === regression.query && s.provider === regression.provider && !s.cited,
+    s => s.query === regression.query && s.provider === regression.provider && s.cited === false,
   )
 
   // Tracked competitor displacement — strongest signal (the operator

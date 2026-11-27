@@ -25,6 +25,7 @@ const STATUS_WORD: Record<RunListItemVm['status'], { word: string; tone: string 
  */
 export function PastSweeps({ runs, projectName, collapsed = false }: { runs: readonly RunListItemVm[]; projectName?: string; collapsed?: boolean }) {
   const titleId = useId()
+  const metaId = useId()
   // Multi-location sweeps share a start time, so the location tells them apart.
   const showLocation = new Set(runs.map(run => run.location ?? '')).size > 1
   // The title says "sweeps"; any other run kind in the list is named on its line.
@@ -34,10 +35,12 @@ export function PastSweeps({ runs, projectName, collapsed = false }: { runs: rea
   return (
     <section className="overview-brief" aria-labelledby={titleId}>
       <details className="av-history" open={!collapsed || undefined}>
-        <summary className="av-card-head">
+        {/* The summary is the toggle, so it takes its name from the heading
+            alone; the count is its description. */}
+        <summary className="av-card-head" aria-labelledby={titleId} aria-describedby={runs.length > 0 ? metaId : undefined}>
           <h2 id={titleId} className="av-card-title">Past checks</h2>
           <span className="inline-flex items-center gap-2">
-            {runs.length > 0 ? <span className="av-card-meta">{runs.length} recent</span> : null}
+            {runs.length > 0 ? <span id={metaId} className="av-card-meta">{runs.length} recent</span> : null}
             <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
           </span>
         </summary>

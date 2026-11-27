@@ -20,7 +20,7 @@ describe('the stalled-setup nudge', () => {
   it('shows for a human-mode visibility command on a provider-less install', async () => {
     const line = await buildSetupNudgeLine(base)
     expect(line).toContain('AI Visibility needs an answer-engine provider')
-    expect(line).toContain('Page Health does not')
+    expect(line).toContain('Agent Readiness does not')
     expect(line).toContain('canonry serve')
     expect(line).toContain('canonry settings provider')
     // `settings provider` goes through the API, so it fails without a server.
@@ -62,6 +62,7 @@ describe('the stalled-setup nudge', () => {
     'bootstrap',
     'telemetry',
     'project',
+    'agent-readiness',
     'technical-aeo',
     'site-health',
     'doctor',
@@ -69,13 +70,14 @@ describe('the stalled-setup nudge', () => {
     'status',
     'unknown',
   ])(
-    'stays quiet on %s, which is or manages the Page Health path',
+    'stays quiet on %s, which is or manages the Agent Readiness path',
     async command => {
       expect(await buildSetupNudgeLine({ ...base, command })).toBeNull()
     },
   )
 
-  it('exempts nested Page Health commands via the command root', async () => {
+  it('exempts nested Agent Readiness commands, under every name, via the command root', async () => {
+    expect(await buildSetupNudgeLine({ ...base, command: 'agent-readiness.pages' })).toBeNull()
     expect(await buildSetupNudgeLine({ ...base, command: 'technical-aeo.pages' })).toBeNull()
     expect(await buildSetupNudgeLine({ ...base, command: 'site-health.pages' })).toBeNull()
     expect(await buildSetupNudgeLine({ ...base, command: 'project.create' })).toBeNull()
@@ -101,17 +103,22 @@ describe('the stalled-setup nudge', () => {
     expect(await buildSetupNudgeLine({ ...base, command: 'telemetry', getSetupState: read })).toBeNull()
     expect(await buildSetupNudgeLine({ ...base, format: 'json', getSetupState: read })).toBeNull()
     expect(await buildSetupNudgeLine({ ...base, stderrIsTTY: false, getSetupState: read })).toBeNull()
+    expect(await buildSetupNudgeLine({ ...base, command: 'agent-readiness.progress', format: 'json', getSetupState: read })).toBeNull()
     expect(await buildSetupNudgeLine({ ...base, command: 'technical-aeo.progress', format: 'json', getSetupState: read })).toBeNull()
   })
 })
 
-describe('the Page Health handoff to AI Visibility', () => {
+describe('the Agent Readiness handoff to AI Visibility', () => {
   // Most provider-less installs never open the dashboard, and the agents that
   // drive them read JSON or captured stderr. The handoff reaches them there.
-  const handoff = { ...base, command: 'technical-aeo.score' }
+  const handoff = { ...base, command: 'agent-readiness.score' }
 
-  it.each(['technical-aeo.run', 'technical-aeo.score', 'technical-aeo.crawl', 'site-health.overview'])(
-    'shows on %s on a terminal, despite the Page Health root exemption',
+  it.each([
+    'agent-readiness.run', 'agent-readiness.score', 'agent-readiness.overview',
+    // The deprecated names of the same three commands hand off identically.
+    'technical-aeo.run', 'technical-aeo.score', 'technical-aeo.crawl', 'site-health.overview',
+  ])(
+    'shows on %s on a terminal, despite the Agent Readiness root exemption',
     async command => {
       expect(await buildSetupNudgeLine({ ...handoff, command })).toContain('AI Visibility needs an answer-engine provider')
     },
@@ -158,9 +165,9 @@ describe('the Page Health handoff to AI Visibility', () => {
     expect(await buildSetupNudgeLine({ ...handoff, format: 'json', getSetupState: () => undefined })).toBeNull()
   })
 
-  it('leaves the rest of the Page Health path quiet in machine formats', async () => {
+  it('leaves the rest of the Agent Readiness path quiet in machine formats', async () => {
     // `progress` is polled until a scan finishes; one line per poll is noise.
-    for (const command of ['technical-aeo.progress', 'technical-aeo.pages', 'site-health.pages', 'bootstrap']) {
+    for (const command of ['agent-readiness.progress', 'agent-readiness.pages', 'agent-readiness.page-scores', 'technical-aeo.progress', 'technical-aeo.pages', 'site-health.pages', 'bootstrap']) {
       expect(await buildSetupNudgeLine({ ...handoff, command, format: 'json' })).toBeNull()
     }
   })

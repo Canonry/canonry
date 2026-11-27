@@ -4,6 +4,7 @@ import { deliverWebhook } from '@canonry/canonry-api-routes'
 import { auditLog, createClient, migrate, notifications, projects, runs } from '@canonry/canonry-db'
 import type { AnalysisResult } from '@canonry/canonry-intelligence'
 import { Notifier } from '../src/notifier.js'
+import { PACKAGE_VERSION } from '../src/package-version.js'
 
 // Scheduled delivery must apply the same loopback rule as creating and testing
 // the webhook, so a localhost hook that `canonry serve` accepted is not refused
@@ -68,6 +69,8 @@ it('delivers to a loopback webhook when the server allows loopback webhooks', as
 
   expect(deliverWebhook).toHaveBeenCalledOnce()
   expect(vi.mocked(deliverWebhook).mock.calls[0]![0]).toMatchObject({ address: '127.0.0.1', family: 4 })
+  // The receiver sees the running version, not a hard-coded one.
+  expect(vi.mocked(deliverWebhook).mock.calls[0]![3]).toEqual({ userAgent: `Canonry/${PACKAGE_VERSION}` })
   expect(receipts()).toEqual([{ action: 'notification.sent', diff: { event: 'insight.high', error: null } }])
 })
 

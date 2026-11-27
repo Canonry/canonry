@@ -5,6 +5,7 @@
  * page identity are removed.
  */
 
+import { z } from 'zod'
 import { LinkifyIt } from 'linkify-it'
 import tlds from 'tlds'
 import { getDomain, getDomainWithoutSuffix, getHostname } from 'tldts'
@@ -81,6 +82,24 @@ function dropTrailingSlash(path: string): string {
     return path.replace(/\/+$/, '')
   }
   return path
+}
+
+/** Strip URL credentials, query and fragment before displaying or auditing an endpoint. */
+export function redactUrlPrivateFields(value: string | null | undefined): { url: string; redacted: boolean } | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return null
+    const redacted = Boolean(url.username || url.password || url.search || url.hash)
+    if (!redacted) return { url: value, redacted: false }
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return { url: url.toString(), redacted: true }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -274,4 +293,58 @@ export function normalizePathPrefix(value: string | undefined): string | null {
   const normalized = normalizeUrlPath(value)
   if (!normalized) return null
   return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+export function isSitemapOwnedByProperty(sitemapUrl: string, propertyId: string, canonicalDomain: string): boolean {
+  let sitemap: URL
+  try {
+    sitemap = new URL(sitemapUrl)
+  } catch {
+    return false
+  }
+  if (sitemap.protocol !== 'http:' && sitemap.protocol !== 'https:') return false
+
+  if (/^sc-domain:/i.test(propertyId)) {
+    const domain = normalizeHostname(propertyId.slice('sc-domain:'.length))
+    return domain !== null && (sitemap.hostname === domain || sitemap.hostname.endsWith('.' + domain))
+  }
+
+  if (/^\d+$/.test(propertyId)) {
+    return hostOf(sitemap.hostname) === hostOf(canonicalDomain)
+  }
+
+  try {
+    const property = new URL(propertyId)
+    if (property.protocol !== 'http:' && property.protocol !== 'https:') return false
+    if (sitemap.origin !== property.origin) return false
+    const prefix = property.pathname.endsWith('/') ? property.pathname : `${property.pathname}/`
+    return sitemap.pathname === property.pathname || sitemap.pathname.startsWith(prefix)
+  } catch {
+    return false
+  }
+}
+
+export const searchSiteUrlSchema = z.httpUrl()
+
+/** A URL-prefix site distinguishes its scheme, www host, port and path. Bare hosts default to HTTPS. */
+export function searchSiteUrl(input: string): string | null {
+  const value = input.trim()
+  const result = searchSiteUrlSchema.safeParse(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`)
+  if (!result.success) return null
+  const url = new URL(result.data)
+  return url.username || url.password || url.search || url.hash ? null : url.href
+}
+
+/** Discover a sitemap under the selected Google or Bing property. */
+export function defaultSearchSitemapUrl(property: string, canonicalDomain: string): string | null {
+  const domain = /^sc-domain:(.+)$/i.exec(property)?.[1]
+  let site: string | null
+  if (domain) {
+    const project = searchSiteUrl(canonicalDomain)
+    site = project && isSitemapOwnedByProperty(project, property, canonicalDomain) ? project : searchSiteUrl(domain)
+  } else {
+    // Historical numeric Google properties used the project's own site.
+    site = searchSiteUrl(/^\d+$/.test(property) ? canonicalDomain : property)
+  }
+  return site ? new URL('sitemap.xml', site.endsWith('/') ? site : site + '/').href : null
 }

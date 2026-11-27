@@ -17,7 +17,7 @@ import {
   rawEventSamples,
 } from '../src/index.js'
 import { MIGRATION_VERSIONS } from '../src/migrate.js'
-import { insertLegacyProject } from './legacy-rows.js'
+import { insertLegacyProject, insertLegacyRow } from './legacy-rows.js'
 
 function createTempDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-test-'))
@@ -689,6 +689,97 @@ test('migration 65 splits legacy mistral-ai rows by sampled user agent', () => {
   expect(crawlers).toHaveLength(2)
   expect(crawlers.every(r => r.botId === 'mistral-bot')).toBe(true)
   expect(new Set(crawlers.map(r => r.pathNormalized))).toEqual(new Set(['/blog/post-b', '/blog/post-c']))
+})
+
+test('migration 221 moves Claude-SearchBot crawler rows, provenance and samples off ClaudeBot', () => {
+  // The `anthropic-claudebot` rule (training) used to match Claude-SearchBot,
+  // so its hits were stored as ClaudeBot. Upgrading a v220 database through
+  // the runner moves each row whose sampled user agent is Claude-SearchBot to
+  // `claude-searchbot`, with its manifest sidecar rows, and relabels the
+  // crawler samples.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-traffic-v221-'))
+  onTestFinished(() => cleanup(tmpDir))
+  const db = createClient(path.join(tmpDir, 'test.db'))
+  migrate(db, MIGRATION_VERSIONS.filter(migration => migration.version < 221))
+  seedProject(db)
+  const now = '2026-11-10T12:00:00.000Z'
+  insertLegacyRow(db, 'traffic_sources', {
+    id: 'src_claude', project_id: 'proj_1', source_type: 'cloud-run', display_name: 'Cloud Run',
+    status: 'connected', config_json: {}, created_at: now, updated_at: now,
+  })
+
+  const searchBotUa = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +Claude-SearchBot@anthropic.com)'
+  const claudeBotUa = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)'
+  const key = { project_id: 'proj_1', source_id: 'src_claude', ts_hour: '2026-11-10T11:00:00.000Z', verification_status: 'verified', status: 200 }
+  const crawlerRow = (botId: string, pathNormalized: string, hits: number, sampledUserAgent: string | null) =>
+    insertLegacyRow(db, 'crawler_events_hourly', {
+      ...key, bot_id: botId, operator: 'Anthropic', path_normalized: pathNormalized, hits,
+      sampled_user_agent: sampledUserAgent, created_at: now, updated_at: now,
+    })
+  const manifest = (version: string) => ({ id: `anthropic#${version}`, source: 'https://claude.com/crawling/bots.json', version })
+  const provenanceRow = (botId: string, pathNormalized: string, version: string, hits: number) =>
+    insertLegacyRow(db, 'crawler_verification_manifests_hourly', {
+      ...key, bot_id: botId, path_normalized: pathNormalized, manifest_id: manifest(version).id,
+      manifest_json: manifest(version), hits, created_at: now, updated_at: now,
+    })
+  // /guide is a plain move, the path a real upgrade takes. /docs also has a
+  // `claude-searchbot` row already, so its moved hits add into that row.
+  crawlerRow('anthropic-claudebot', '/guide', 4, searchBotUa)
+  crawlerRow('anthropic-claudebot', '/docs', 7, searchBotUa)
+  crawlerRow('claude-searchbot', '/docs', 2, searchBotUa)
+  crawlerRow('anthropic-claudebot', '/pricing', 5, claudeBotUa)
+  crawlerRow('anthropic-claudebot', '/about', 2, null)
+  provenanceRow('anthropic-claudebot', '/guide', 'v1', 4)
+  provenanceRow('anthropic-claudebot', '/docs', 'v1', 3)
+  provenanceRow('anthropic-claudebot', '/docs', 'v2', 4)
+  provenanceRow('claude-searchbot', '/docs', 'v2', 2)
+  provenanceRow('anthropic-claudebot', '/pricing', 'v2', 5)
+  const crawlerDetails = (botId: string, product: string, purpose: string) => ({
+    crawler: { botId, operator: 'Anthropic', product, purpose, verificationStatus: 'verified' },
+    aiUserFetch: null,
+    aiReferral: null,
+  })
+  for (const [id, userAgent] of [['sample_search', searchBotUa], ['sample_claudebot', claudeBotUa]] as const) {
+    insertLegacyRow(db, 'raw_event_samples', {
+      id, project_id: 'proj_1', source_id: 'src_claude', ts: now, event_type: 'crawler', user_agent: userAgent,
+      path_normalized: '/docs', status: 200, classifier_details_json: crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training'),
+      created_at: now,
+    })
+  }
+
+  migrate(db)
+
+  const tables = () => ({
+    crawlers: db.select().from(crawlerEventsHourly).all().map(r => `${r.botId} ${r.pathNormalized} ${r.hits}`).sort(),
+    provenance: db.select().from(crawlerVerificationManifestsHourly).all()
+      .map(r => `${r.botId} ${r.pathNormalized} ${r.manifestId} ${r.hits}`).sort(),
+    samples: Object.fromEntries(db.select().from(rawEventSamples).all().map(s => [s.id, s.classifierDetailsJson])),
+  })
+  const upgraded = tables()
+  expect(upgraded).toEqual({
+    crawlers: [
+      'anthropic-claudebot /about 2',
+      'anthropic-claudebot /pricing 5',
+      'claude-searchbot /docs 9',
+      'claude-searchbot /guide 4',
+    ],
+    provenance: [
+      'anthropic-claudebot /pricing anthropic#v2 5',
+      'claude-searchbot /docs anthropic#v1 3',
+      'claude-searchbot /docs anthropic#v2 6',
+      'claude-searchbot /guide anthropic#v1 4',
+    ],
+    samples: {
+      sample_search: crawlerDetails('claude-searchbot', 'Claude-SearchBot', 'search'),
+      sample_claudebot: crawlerDetails('anthropic-claudebot', 'ClaudeBot', 'training'),
+    },
+  })
+
+  // A second run finds nothing left to move.
+  const v221 = MIGRATION_VERSIONS.find(migration => migration.version === 221)
+  expect(v221?.name).toBe('claude-searchbot-own-bot')
+  v221!.run!(db)
+  expect(tables()).toEqual(upgraded)
 })
 
 test('traffic_sources cascade deletes all dependent rows when project is removed', () => {

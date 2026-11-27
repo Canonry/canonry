@@ -8,6 +8,9 @@ import { probeApiHost, resetApiHostProbeCacheForTest } from '../src/api-host-pro
 
 const PUBLIC_HOST = 'provider.example'
 const PUBLIC_ADDRESS = '198.51.100.42'
+// A self-signed certificate for provider.example, valid until 2126 so the test never expires. To regenerate:
+// openssl req -x509 -new -key server-key.pem -sha256 -days 36500 -subj "/CN=provider.example" \
+//   -addext "subjectAltName=DNS:provider.example" -addext "basicConstraints=critical,CA:TRUE" -out server-cert.pem
 const fixtureDirectory = path.join(import.meta.dirname, 'fixtures', 'api-host-probe')
 const fixtureCertificate = fs.readFileSync(path.join(fixtureDirectory, 'server-cert.pem'), 'utf8')
 const fixtureKey = fs.readFileSync(path.join(fixtureDirectory, 'server-key.pem'), 'utf8')

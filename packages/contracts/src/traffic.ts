@@ -1,5 +1,6 @@
 import { linearTrendSchema } from './statistics.js'
 import { z } from 'zod'
+import { credentialTextSchema } from './credential-text.js'
 import { runStatusSchema } from './run.js'
 import { cloudflareQueueDrainSummarySchema, runSyncSummarySchema } from './run-sync-summary.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
@@ -152,6 +153,20 @@ export type AgentTrustReason = z.infer<typeof agentTrustReasonSchema>
 export const AgentTrustReasons = agentTrustReasonSchema.enum
 
 /**
+ * What a hosted browser agent's request was (Google-Agent, Claude-Agent),
+ * read from its method, path and query:
+ * - `page`: a GET the agent made, opening a page, a document or a download.
+ *   The only kind counted as an AI user fetch hit.
+ * - `action`: any other method the agent sent, wherever it went: a form post,
+ *   a checkout, an API write. Kept in agent journeys, not counted.
+ * - `resource`: what its page fetched or sent by itself: files, data and API
+ *   reads, prefetches, beacons, and HEAD and OPTIONS requests.
+ */
+export const browserAgentRequestKindSchema = z.enum(['page', 'action', 'resource'])
+export type BrowserAgentRequestKind = z.infer<typeof browserAgentRequestKindSchema>
+export const BrowserAgentRequestKinds = browserAgentRequestKindSchema.enum
+
+/**
  * Exact bundled IP-range manifest used when a crawler or AI user-fetch event
  * was classified. Persisting this provenance keeps historical verification
  * results auditable after an operator publishes a newer range list.
@@ -235,21 +250,29 @@ export const trafficSourceDtoSchema = z.object({
 })
 export type TrafficSourceDto = z.infer<typeof trafficSourceDtoSchema>
 
-export const trafficConnectCloudRunRequestSchema = z.object({
+export const cloudRunTrafficTargetSchema = z.object({
   gcpProjectId: z.string().min(1),
   serviceName: z.string().min(1).optional(),
   location: z.string().min(1).optional(),
+})
+export type CloudRunTrafficTarget = z.infer<typeof cloudRunTrafficTargetSchema>
+
+export const cloudRunTrafficSetupSchema = cloudRunTrafficTargetSchema.extend({
   displayName: z.string().min(1).optional(),
-  /** Service-account JSON content (string). When omitted, defaults to OAuth via `canonry google connect <project> --type ga4` flow. */
-  keyJson: z.string().optional(),
+  startFromNow: z.boolean().optional().describe('For a new source, collect logs from connection time onward. Existing sources keep their sync position.'),
+})
+export type CloudRunTrafficSetup = z.infer<typeof cloudRunTrafficSetupSchema>
+
+export const trafficConnectCloudRunRequestSchema = cloudRunTrafficSetupSchema.extend({
+  keyJson: z.string().min(1).optional().describe('Omit to reuse this project’s saved service account for the exact GCP project, service and region. Supply a new key only through a secure credential input.'),
 })
 export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRunRequestSchema>
 
 export const trafficConnectWordpressRequestSchema = z.object({
   baseUrl: z.string().url(),
   username: z.string().min(1),
-  /** WordPress Application Password (the same auth used by the content client). */
-  applicationPassword: z.string().min(1),
+  /** WordPress Application Password (the same auth used by the content client). Its spaces are allowed; line breaks are not. */
+  applicationPassword: credentialTextSchema('WordPress application password', { allowSpaces: true }),
   displayName: z.string().min(1).optional(),
 })
 export type TrafficConnectWordpressRequest = z.infer<typeof trafficConnectWordpressRequestSchema>
@@ -259,8 +282,8 @@ export const trafficConnectVercelRequestSchema = z.object({
   projectId: z.string().min(1),
   /** Vercel team or account id: the org that owns the project ("orgId" in .vercel/project.json). */
   teamId: z.string().min(1),
-  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. */
-  token: z.string().min(1),
+  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. One line, no spaces. */
+  token: credentialTextSchema('Vercel token'),
   /** Which deployment environment's request logs to pull. Default: `production`. */
   environment: vercelTrafficEnvironmentSchema.optional(),
   displayName: z.string().min(1).optional(),
@@ -367,8 +390,8 @@ export const trafficConnectCloudflareQueuePullRequestSchema = trafficConnectClou
   queueId: z.string().min(1),
   queueName: cloudflareQueueNameSchema,
   retentionSeconds: z.number().int().min(60).max(1_209_600),
-  /** Queue pull token; secret-store only, never persisted in configJson or returned. */
-  apiToken: z.string().min(1),
+  /** Queue pull token; secret-store only, never persisted in configJson or returned. One line, no spaces. */
+  apiToken: credentialTextSchema('Cloudflare API token'),
 })
 
 export const trafficConnectCloudflareRequestSchema = z.preprocess(
@@ -482,6 +505,13 @@ export const cloudflareWorkerIngestResponseSchema = z.object({
   aiUserFetchBucketRows: z.number().int(),
   aiReferralBucketRows: z.number().int(),
   sampleRows: z.number().int(),
+  /**
+   * Requests from browser agents (Google-Agent, Claude-Agent) other than page
+   * loads: the files, data calls, prefetches and beacons their pages made, and
+   * their actions (form posts, checkouts, API writes). No bucket holds them,
+   * so the push reports them as a sync does.
+   */
+  aiUserFetchBrowserNonPageHits: z.number().int().nonnegative(),
 })
 export type CloudflareWorkerIngestResponse = z.infer<typeof cloudflareWorkerIngestResponseSchema>
 
@@ -496,6 +526,13 @@ export const trafficSyncResponseSchema = z.object({
   aiUserFetchHits: z.number().int().nonnegative(),
   /** Requests that claimed a user-triggered agent but were judged likely fake; never in `aiUserFetchHits`. */
   aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),
+  /**
+   * Requests from browser agents (Google-Agent, Claude-Agent) other than page
+   * loads: the files, data calls, prefetches and beacons their pages made, and
+   * their actions (form posts, checkouts, API writes). Never in
+   * `aiUserFetchHits`. Optional so a newer client reads an older API.
+   */
+  aiUserFetchBrowserNonPageHits: z.number().int().nonnegative().optional(),
   aiReferralHits: z.number().int().nonnegative(),
   unknownHits: z.number().int().nonnegative(),
   crawlerBucketRows: z.number().int().nonnegative(),
@@ -649,14 +686,83 @@ export const trafficEventKindSchema = z.enum(['crawler', 'ai-user-fetch', 'ai-re
 export type TrafficEventKind = z.infer<typeof trafficEventKindSchema>
 export const TrafficEventKinds = trafficEventKindSchema.enum
 
-export const trafficSeriesGranularitySchema = z.enum(['hour', 'day'])
+/** What the events read's `kind` filter accepts, for error messages. */
+export const TRAFFIC_EVENT_KIND_FILTER_HINT = `all, or one or more (comma-separated) of: ${trafficEventKindSchema.options.join(', ')}`
+
+/**
+ * Reads the events read's `kind` filter: "all", one kind, or a comma-separated
+ * list of kinds (spaces around a member are fine). Returns the kinds asked
+ * for, each once, or null when the list is empty or a member is not a kind.
+ * The route, the CLI and the MCP tool share it, so none accepts a value
+ * another refuses.
+ */
+export function parseTrafficEventKindFilter(value: string): TrafficEventKind[] | null {
+  if (value === 'all') return [...trafficEventKindSchema.options]
+  const kinds: TrafficEventKind[] = []
+  for (const member of value.split(',').map((part) => part.trim()).filter(Boolean)) {
+    const parsed = trafficEventKindSchema.safeParse(member)
+    if (!parsed.success) return null
+    if (!kinds.includes(parsed.data)) kinds.push(parsed.data)
+  }
+  return kinds.length > 0 ? kinds : null
+}
+
+/**
+ * Fields the events read can total by (`groupBy`). A group is always split by
+ * `kind` too, because the three kinds count different things. `agent` is the
+ * bot ID on crawler and AI user-fetch rows and the AI product on AI-referral
+ * rows; `path` is the fetched path, or the landing path on AI-referral rows.
+ */
+export const trafficEventGroupFieldSchema = z.enum(['agent', 'path', 'status', 'source'])
+export type TrafficEventGroupField = z.infer<typeof trafficEventGroupFieldSchema>
+export const TrafficEventGroupFields = trafficEventGroupFieldSchema.enum
+
+/** What the events read's `groupBy` accepts, for error messages. */
+export const TRAFFIC_EVENT_GROUP_BY_HINT = `one or more (comma-separated) of: ${trafficEventGroupFieldSchema.options.join(', ')}`
+
+/**
+ * Reads the events read's `groupBy`: a comma-separated list of group fields.
+ * Returns each field once, in the order given, or null when the list is empty
+ * or a member is not a field. The route, the CLI and the MCP tool share it.
+ */
+export function parseTrafficEventGroupBy(value: string): TrafficEventGroupField[] | null {
+  const fields: TrafficEventGroupField[] = []
+  for (const member of value.split(',').map((part) => part.trim()).filter(Boolean)) {
+    const parsed = trafficEventGroupFieldSchema.safeParse(member)
+    if (!parsed.success) return null
+    if (!fields.includes(parsed.data)) fields.push(parsed.data)
+  }
+  return fields.length > 0 ? fields : null
+}
+
+/** One total from the events read's `groupBy`, over the whole filtered window. */
+export const trafficEventGroupSchema = z.object({
+  kind: trafficEventKindSchema,
+  /** Present when grouped by agent: bot ID, or the AI product on AI-referral rows. */
+  agent: z.string().optional(),
+  /** Present when grouped by path: fetched path, or the landing path on AI-referral rows. */
+  path: z.string().optional(),
+  /** Present when grouped by status. */
+  status: z.number().int().optional(),
+  /** Present when grouped by source. */
+  sourceId: z.string().optional(),
+  /** Sum of `hits` over the group's rows, the same count the detail rows carry. */
+  hits: z.number().int().nonnegative(),
+  /** Hourly detail rows in the group. */
+  rows: z.number().int().nonnegative(),
+  firstHour: z.string(),
+  lastHour: z.string(),
+})
+export type TrafficEventGroup = z.infer<typeof trafficEventGroupSchema>
+
+export const trafficSeriesGranularitySchema = z.enum(['hour', 'day', 'month'])
 export type TrafficSeriesGranularity = z.infer<typeof trafficSeriesGranularitySchema>
 export const TrafficSeriesGranularities = trafficSeriesGranularitySchema.enum
 
 export const trafficSeriesPointSchema = z.object({
   /**
-   * UTC bucket key: an ISO hour for hourly series, or `YYYY-MM-DD` for daily
-   * series. The response includes zero-value buckets across the full window.
+   * UTC bucket key: an ISO hour for hourly series, `YYYY-MM-DD` for daily
+   * series, or `YYYY-MM` for monthly series. The response includes zero-value buckets across the full window.
    */
   bucket: z.string(),
   crawlerHits: z.number().int().nonnegative(),
@@ -675,11 +781,13 @@ export const trafficSeriesPointSchema = z.object({
    */
   crawlerContentHits: z.number().int().nonnegative(),
   /**
-   * False for a bucket that predates any observation for this project, i.e.
-   * before `series.coverageStart`. Such a bucket reads 0 because nothing was
-   * being recorded, NOT because nothing happened, and a chart must not draw
-   * those as a measured zero. Derived here rather than in a component so the
-   * CLI draws the same distinction.
+   * False for a bucket nothing was recording: one before `series.coverageStart`
+   * (no observation yet), or one that begins at or after
+   * `series.recordedThrough` (no selected source has synced that far, e.g. its
+   * syncs keep failing). Such a bucket reads 0 because nothing was being
+   * recorded, NOT because nothing happened, and a chart must not draw those as
+   * a measured zero. Derived here rather than in a component so the CLI draws
+   * the same distinction.
    */
   measured: z.boolean(),
 })
@@ -773,6 +881,51 @@ export const trafficEventsResponseSchema = z.object({
      */
     coverageStart: z.string().nullable(),
     /**
+     * When the selected sources began counting AI-referral arrivals once per
+     * visit, or null when none holds hours counted by the older rule. Hours
+     * before it also counted a visitor's later pages, assets and API calls as
+     * arrivals and read high; stored hourly rows keep no visitor, so they
+     * cannot be recounted. Like `coverageStart`, not bound to the window.
+     * `trends.aiReferralLandedHits` is fitted only over buckets that begin at
+     * or after it. Optional so a newer client reads an older API.
+     */
+    aiReferralCountingChangedAt: z.string().nullable().optional(),
+    /**
+     * The end of the last hour, on the selected sources, whose hosted browser
+     * agent (Google-Agent, Claude-Agent) AI user fetches were counted under
+     * older rules, or null when none holds such an hour. From it on, those
+     * agents count their page loads only. Earlier hours were counted
+     * differently and can read high (every file, data call and beacon counted)
+     * or low (whole visits judged likely fake); they were not recounted
+     * (stored hourly rows keep no method or query). Not bound to the window.
+     * `trends.aiUserFetchHits` is fitted only over buckets that begin at or
+     * after it. Optional so a newer client reads an older API.
+     */
+    aiUserFetchCountingChangedAt: z.string().nullable().optional(),
+    /**
+     * The newest sync watermark among the selected sources: every request
+     * before it has been pulled, and none after it has. Buckets that begin at
+     * or after it are `measured: false`. A source whose syncs keep failing
+     * holds it still, which is how its silent days are told apart from a quiet
+     * site. Null when unbounded or unknown: a direct-push Cloudflare source can
+     * report at any moment, and a source that never synced has no watermark.
+     * Project-wide it reads active sources only (not paused or archived); a
+     * `sourceId` view reads that source in any status. A span skipped and not
+     * yet backfilled inside the history is not reflected here (the
+     * `traffic.source.sync-lag` doctor check reports it). Not window-bound.
+     * Optional so a newer client reads an older API.
+     */
+    recordedThrough: z.string().nullable().optional(),
+    /**
+     * Measured buckets holding only part of their period: the one recording
+     * began inside, the newest while it is still running, and any that ends
+     * after a selected source's watermark while another source still reports
+     * (or that holds `recordedThrough` itself). Trend fits leave them out; a
+     * chart should not draw them as full readings. In bucket order. Optional so
+     * a newer client reads an older API.
+     */
+    partialBuckets: z.array(z.string()).optional(),
+    /**
      * Least-squares fit per charted metric, over the densified points.
      *
      * Fitted HERE rather than in a chart component: a regression computed in the
@@ -818,14 +971,50 @@ export const trafficEventsResponseSchema = z.object({
     /** LANDED sessions ingested before the classifier shipped; unresolvable, never organic. */
     aiReferralUnknownHits: z.number().int().nonnegative(),
   }),
+  /**
+   * The filters every part of this response honors: totals, series, detail
+   * rows and groups. Optional so a newer client reads an older API.
+   */
+  filters: z.object({
+    kinds: z.array(trafficEventKindSchema),
+    sourceId: z.string().nullable(),
+    /** A page and the pages under it (`/faq` matches `/faq/x`, never `/faqs`): fetched path, or landing path on AI-referral rows. */
+    path: z.string().nullable(),
+    /** Bot ID, or AI product on AI-referral rows. */
+    agent: z.string().nullable(),
+  }).optional(),
   eventRows: z.object({
-    /** Total detail rows matching the window/source/kind filters before `limit`. */
+    /** Total detail rows matching every filter, across all pages. */
     total: z.number().int().nonnegative(),
-    /** Number of newest detail rows included in `events`. */
+    /** Detail rows included in `events` on this page. */
     returned: z.number().int().nonnegative(),
+    /** True when another page follows; read it with `nextCursor`. */
     truncated: z.boolean(),
+    /**
+     * Pass as `cursor` to read the next page, with the same filters; null on
+     * the last page. Rows are newest hour first, in a fixed order, and the
+     * cursor keeps the first page's window, so pages never repeat a row and
+     * newer hours never shift a page. A row written between pages into an hour
+     * the read has already passed (the current hour, or a late delivery) is not
+     * returned: end the window at a finished hour for an exact read. Optional
+     * so a newer client reads an older API.
+     */
+    nextCursor: z.string().nullable().optional(),
   }),
   events: z.array(trafficEventEntrySchema),
+  /**
+   * Present only when `groupBy` was asked for: totals over the whole filtered
+   * window, most hits first, capped by `limit`.
+   */
+  groups: z.object({
+    by: z.array(trafficEventGroupFieldSchema),
+    /** Groups that match, before `limit`. */
+    total: z.number().int().nonnegative(),
+    returned: z.number().int().nonnegative(),
+    /** True when more groups match than `limit` let through. Narrow the filters or raise `limit` (max 5000). */
+    truncated: z.boolean(),
+    entries: z.array(trafficEventGroupSchema),
+  }).optional(),
 })
 export type TrafficEventsResponse = z.infer<typeof trafficEventsResponseSchema>
 
@@ -893,7 +1082,19 @@ const sampleUserFetchSchema = z.object({
 })
 export const trafficSampleClassifierSchema = z.object({
   crawler: sampleUserFetchSchema.extend({ purpose: z.string().nullish() }).nullable().default(null),
-  aiUserFetch: sampleUserFetchSchema.nullable().default(null),
+  aiUserFetch: sampleUserFetchSchema.extend({
+    /** Whether the agent is a hosted browser (Google-Agent, Claude-Agent); absent on samples stored before browsers were told apart. */
+    browser: z.boolean().nullish().catch(null),
+    /**
+     * A browser agent's request kind, read at ingest from its method, path and
+     * query, or from the path alone when the stored-traffic pass relabeled the
+     * sample. Unless the sample is likely fake, only a `page` sample was
+     * counted as an AI user fetch hit; ingest counted `action` and `resource`
+     * requests only in the write's `aiUserFetchBrowserNonPageHits`. Absent for
+     * link fetchers and on samples stored before it was recorded.
+     */
+    requestKind: browserAgentRequestKindSchema.nullish().catch(null),
+  }).nullable().default(null),
   aiReferral: z.object({
     operator: z.string().nullish(), product: z.string().nullish(), sourceDomain: z.string().nullish(),
     evidenceType: z.enum(['referer', 'utm', 'referer-utm']).nullish(), trafficClass: aiReferralTrafficClassSchema.nullish(),

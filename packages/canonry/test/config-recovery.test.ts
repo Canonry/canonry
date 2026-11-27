@@ -128,7 +128,7 @@ describe('invalid config recovery guidance', () => {
   )
 
   it('keeps the bootstrap guidance for a missing config file', () => {
-    expect(loadConfig).toThrow('Run "canonry bootstrap" to create the local Page Health runtime; provider credentials are optional.')
+    expect(loadConfig).toThrow('Run "canonry bootstrap" to create the local Agent Readiness runtime; provider credentials are optional.')
     expect(fs.existsSync(getConfigPath())).toBe(false)
   })
 })

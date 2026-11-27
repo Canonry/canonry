@@ -1,7 +1,18 @@
-import type { ScheduleDto } from '@canonry/canonry-contracts'
+import { schedulePreviewRequestSchema, formatZonedTimestamp, type SchedulePreviewRequest } from '@canonry/canonry-contracts'
+import type { ScheduleDto, SiteAuditScheduleChecks } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { isMachineFormat } from '../cli-error.js'
+import { isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
+
+export async function previewSchedule(project: string, timing: Partial<SchedulePreviewRequest>, format?: string): Promise<void> {
+  const parsed = schedulePreviewRequestSchema.safeParse(timing)
+  if (!parsed.success) throw usageError('Invalid schedule timing', { message: parsed.error.issues.map(issue => issue.message).join('; ') })
+  const preview = await getClient().previewSchedule(project, parsed.data)
+  if (format === 'jsonl') { emitJsonl([preview]); return }
+  if (format === 'json') { console.log(JSON.stringify(preview, null, 2)); return }
+  console.log(`Next run: ${preview.nextRunAt ? formatZonedTimestamp(preview.nextRunAt, preview.timezone) : 'No future occurrence'}`)
+  console.log('Preview only. No schedule was saved or enabled.')
+}
 
 export async function listSchedules(project: string, format?: string): Promise<void> {
   const schedules = await getClient().listSchedules(project)
@@ -38,6 +49,8 @@ async function readCurrentSchedule(
 export async function setSchedule(project: string, opts: {
   kind?: string
   sourceId?: string
+  /** Scan checks for a site-audit schedule; null resets them, undefined keeps them. */
+  siteAudit?: Partial<SiteAuditScheduleChecks> | null
   preset?: string
   cron?: string
   everyDays?: string
@@ -55,6 +68,14 @@ export async function setSchedule(project: string, opts: {
   // schedule and carry forward everything the caller did not explicitly set,
   // exactly as enableSchedule/disableSchedule already do.
   const current = await readCurrentSchedule(client, project, opts.kind)
+  const timingGiven = Boolean(opts.everyDays || opts.startDate || opts.at || opts.preset || opts.cron)
+  if (!current && !timingGiven) {
+    // Check flags alone keep the current timing, so there has to be one.
+    throw usageError(`Error: "${project}" has no ${opts.kind ?? 'answer-visibility'} schedule yet; add --preset, --cron, or --every-days with --start-date and --at`, {
+      message: 'no schedule to keep the timing of; a timing is required to create one',
+      details: { command: 'schedule.set', project, kind: opts.kind ?? 'answer-visibility' },
+    })
+  }
   const body: Record<string, unknown> = {}
   if (opts.kind) body.kind = opts.kind
   else if (current) body.kind = current.kind
@@ -76,6 +97,9 @@ export async function setSchedule(project: string, opts: {
 
   if (opts.sourceId) body.sourceId = opts.sourceId
   else if (current?.sourceId) body.sourceId = current.sourceId
+
+  // Omitted, the server keeps the schedule's current checks.
+  if (opts.siteAudit !== undefined) body.siteAudit = opts.siteAudit
 
   // Only guard when there is a row to guard; a create must stay a create.
   if (current) body.expectedUpdatedAt = current.updatedAt
@@ -171,6 +195,13 @@ export function formatNextRun(nextRunAt: string, timezone: string): string {
   }
 }
 
+/** "full site, dead links, location, agent checks": what each scheduled scan covers. */
+export function siteAuditChecksLine(checks: SiteAuditScheduleChecks): string {
+  return ['full site', checks.checkDeadLinks && 'dead links', checks.includeGeo && 'location', checks.includeAgentSkills && 'agent checks']
+    .filter(Boolean)
+    .join(', ')
+}
+
 export function printSchedule(s: ScheduleDto): void {
   console.log(`  Kind:      ${s.kind}`)
   // Only show the friendly preset name when set — without this guard, schedules
@@ -190,6 +221,9 @@ export function printSchedule(s: ScheduleDto): void {
   console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)
   if (s.kind === 'traffic-sync' && s.sourceId) {
     console.log(`  Source:    ${s.sourceId}`)
+  }
+  if (s.kind === 'site-audit' && s.siteAudit) {
+    console.log(`  Checks:    ${siteAuditChecksLine(s.siteAudit)}`)
   }
   if (s.providers.length) {
     console.log(`  Providers: ${s.providers.join(', ')}`)

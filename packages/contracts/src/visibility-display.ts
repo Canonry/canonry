@@ -16,9 +16,24 @@ export function unattributedAnswersLabel(value: { denominator?: number | null; u
  * denominator: their source-link capture was incomplete, so they are in
  * neither side of the rate. The total is every saved answer the rate read.
  */
-export function uncheckedSourcesLabel(value: { denominator?: number | null; unchecked?: number }): string | null {
+export function uncheckedSourcesLabel(value: { denominator?: number | null; unchecked?: number; citationNotMeasured?: number }): string | null {
   if (value.denominator === null || value.denominator === undefined) return null
   if (value.unchecked === undefined || value.unchecked <= 0) return null
-  const total = value.denominator + value.unchecked
+  const total = value.denominator + value.unchecked + (value.citationNotMeasured ?? 0)
   return `${value.unchecked} of ${total} ${total === 1 ? 'answer' : 'answers'} had sources that could not be checked`
+}
+
+/** Why a citation is not measured: the answer's engine returns no sources (a local model with no web access). */
+export const CITATION_NOT_MEASURED_REASON = 'The engine returns no sources, so whether it cites you is not measured.'
+
+/**
+ * Name the answers a citation rate left out because their engine returns no
+ * sources. They are in neither side of the rate; the total is every saved
+ * answer the rate read.
+ */
+export function citationNotMeasuredLabel(value: { denominator?: number | null; unchecked?: number; citationNotMeasured?: number }): string | null {
+  if (value.denominator === null || value.denominator === undefined) return null
+  if (value.citationNotMeasured === undefined || value.citationNotMeasured <= 0) return null
+  const total = value.denominator + (value.unchecked ?? 0) + value.citationNotMeasured
+  return `${value.citationNotMeasured} of ${total} ${total === 1 ? 'answer' : 'answers'} came from engines that return no sources`
 }

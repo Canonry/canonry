@@ -114,6 +114,9 @@ function printSourceRankings(data: SourceBreakdownDto, options: SourcesOptions):
     for (const provider of data.providersWithoutSources ?? []) {
       console.log(`\n    ${provider}: answered, but no answer named a source`)
     }
+    for (const provider of data.providersCitationNotMeasured ?? []) {
+      console.log(`\n    ${provider}: citations not measured, the engine returns no sources`)
+    }
   }
 }
 
@@ -131,6 +134,9 @@ function describeScope(data: SourceBreakdownDto): string | null {
   }
   if (data.unclassifiedAnswers) {
     parts.push(`${data.unclassifiedAnswers} unclassified ${data.unclassifiedAnswers === 1 ? 'answer' : 'answers'} excluded`)
+  }
+  if (data.citationNotMeasuredAnswers) {
+    parts.push(`${data.citationNotMeasuredAnswers} ${data.citationNotMeasuredAnswers === 1 ? 'answer' : 'answers'} without sources excluded`)
   }
   return parts.length > 0 ? parts.join(' · ') : null
 }

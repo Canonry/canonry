@@ -57,21 +57,21 @@ describe('sync outcomes reported by the server', () => {
       expect(trackEvent.mock.calls.filter((call) => call[0] === 'feature.completed').map((call) => call.slice(1))).toEqual([
         [
           {
-            feature: 'search_console', operation: 'sync', trigger: 'manual', surface: 'cli',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'sync', trigger: 'manual', surface: 'cli',
             status: 'failed', reasonCode: 'NOT_CONNECTED', durationBucket: 'under_1s',
           },
           { errorCode: 'NOT_CONNECTED' },
         ],
         [
           {
-            feature: 'search_console', operation: 'inspect', trigger: 'manual', surface: 'cli',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'search_console', operation: 'inspect', trigger: 'manual', surface: 'cli',
             status: 'failed', reasonCode: 'NOT_CONNECTED', durationBucket: 'under_1s',
           },
           { errorCode: 'NOT_CONNECTED' },
         ],
         [
           {
-            feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system',
+            operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gbp', operation: 'sync', trigger: 'scheduled', surface: 'system',
             status: 'failed', reasonCode: 'NOT_CONNECTED', durationBucket: 'under_1s',
           },
           { errorCode: 'NOT_CONNECTED' },

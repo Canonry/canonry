@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { runKindSchema, runStatusSchema, runTriggerSchema } from './run.js'
 import { mcpHealthSchema } from './health.js'
 
-export const statusIntegrationSchema = z.enum(['gsc', 'ga', 'gbp', 'bing', 'ads', 'google-ads', 'gtm', 'traffic'])
+export const statusIntegrationSchema = z.enum(['gsc', 'ga', 'gbp', 'bing', 'bing-search', 'ads', 'google-ads', 'gtm', 'traffic'])
 export const StatusIntegrations = statusIntegrationSchema.enum
 export type StatusIntegration = z.infer<typeof statusIntegrationSchema>
 

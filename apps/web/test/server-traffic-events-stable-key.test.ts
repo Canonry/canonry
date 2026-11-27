@@ -98,4 +98,34 @@ describe('useServerTrafficEvents', () => {
     ])
     expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
   })
+
+  // A clicked chart bar fetches its own rows by its exact span. Rows for an
+  // older bar sat past the window's row cap, so filtering the window's newest
+  // rows by bucket found none.
+  test('a range fetches exactly that span, in place of the moving window', async () => {
+    const range = { since: '2026-08-30T05:00:00.000Z', until: '2026-08-30T05:00:00.000Z' }
+    const { result, rerender } = renderHook(
+      ({ filters }) => useServerTrafficEvents('demo', filters),
+      { wrapper: Wrapper, initialProps: { filters: { ...filters, kind: 'ai-user-fetch,ai-referral', range, limit: 5000 } } },
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({
+      kind: 'ai-user-fetch,ai-referral', sourceId: 'abc',
+      since: '2026-08-30T05:00:00.000Z', until: '2026-08-30T05:00:00.000Z',
+      limit: '5000', granularity: 'day',
+    })
+
+    // An equal range in a new object is the same query, however time moves.
+    now += 60_000
+    rerender({ filters: { ...filters, kind: 'ai-user-fetch,ai-referral', range: { ...range }, limit: 5000 } })
+    expect(result.current.isFetching).toBe(false)
+    expect(requests).toHaveLength(1)
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
+  })
+
+  test('a disabled query never fetches', async () => {
+    renderHook(() => useServerTrafficEvents('demo', filters, { enabled: false }), { wrapper: Wrapper })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(requests).toHaveLength(0)
+  })
 })

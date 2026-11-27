@@ -1,5 +1,5 @@
 import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   formatGaOverviewValue,
   formatPercent,
@@ -33,6 +33,7 @@ import {
   formatChartDateTick,
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { TrendCard, type TrendCardChange, type TrendCardFigure } from '../shared/TrendCard.js'
 import {
   BASELINE_DATA_KEY,
   buildStackedChartRows,
@@ -136,40 +137,49 @@ export function KpiRow({ items, label }: { items: readonly KpiItem[]; label: str
   )
 }
 
-export function SortHeader<K extends string>({ label, sortKey, current, dir, onSort, align }: {
+export function SortHeader<K extends string>({ label, sortKey, current, dir, onSort, align, help }: {
   label: string
   sortKey: K
   current: K
   dir: SortDir
   onSort: (key: K) => void
   align: 'left' | 'right'
+  /** Method text beside the header. A sibling of the sort button, so it never toggles the sort or joins its name. */
+  help?: string
 }) {
   const active = current === sortKey
+  const button = (
+    // A button does not inherit text-transform, so it repeats the header
+    // style; otherwise sortable headers render in mixed case.
+    <button
+      type="button"
+      className={`${TABLE_HEAD_TEXT} cursor-pointer select-none rounded transition-colors hover:text-neutral focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-400`}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      {active && <span aria-hidden="true" className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
+    </button>
+  )
   return (
     <th
       className={`py-2 ${align === 'right' ? 'pl-4 text-right' : 'text-left'}`}
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : undefined}
     >
-      {/* A button does not inherit text-transform, so it repeats the header
-          style; otherwise sortable headers render in mixed case. */}
-      <button
-        type="button"
-        className={`${TABLE_HEAD_TEXT} cursor-pointer select-none rounded transition-colors hover:text-neutral focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-400`}
-        onClick={() => onSort(sortKey)}
-      >
-        {label}
-        {active && <span aria-hidden="true" className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
-      </button>
+      {help
+        ? <span className="inline-flex items-center gap-1">{button}<InfoTooltip text={help} /></span>
+        : button}
     </th>
   )
 }
 
-export function PlainHeader({ label, align }: { label: string; align: 'left' | 'right' }) {
+export function PlainHeader({ label, align, help }: { label: string; align: 'left' | 'right'; help?: string }) {
   // Same structure as SortHeader (sized text inside an unsized cell), so plain
   // and sortable headers share one baseline.
   return (
     <th className={`py-2 ${align === 'right' ? 'pl-4 text-right' : 'text-left'}`}>
-      <span className={TABLE_HEAD_TEXT}>{label}</span>
+      {help
+        ? <span className="inline-flex items-center gap-1"><span className={TABLE_HEAD_TEXT}>{label}</span><InfoTooltip text={help} /></span>
+        : <span className={TABLE_HEAD_TEXT}>{label}</span>}
     </th>
   )
 }
@@ -190,6 +200,16 @@ export function compareBy<T>(key: keyof T, dir: SortDir) {
   }
 }
 
+/** Order by a value the API sent; a missing value sorts last in either direction. */
+export function compareNullsLast<T>(valueOf: (item: T) => number | null, dir: SortDir) {
+  return (a: T, b: T): number => {
+    const av = valueOf(a)
+    const bv = valueOf(b)
+    if (av === null || bv === null) return Number(av === null) - Number(bv === null)
+    return dir === 'asc' ? av - bv : bv - av
+  }
+}
+
 export interface ReferralGroup<Row> {
   label: string
   sessions: number
@@ -200,6 +220,23 @@ export interface ReferralGroup<Row> {
 }
 
 type GroupSortKey = 'label' | 'sessions' | 'organicSessions' | 'paidSessions'
+
+/**
+ * A column after Share, for a table that carries more API figures per group.
+ * The cell is rendered whole (`render` returns the `<td>`), and sorting reads
+ * `sortValue` as the API sent it: the table never derives a figure.
+ */
+export interface ReferralGroupColumn<Group> {
+  key: string
+  label: string
+  /** Method text in an InfoTooltip beside the header. */
+  help?: string
+  /** Sort by this value, missing values last; omit for a column that does not sort. */
+  sortValue?: (group: Group) => number | null
+  /** Direction of the first click on this header. */
+  firstDir?: SortDir
+  render: (group: Group) => ReactNode
+}
 
 /**
  * Groups (engines, platforms) with their raw source rows behind a disclosure.
@@ -213,26 +250,42 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
   childRowKey,
   renderChildCells,
   pinLast,
+  extraColumns = [],
+  defaultSort,
+  referenceRow,
 }: {
   groups: readonly Group[]
   groupLabel: string
   caption: string
-  childColumns: ReadonlyArray<{ label: string; align: 'left' | 'right' }>
+  childColumns: ReadonlyArray<{ label: string; align: 'left' | 'right'; help?: string }>
   childRowKey: (row: Group['sources'][number]) => string
   renderChildCells: (row: Group['sources'][number]) => ReactNode
   /** Groups kept at the bottom under every sort, as the API orders them (the unattributed AI group). */
   pinLast?: (group: Group) => boolean
+  /** Figures after Share, in order. */
+  extraColumns?: ReadonlyArray<ReferralGroupColumn<Group>>
+  /** The sort on first render; sessions descending when omitted. */
+  defaultSort?: { key: string; dir: SortDir }
+  /** A reference row (a site-wide figure) pinned above the groups under every sort. */
+  referenceRow?: ReactNode
 }) {
   const baseId = useId()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
-  const [sort, setSort] = useState<{ key: GroupSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
+  const [sort, setSort] = useState<{ key: string; dir: SortDir }>(defaultSort ?? { key: 'sessions', dir: 'desc' })
   const sorted = useMemo(() => {
-    const byColumn = compareBy<Group>(sort.key, sort.dir)
+    const extra = extraColumns.find(column => column.key === sort.key)
+    const byColumn = extra?.sortValue
+      ? compareNullsLast<Group>(extra.sortValue, sort.dir)
+      : compareBy<Group>(sort.key as GroupSortKey, sort.dir)
     return [...groups].sort((a, b) => (
       Number(pinLast?.(a) ?? false) - Number(pinLast?.(b) ?? false) || byColumn(a, b)
     ))
-  }, [groups, sort, pinLast])
-  const onSort = (key: GroupSortKey) => setSort(current => nextSort(current, key, key === 'label' ? 'asc' : 'desc'))
+  }, [groups, sort, pinLast, extraColumns])
+  const onSort = (key: string) => setSort(current => nextSort(
+    current,
+    key,
+    extraColumns.find(column => column.key === key)?.firstDir ?? (key === 'label' ? 'asc' : 'desc'),
+  ))
   const toggle = (label: string) => setExpanded(current => {
     const next = new Set(current)
     if (next.has(label)) next.delete(label)
@@ -242,7 +295,7 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[36rem] text-label-14">
+      <table className={`w-full text-label-14 ${extraColumns.length > 0 ? 'min-w-[48rem]' : 'min-w-[36rem]'}`}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="border-b border-default">
@@ -251,9 +304,13 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
             <SortHeader label="Organic" sortKey="organicSessions" current={sort.key} dir={sort.dir} onSort={onSort} align="right" />
             <SortHeader label="Paid" sortKey="paidSessions" current={sort.key} dir={sort.dir} onSort={onSort} align="right" />
             <PlainHeader label="Share" align="right" />
+            {extraColumns.map(column => (column.sortValue
+              ? <SortHeader key={column.key} label={column.label} sortKey={column.key} current={sort.key} dir={sort.dir} onSort={onSort} align="right" help={column.help} />
+              : <PlainHeader key={column.key} label={column.label} align="right" help={column.help} />))}
           </tr>
         </thead>
         <tbody>
+          {referenceRow}
           {sorted.map((group, index) => {
             const open = expanded.has(group.label)
             const panelId = `${baseId}-group-${index}`
@@ -280,16 +337,17 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
                   <td className="py-2 pl-4 text-right text-secondary tabular-nums">{group.organicSessions.toLocaleString()}</td>
                   <td className="py-2 pl-4 text-right text-secondary tabular-nums">{group.paidSessions.toLocaleString()}</td>
                   <td className="py-2 pl-4 text-right text-secondary tabular-nums">{formatPercent(group.share)}</td>
+                  {extraColumns.map(column => <Fragment key={column.key}>{column.render(group)}</Fragment>)}
                 </tr>
                 {open && (
                   <tr id={panelId}>
-                    <td colSpan={5} className="pb-3 pl-6">
+                    <td colSpan={5 + extraColumns.length} className="pb-3 pl-6">
                       <div className="overflow-x-auto material-base px-3 pb-1">
                         <table className="w-full min-w-[32rem] text-label-13">
                           <caption className="sr-only">{`${group.label} sources`}</caption>
                           <thead>
                             <tr>
-                              {childColumns.map(column => <PlainHeader key={column.label} label={column.label} align={column.align} />)}
+                              {childColumns.map(column => <PlainHeader key={column.label} label={column.label} align={column.align} help={column.help} />)}
                             </tr>
                           </thead>
                           <tbody>
@@ -409,9 +467,6 @@ export function StackedSeriesChart({ input, baseline, baselineLabel, label, heig
 /** The figures the Site traffic card shows first: GA4's headline pair, then what Canonry reads most. */
 export const SITE_TRAFFIC_DEFAULT_SLOTS: readonly GaOverviewMetricKey[] = ['sessions', 'activeUsers', 'organicSessions', 'engagementRate', 'keyEvents']
 const SITE_TRAFFIC_SLOTS_KEY = 'canonry.siteTraffic.slots'
-const OVERVIEW_LINE_COLOR = CHART_SERIES_COLORS[1]!
-const OVERVIEW_SERIES = { current: 'current', previous: 'previous' } as const
-type OverviewSeries = typeof OVERVIEW_SERIES[keyof typeof OVERVIEW_SERIES]
 
 function isOverviewMetric(value: unknown): value is GaOverviewMetricKey {
   return typeof value === 'string' && GA_OVERVIEW_METRIC_ORDER.some(key => key === value)
@@ -438,91 +493,31 @@ function writeSlots(slots: readonly GaOverviewMetricKey[]): void {
   }
 }
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-/** The change as words, for the figure's accessible name: the arrow alone says nothing to a screen reader. */
-function describeChange(change: number | null): string {
-  if (change === null) return 'no earlier data'
-  if (change === 0) return 'no change on the previous period'
-  return `${change > 0 ? 'up' : 'down'} ${formatPercent(Math.abs(change), RatioUnits.percent)} on the previous period`
-}
-
 /** The server's change against the previous period, coloured by whether it is good news for this figure. */
-function OverviewChange({ metric, change }: { metric: GaOverviewMetricKey; change: number | null }) {
+function overviewChange(metric: GaOverviewMetricKey, change: number | null, basis: string): TrendCardChange {
   const tone = gaOverviewChangeTone(metric, change)
-  if (tone === null || change === null) {
-    return <span className="block text-label-13 text-secondary">No earlier data</span>
+  if (tone === null || change === null) return { kind: 'note', text: 'No earlier data' }
+  return {
+    kind: 'delta',
+    amount: formatPercent(Math.abs(change), RatioUnits.percent),
+    direction: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
+    tone: tone === GaOverviewChangeTones.better ? 'better' : tone === GaOverviewChangeTones.worse ? 'worse' : 'neutral',
+    basis,
   }
-  const color = tone === GaOverviewChangeTones.better ? 'text-positive' : tone === GaOverviewChangeTones.worse ? 'text-negative' : 'text-secondary'
-  const Icon = change > 0 ? ArrowUp : change < 0 ? ArrowDown : null
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-label-13-strong tabular-nums ${color}`}>
-      {Icon && <Icon aria-hidden="true" className="size-3.5" strokeWidth={2.5} />}
-      {formatPercent(Math.abs(change), RatioUnits.percent)}
-    </span>
-  )
-}
-
-interface OverviewRow {
-  date: string
-  previousDate: string
-  current: number | null
-  previous: number | null
-}
-
-function OverviewTooltip({ active, payload, metric }: {
-  active?: boolean
-  payload?: ReadonlyArray<{ payload?: OverviewRow }>
-  metric: GaOverviewMetricKey
-}) {
-  const row = payload?.[0]?.payload
-  if (!active || !row) return null
-  return (
-    <div className="material-tooltip min-w-48 px-3 py-2 text-label-13">
-      <p className="mb-1 text-copy-13-strong text-heading">{GA_OVERVIEW_METRICS[metric].label}</p>
-      <p className="flex items-center justify-between gap-6">
-        <span className="flex items-center gap-2 text-secondary">
-          <svg aria-hidden="true" width="14" height="6" className="shrink-0"><line x1="0" y1="3" x2="14" y2="3" stroke={OVERVIEW_LINE_COLOR} strokeWidth="2.5" /></svg>
-          {formatChartDateLabel(row.date)}
-        </span>
-        <span className="tabular-nums text-primary">{formatGaOverviewValue(metric, row.current)}</span>
-      </p>
-      <p className="flex items-center justify-between gap-6">
-        <span className="flex items-center gap-2 text-secondary">
-          <svg aria-hidden="true" width="14" height="6" className="shrink-0"><line x1="0" y1="3" x2="14" y2="3" stroke={OVERVIEW_LINE_COLOR} strokeWidth="1.5" strokeDasharray="3 2" /></svg>
-          {formatChartDateLabel(row.previousDate)}
-        </span>
-        <span className="tabular-nums text-secondary">{formatGaOverviewValue(metric, row.previous)}</span>
-      </p>
-    </div>
-  )
 }
 
 /**
- * GA4's overview card: a row of figures, each with its change against the
- * previous period, and the chosen figure by day with the previous period
- * dashed behind it. Each figure's label is a picker, as in GA4; picking a
- * figure already shown swaps the two. Every number is the API's.
+ * GA4's overview card on the shared trend card: five figure slots whose labels
+ * are pickers, as in GA4 (picking a figure already shown swaps the two), and
+ * the chosen figure by day with the previous period dashed. Every number is
+ * the API's.
  */
 export function SiteTrafficCard({ overview, refreshing = false }: { overview: GaOverviewResponse; refreshing?: boolean }) {
-  const baseId = useId()
   const [slots, setSlots] = useState<GaOverviewMetricKey[]>(readSlots)
   const [selected, setSelected] = useState(0)
-  const [hidden, setHidden] = useState<ReadonlySet<OverviewSeries>>(new Set())
-  const animate = !prefersReducedMotion()
-  const metric = slots[selected] ?? SITE_TRAFFIC_DEFAULT_SLOTS[0]!
-  const rows = useMemo<OverviewRow[]>(() => overview.days.map(day => ({
-    date: day.date,
-    previousDate: day.previousDate,
-    current: day.values[metric],
-    previous: day.previousValues[metric],
-  })), [overview.days, metric])
-  const hasDays = rows.some(row => row.current !== null || row.previous !== null)
   const windowDays = isGaOverviewWindow(overview.window) ? GA_OVERVIEW_WINDOW_DAYS[overview.window] : null
   const currentLabel = windowDays === null ? 'This period' : `Last ${windowDays} days`
+  const basis = windowDays === null ? 'vs the previous period' : `vs prior ${windowDays} days`
 
   const chooseMetric = (index: number, key: GaOverviewMetricKey) => setSlots(current => {
     const next = [...current]
@@ -532,149 +527,48 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
     writeSlots(next)
     return next
   })
-  const focusTab = (index: number) => {
-    setSelected(index)
-    document.getElementById(`${baseId}-tab-${index}`)?.focus()
-  }
-  const onTabKey = (event: React.KeyboardEvent, index: number) => {
-    const last = slots.length - 1
-    const target = event.key === 'ArrowRight' ? (index === last ? 0 : index + 1)
-      : event.key === 'ArrowLeft' ? (index === 0 ? last : index - 1)
-        : event.key === 'Home' ? 0
-          : event.key === 'End' ? last
-            : null
-    if (target === null) return
-    event.preventDefault()
-    focusTab(target)
-  }
-  const toggleSeries = (series: OverviewSeries) => setHidden(current => {
-    const next = new Set(current)
-    if (next.has(series)) next.delete(series)
-    else next.add(series)
-    return next
-  })
+
+  const figures: TrendCardFigure[] = slots.map((key, index) => ({
+    key,
+    // Keyed by slot, not figure: picking a figure re-renders the slot in
+    // place, so its picker keeps keyboard focus.
+    slot: `slot-${index}`,
+    label: GA_OVERVIEW_METRICS[key].label,
+    value: formatGaOverviewValue(key, overview.totals[key], { compact: true }),
+    exactValue: formatGaOverviewValue(key, overview.totals[key]),
+    change: overviewChange(key, overview.changePct[key], basis),
+    series: overview.days.map(day => ({ date: day.date, previousDate: day.previousDate, current: day.values[key], previous: day.previousValues[key] })),
+    // A slot stays a tab before its first sync; the chart says what is missing.
+    interactive: true,
+    picker: {
+      ariaLabel: `Figure ${index + 1}`,
+      value: key,
+      options: GA_OVERVIEW_METRIC_ORDER.map(option => ({ value: option, label: GA_OVERVIEW_METRICS[option].label })),
+      onChange: value => { if (isOverviewMetric(value)) chooseMetric(index, value) },
+    },
+    formatValue: value => formatGaOverviewValue(key, value, { compact: true }),
+    // One day's reading in the tooltip and table, unabbreviated: 4,512, not 4.5K.
+    formatExact: value => formatGaOverviewValue(key, value),
+    allowDecimals: GA_OVERVIEW_METRICS[key].unit !== GaOverviewUnits.count,
+  }))
+  const metric = slots[selected] ?? SITE_TRAFFIC_DEFAULT_SLOTS[0]!
+  const span = overview.current.startDate && overview.current.endDate && overview.previous.startDate && overview.previous.endDate
+    ? `${formatDateSpan(overview.current.startDate, overview.current.endDate, true)} vs ${formatDateSpan(overview.previous.startDate, overview.previous.endDate, false)}`
+    : undefined
 
   return (
-    <div className={`overflow-hidden material-base transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
-      <div role="tablist" aria-label="Site traffic figures" className="grid grid-cols-2 border-b border-default sm:grid-cols-3 lg:grid-cols-5">
-        {slots.map((key, index) => {
-          const active = index === selected
-          const value = formatGaOverviewValue(key, overview.totals[key], { compact: true })
-          // Keyed by slot, not figure: picking a figure re-renders the slot in
-          // place, so its picker keeps keyboard focus.
-          return (
-            <div key={index} className="relative min-w-0 px-4 pb-4 pt-4">
-              <span aria-hidden="true" className={`absolute inset-x-4 top-0 h-[3px] rounded-b-sm bg-link transition-opacity duration-200 ${active ? 'opacity-100' : 'opacity-0'}`} />
-              <div className="relative inline-flex max-w-full items-center">
-                <select
-                  aria-label={`Figure ${index + 1}`}
-                  value={key}
-                  onChange={event => { if (isOverviewMetric(event.target.value)) chooseMetric(index, event.target.value) }}
-                  className={`max-w-full cursor-pointer appearance-none truncate rounded-sm bg-transparent py-0.5 pr-5 text-label-14-strong [field-sizing:content] transition-colors duration-150 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${active ? 'text-link' : 'text-secondary'}`}
-                >
-                  {GA_OVERVIEW_METRIC_ORDER.map(option => (
-                    <option key={option} value={option}>{GA_OVERVIEW_METRICS[option].label}</option>
-                  ))}
-                </select>
-                <ChevronDown aria-hidden="true" className={`pointer-events-none absolute right-0 size-3.5 ${active ? 'text-link' : 'text-muted'}`} />
-              </div>
-              <button
-                type="button"
-                role="tab"
-                id={`${baseId}-tab-${index}`}
-                aria-selected={active}
-                aria-controls={`${baseId}-panel`}
-                aria-label={`${GA_OVERVIEW_METRICS[key].label} ${value}, ${describeChange(overview.changePct[key])}`}
-                tabIndex={active ? 0 : -1}
-                onClick={() => setSelected(index)}
-                onKeyDown={event => onTabKey(event, index)}
-                className="mt-1 block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
-              >
-                <span className={`block truncate text-heading-32 tabular-nums transition-colors duration-150 ${active ? 'text-primary' : 'text-strong'}`} title={formatGaOverviewValue(key, overview.totals[key])}>
-                  {value}
-                </span>
-                <OverviewChange metric={key} change={overview.changePct[key]} />
-              </button>
-            </div>
-          )
-        })}
-      </div>
-
-      <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${selected}`} className="px-4 pb-3 pt-4">
-        {overview.syncedAt === null && (
-          <p className="mb-3 text-copy-14 text-secondary">These figures fill in after the next GA4 sync.</p>
-        )}
-        {hasDays ? (
-          <div role="img" aria-label={`${GA_OVERVIEW_METRICS[metric].label} per day, ${currentLabel.toLowerCase()} and the previous period`} style={{ height: 240 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rows} margin={{ top: 8, right: 0, bottom: 0, left: 4 }}>
-                <CartesianGrid stroke={CHART_GRID_STROKE} vertical={false} />
-                <XAxis dataKey="date" tick={CHART_AXIS_TICK} tickLine={false} axisLine={{ stroke: CHART_AXIS_STROKE }} tickFormatter={formatChartDateTick} minTickGap={32} />
-                <YAxis
-                  orientation="right"
-                  tick={CHART_AXIS_TICK}
-                  tickLine={false}
-                  axisLine={false}
-                  width={52}
-                  allowDecimals={GA_OVERVIEW_METRICS[metric].unit !== GaOverviewUnits.count}
-                  tickFormatter={(value: number) => formatGaOverviewValue(metric, value, { compact: true })}
-                />
-                <RechartsTooltip
-                  cursor={{ stroke: CHART_NEUTRAL.textFaint, strokeWidth: 1 }}
-                  wrapperStyle={{ outline: 'none' }}
-                  content={<OverviewTooltip metric={metric} />}
-                />
-                {!hidden.has(OVERVIEW_SERIES.previous) && (
-                  <Line type="monotone" dataKey={OVERVIEW_SERIES.previous} stroke={OVERVIEW_LINE_COLOR} strokeOpacity={0.65}
-                        strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: OVERVIEW_LINE_COLOR }}
-                        connectNulls={false} isAnimationActive={animate} animationDuration={320} animationEasing="ease-out" />
-                )}
-                {!hidden.has(OVERVIEW_SERIES.current) && (
-                  <Line type="monotone" dataKey={OVERVIEW_SERIES.current} stroke={OVERVIEW_LINE_COLOR} strokeWidth={2.25} dot={false}
-                        activeDot={{ r: 5, strokeWidth: 2, stroke: OVERVIEW_LINE_COLOR, fill: 'var(--color-bg)' }}
-                        connectNulls={false} isAnimationActive={animate} animationDuration={320} animationEasing="ease-out" />
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <p className="py-8 text-copy-14 text-secondary">No daily {GA_OVERVIEW_METRICS[metric].label.toLowerCase()} yet.</p>
-        )}
-
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-          <fieldset className="flex flex-wrap gap-x-5 text-label-13 text-secondary">
-            <legend className="sr-only">{`${GA_OVERVIEW_METRICS[metric].label} series`}</legend>
-            {([
-              [OVERVIEW_SERIES.current, currentLabel, ''],
-              [OVERVIEW_SERIES.previous, 'Previous period', '4 3'],
-            ] as const).map(([series, label, dash]) => {
-              const checked = !hidden.has(series)
-              const lastVisible = checked && hidden.size === 1
-              return (
-                <label key={series} className="flex min-h-9 items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
-                    checked={checked}
-                    disabled={lastVisible}
-                    onChange={() => toggleSeries(series)}
-                  />
-                  <svg aria-hidden="true" width="18" height="10" viewBox="0 0 18 10" className="shrink-0">
-                    <line x1="0" y1="5" x2="18" y2="5" stroke={OVERVIEW_LINE_COLOR} strokeWidth={series === OVERVIEW_SERIES.current ? 2.5 : 1.5} strokeDasharray={dash || undefined} />
-                  </svg>
-                  {label}
-                </label>
-              )
-            })}
-          </fieldset>
-          {overview.current.startDate && overview.current.endDate && overview.previous.startDate && overview.previous.endDate && (
-            <p className="text-copy-13 text-secondary">
-              {formatDateSpan(overview.current.startDate, overview.current.endDate, true)} vs {formatDateSpan(overview.previous.startDate, overview.previous.endDate, false)}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
+    <TrendCard
+      name="Site traffic figures"
+      groups={[{ key: 'site-traffic', figures }]}
+      selected={[metric]}
+      onSelect={key => { const index = slots.indexOf(key as GaOverviewMetricKey); if (index !== -1) setSelected(index) }}
+      span={span}
+      currentLabel={currentLabel}
+      previous={{ label: 'Previous period', available: true }}
+      notice={overview.syncedAt === null ? 'These figures fill in after the next GA4 sync.' : undefined}
+      emptyChartMessage={`No daily ${GA_OVERVIEW_METRICS[metric].label.toLowerCase()} yet.`}
+      refreshing={refreshing}
+    />
   )
 }
 

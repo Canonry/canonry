@@ -3020,7 +3020,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
 
     // Idempotent trigger: a sync paginates the whole account and runs for
     // minutes, so return the in-flight run instead of stacking a second pass
-    // (mirrors POST /technical-aeo/runs).
+    // (mirrors POST /agent-readiness/runs).
     const inFlight = app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)

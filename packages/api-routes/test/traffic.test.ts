@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -25,7 +25,9 @@ import {
   journeyVisits,
 } from '@canonry/canonry-db'
 import {
+  AgentTrustReasons,
   trafficEventsResponseSchema,
+  trafficSyncResponseSchema,
   TrafficEventKinds,
   TrafficSourceTypes,
   TrafficSourceStatuses,
@@ -35,7 +37,7 @@ import {
   RunStatuses,
   RunTriggers,
 } from '@canonry/canonry-contracts'
-import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import type { NormalizedTrafficRequest, TrafficEventsResponse } from '@canonry/canonry-contracts'
 import type { CloudRunTrafficEventsPage } from '@canonry/canonry-integration-cloud-run'
 import type {
   ListWordpressTrafficEventsOptions,
@@ -51,6 +53,7 @@ import { apiRoutes } from '../src/index.js'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
 import { connectionOutcomes } from './outcome-capture.js'
+import { logCapture } from './log-capture.js'
 import chatgptUserRanges from '../../integration-traffic/src/ip-ranges/chatgpt-user.json' with { type: 'json' }
 import gptbotRanges from '../../integration-traffic/src/ip-ranges/gptbot.json' with { type: 'json' }
 import { firstPublishedIp, vendoredManifest } from '../../integration-traffic/test/fixtures/vendored-ranges.js'
@@ -188,6 +191,8 @@ async function buildHarness(
     trafficBackfillLeaseRenewMs?: number
     /** Enables AI visitor journeys. */
     journeyKeySecret?: string
+    /** Fastify logger option, to read what a route logged (`logCapture`). */
+    logger?: ReturnType<typeof logCapture>['logger']
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -251,10 +256,12 @@ async function buildHarness(
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
   const observedFirstSync: Array<boolean | undefined> = []
-  const app = Fastify()
+  const app = Fastify(options.logger ? { logger: options.logger } : {})
   app.register(apiRoutes, {
     db,
     skipAuth: true,
+    dashboardPath: '/canonry/',
+    publicUrl: 'https://dashboard.example/public-canonry',
     cloudRunCredentialStore,
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
@@ -434,6 +441,9 @@ const GPTBOT_MANIFEST = vendoredManifest(gptbotRanges)
 const USER_FETCH_MANIFEST = vendoredManifest(chatgptUserRanges)
 const GPTBOT_IP = firstPublishedIp(gptbotRanges, 4)
 const CHATGPT_USER_IP = firstPublishedIp(chatgptUserRanges, 4)
+// Hosted browsers acting for a person, by their operators' published user agents.
+const CLAUDE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36'
+const GOOGLE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
 
 async function seedForeignSource(h: Awaited<ReturnType<typeof buildHarness>>) {
   const created = await h.app.inject({
@@ -985,14 +995,171 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(JSON.parse(res.payload).error.message).toMatch(/gcpProjectId/)
   })
 
-  it('rejects requests without keyJson', async () => {
+  it('directs a project without a saved key to its private setup form', async () => {
+    const target = { gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1', displayName: 'Customer logs', startFromNow: false }
     const res = await h.app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'openclaw-nyc' },
+      headers: { host: 'untrusted.example' },
+      payload: target,
     })
     expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.payload).error.message).toMatch(/keyJson/)
+    const details = res.json().error.details
+    expect(details.reason).toBe('cloud-run-credential-required')
+    const form = new URL(details.dashboardPath, 'https://example.test')
+    expect(form.pathname).toBe('/canonry/projects/test-project/traffic')
+    expect(JSON.parse(form.searchParams.get('connectCloudRun')!)).toEqual(target)
+    const publicForm = new URL(details.dashboardUrl)
+    expect(publicForm.origin).toBe('https://dashboard.example')
+    expect(publicForm.pathname).toBe('/public-canonry/projects/test-project/traffic')
+    expect(publicForm.search).toBe(form.search)
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+  })
+
+  it('uses a preconfigured service account only within its Canonry project, GCP project, service and region', async () => {
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const saved = {
+      ...target, projectName: 'test-project', authMode: TrafficSourceAuthModes['service-account'],
+      projectId: h.db.select().from(projects).get()!.id,
+      clientEmail: 'logging@example.test', privateKey: 'host-only-test-key',
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    }
+    h.credentials.set(saved.projectName, saved)
+    const connect = (projectName: string, payload: Partial<typeof target>) => h.app.inject({
+      method: 'POST', url: `/api/v1/projects/${projectName}/traffic/connect/cloud-run`, payload,
+    })
+    const foreign = await h.app.inject({
+      method: 'PUT', url: '/api/v1/projects/other',
+      payload: { displayName: 'Other', canonicalDomain: 'other.example', country: 'US', language: 'en' },
+    })
+    expect(foreign.statusCode).toBeLessThan(300)
+    for (const res of [
+      await connect('other', target),
+      await connect(saved.projectName, { ...target, gcpProjectId: 'different' }),
+      await connect(saved.projectName, { gcpProjectId: target.gcpProjectId, location: target.location }),
+      await connect(saved.projectName, { gcpProjectId: target.gcpProjectId, serviceName: target.serviceName }),
+    ]) {
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.details.reason).toBe('cloud-run-credential-required')
+      expect(res.body).not.toContain(saved.privateKey)
+    }
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+
+    const connected = await connect(saved.projectName, target)
+    expect(connected.statusCode).toBe(200)
+    expect(connected.json()).toMatchObject({ status: TrafficSourceStatuses.connected, config: target })
+    expect(connected.body).not.toContain(saved.privateKey)
+    expect(h.credentials.get(saved.projectName)).toEqual(saved)
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(1)
+  })
+
+  it('requires a new key after deleting and recreating a project with the same name', async () => {
+    const url = '/api/v1/projects/test-project'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const connect = (keyJson?: string) => h.app.inject({
+      method: 'POST', url: `${url}/traffic/connect/cloud-run`, payload: { ...target, keyJson },
+    })
+    const original = await connect(SA_KEY)
+    expect(original.statusCode).toBe(200)
+    const saved = h.credentials.get('test-project')!
+    expect((await h.app.inject({ method: 'DELETE', url })).statusCode).toBe(204)
+    const recreated = await h.app.inject({
+      method: 'PUT', url, payload: { displayName: 'Replacement', canonicalDomain: 'replacement.example', country: 'US', language: 'en' },
+    })
+    expect(recreated.statusCode).toBe(201)
+    expect(recreated.json().id).not.toBe(original.json().projectId)
+
+    // Upgrades can encounter an orphaned legacy key as well as a bound one.
+    for (const projectId of [original.json().projectId, undefined]) {
+      h.credentials.set('test-project', { ...saved, projectId })
+      const refused = await connect()
+      expect(refused.statusCode).toBe(400)
+      expect(refused.json().error.details.reason).toBe('cloud-run-credential-required')
+      expect(h.db.select().from(trafficSources).all()).toHaveLength(0)
+    }
+    const replacement = await connect(JSON.stringify({ client_email: 'new@example.test', private_key: 'new-test-key' }))
+    expect(replacement.statusCode).toBe(200)
+    expect(h.credentials.get('test-project')).toMatchObject({ projectId: recreated.json().id, privateKey: 'new-test-key' })
+
+    // A stale host configuration must not be used by an existing source either.
+    h.credentials.set('test-project', { ...saved, projectId: original.json().projectId })
+    expect((await connect()).statusCode).toBe(400)
+    for (const operation of ['activate', 'sync', 'backfill']) {
+      const result = await h.app.inject({
+        method: 'POST', url: `${url}/traffic/sources/${replacement.json().id}/${operation}`, payload: {},
+      })
+      expect(result.statusCode, operation).toBe(400)
+      expect(result.json().error.message).toMatch(/credential/)
+    }
+    const doctor = await h.app.inject({ method: 'GET', url: `${url}/doctor?check=traffic.source.credentials` })
+    expect(doctor.json().checks).toContainEqual(expect.objectContaining({ code: 'traffic.credentials.failed' }))
+    expect(h.getPullCount()).toBe(0)
+    expect(h.db.select().from(runs).all()).toHaveLength(0)
+  })
+
+  it('binds a legacy key only when the existing source proves its target and owner', async () => {
+    const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web' }
+    const source = await h.app.inject({ method: 'POST', url, payload: { ...target, keyJson: SA_KEY } })
+    expect(source.statusCode).toBe(200)
+    const legacy = { ...h.credentials.get('test-project')!, projectId: undefined }
+    h.credentials.set('test-project', { ...legacy, serviceName: 'other' })
+    const mismatch = await h.app.inject({ method: 'POST', url, payload: { ...target, serviceName: 'other' } })
+    expect(mismatch.statusCode).toBe(400)
+    expect(mismatch.json().error.details.reason).toBe('cloud-run-credential-required')
+
+    h.credentials.set('test-project', legacy)
+    const reused = await h.app.inject({ method: 'POST', url, payload: target })
+    expect(reused.statusCode).toBe(200)
+    expect(reused.json().id).toBe(source.json().id)
+    expect(h.credentials.get('test-project')).toMatchObject({ projectId: source.json().projectId, privateKey: legacy.privateKey })
+  })
+
+  it('keeps the source generation, label and error when a keyless retry arrives during a pull', async () => {
+    const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+    const target = { gcpProjectId: 'production', serviceName: 'web' }
+    let confirmedSource: unknown
+    await h.close()
+    h = await buildHarness([], {
+      onCloudRunPull: async () => {
+        const confirmed = await h.app.inject({ method: 'POST', url, payload: target })
+        confirmedSource = confirmed.json()
+      },
+    })
+    const connected = await h.app.inject({ method: 'POST', url, payload: { ...target, displayName: 'Primary logs', keyJson: SA_KEY } })
+    expect(connected.statusCode).toBe(200)
+    const sourceId = connected.json().id
+    h.db.update(trafficSources).set({
+      status: TrafficSourceStatuses.error, lastError: 'previous pull failed', updatedAt: '2026-01-01T00:00:00.000Z',
+    }).where(eq(trafficSources.id, sourceId)).run()
+    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    expect(synced.statusCode).toBe(200)
+    expect(confirmedSource).toMatchObject({
+      displayName: 'Primary logs', status: TrafficSourceStatuses.error, lastError: 'previous pull failed',
+    })
+    expect(h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).get()?.status).toBe(RunStatuses.completed)
+  })
+
+  it('starts the first Cloud Run pull at connect time when history is disabled', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-05T12:00:00Z'))
+      const url = '/api/v1/projects/test-project/traffic/connect/cloud-run'
+      const payload = { gcpProjectId: 'hosting', startFromNow: true }
+      const connected = await h.app.inject({ method: 'POST', url, payload: { ...payload, keyJson: SA_KEY } })
+      expect(connected.statusCode).toBe(200)
+      expect(connected.json().lastSyncedAt).toBeNull()
+      vi.setSystemTime(new Date('2026-10-05T12:10:00Z'))
+      // Repeating setup must not advance the new source past its first ten minutes.
+      expect((await h.app.inject({ method: 'POST', url, payload })).statusCode).toBe(200)
+      vi.setSystemTime(new Date('2026-10-05T12:15:00Z'))
+      const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${connected.json().id}/sync`, payload: {} })
+      expect(sync.statusCode).toBe(200)
+      expect(h.getObservedWindows()).toEqual([{ startTime: '2026-10-05T12:00:00.000Z', endTime: '2026-10-05T12:15:00.000Z' }])
+      expect(h.getObservedFirstSync()).toEqual([false])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects malformed keyJson', async () => {
@@ -1035,25 +1202,40 @@ describe('POST /traffic/connect/cloud-run', () => {
     expect(sourceRows[0].status).toBe(TrafficSourceStatuses.connected)
   })
 
-  it('reuses the existing source row on reconnect rather than creating a duplicate', async () => {
-    await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'old-project', keyJson: SA_KEY },
-    })
+  it.each([
+    { change: { gcpProjectId: 'other-project' }, staged: false },
+    { change: { serviceName: 'new-service' }, staged: true },
+    { change: { location: 'us-west1' }, staged: false },
+  ])('keeps prior Cloud Run evidence on its original target after $change (staged=$staged)', async ({ change, staged }) => {
+    await h.close()
+    h = await buildHarness([buildEvent({ observedAt: new Date(Date.now() - 60_000).toISOString(), remoteIp: GPTBOT_IP })])
+    const traffic = '/api/v1/projects/test-project/traffic'
+    const target = { gcpProjectId: 'hosting', serviceName: 'web', location: 'us-east1' }
+    const connect = (payload: object) => h.app.inject({ method: 'POST', url: traffic + '/connect/cloud-run', payload })
+    const activate = (id: string) => h.app.inject({ method: 'POST', url: `${traffic}/sources/${id}/activate`, payload: {} })
+    const detail = async (id: string) => (await h.app.inject({ method: 'GET', url: `${traffic}/sources/${id}` })).json()
+    const original = (await connect({ ...target, keyJson: SA_KEY })).json()
+    expect((await activate(original.id)).statusCode).toBe(200)
+    const sync = await h.app.inject({ method: 'POST', url: `${traffic}/sources/${original.id}/sync`, payload: {} })
+    expect(sync.json()).toMatchObject({ crawlerHits: 1 })
+    const rotated = await connect({ ...target, keyJson: JSON.stringify({ client_email: 'rotated@example.test', private_key: 'rotated-key' }) })
+    expect(rotated.json()).toMatchObject({ id: original.id, lastSyncedAt: sync.json().windowEnd })
+    if (staged) {
+      const push = await h.app.inject({ method: 'POST', url: traffic + '/connect/cloudflare', payload: {} })
+      expect((await activate(push.json().sourceId)).statusCode).toBe(200)
+    }
 
-    const second = await h.app.inject({
-      method: 'POST',
-      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
-      payload: { gcpProjectId: 'new-project', serviceName: 'new-svc', keyJson: SA_KEY },
+    const replacement = (await connect({ ...target, ...change, keyJson: SA_KEY, startFromNow: true })).json()
+    expect(replacement.id).not.toBe(original.id)
+    expect(await detail(original.id)).toMatchObject({
+      status: TrafficSourceStatuses.archived, config: target, lastSyncedAt: sync.json().windowEnd, totals24h: { crawlerHits: 1 },
     })
-
-    expect(second.statusCode).toBe(200)
-    const sources = h.db.select().from(trafficSources).all()
-    expect(sources.length).toBe(1)
-    const config = sources[0].configJson
-    expect(config.gcpProjectId).toBe('new-project')
-    expect(config.serviceName).toBe('new-svc')
+    expect(await detail(replacement.id)).toMatchObject({
+      status: staged ? TrafficSourceStatuses.paused : TrafficSourceStatuses.connected,
+      config: { ...target, ...change, startFromNow: true }, lastSyncedAt: null, latestRun: null, totals24h: { crawlerHits: 0 },
+    })
+    const schedule = h.db.select().from(schedules).where(eq(schedules.kind, SchedulableRunKinds['traffic-sync'])).get()
+    expect(schedule?.sourceId).toBe(staged ? undefined : replacement.id)
   })
 })
 
@@ -1075,6 +1257,39 @@ describe('POST /traffic/connect/wordpress', () => {
       payload: { ...validBody, baseUrl: 'not-a-url' },
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  it('accepts an application password in its spaced groups but refuses a second line', async () => {
+    const spaced = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(spaced.statusCode).toBe(200)
+
+    const twoLines = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, applicationPassword: 'abcd efgh ijkl\nmnop qrst uvwx' },
+    })
+    expect(twoLines.statusCode).toBe(400)
+    expect(JSON.parse(twoLines.payload).error.message).toMatch(/WordPress application password has 2 lines/)
+    expect(twoLines.payload).not.toContain('abcd efgh')
+    expect(twoLines.payload).not.toContain('mnop')
+  })
+
+  it('keeps the application password out of a failed probe message', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failWpProbeWith: { status: 401, message: `rejected ${validBody.applicationPassword}`, body: 'nope' },
+    })
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.payload).error.message).toBe('WordPress traffic probe failed (HTTP 401): rejected [REDACTED] — nope')
   })
 
   it('rejects baseUrl that resolves to a private / metadata address (SSRF guard)', async () => {
@@ -1226,6 +1441,55 @@ describe('POST /traffic/connect/vercel', () => {
       payload: { ...validBody, token: '' },
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  /**
+   * A token file appended to with `>>` holds two tokens on two lines. Sent as
+   * a header, that value made fetch throw an error quoting both tokens, and
+   * the probe failure carried it back to the caller. It is now refused before
+   * any request, with a message that names the problem and not the value.
+   */
+  it.each([
+    { name: 'two lines', token: 'vcp_first_line_secret\nvcp_second_line_secret', problem: /has 2 lines/ },
+    { name: 'a space', token: 'vcp_first_line_secret vcp_second_line_secret', problem: /contains a space/ },
+    { name: 'a control character', token: 'vcp_first_line_secret\u0007vcp_second', problem: /control character/ },
+  ])('refuses a token with $name without repeating it or probing', async ({ token, problem }) => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload).error.message).toMatch(problem)
+    expect(res.payload).not.toContain('vcp_first_line_secret')
+    expect(res.payload).not.toContain('vcp_second')
+    expect(h.getVercelProbeInvocations()).toHaveLength(0)
+    expect(h.vercelCredentials.get('test-project')).toBeUndefined()
+  })
+
+  it('stores a token pasted with surrounding whitespace trimmed', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token: `  ${validBody.token}\n` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(h.vercelCredentials.get('test-project')?.token).toBe(validBody.token)
+  })
+
+  it('keeps the token out of a failed probe message', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failVercelProbeWith: { status: 400, message: `request quoted Bearer ${validBody.token}`, body: `echo ${validBody.token}` },
+    })
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(res.payload).not.toContain(validBody.token)
+    expect(JSON.parse(res.payload).error.message).toBe('Vercel traffic probe failed (HTTP 400): request quoted Bearer [REDACTED] — echo [REDACTED]')
   })
 
   it('rejects requests with an invalid environment', async () => {
@@ -1703,6 +1967,29 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     }
   })
 
+  // A failed sync is stored on the run and the source, and health alerts
+  // quote the source's last error: none of them may carry the token.
+  it('keeps the token out of a failed sync wherever the failure is stored', async () => {
+    const h = await buildHarness([], { failVercelPullWith: `Headers.append: "Bearer ${vercelConnectBody.token}" is an invalid header value.` })
+    try {
+      const sourceId = await connectVercel(h)
+      backdateLastSyncedAt(h.db, sourceId, 60 * 60_000)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(syncRes.payload).not.toContain(vercelConnectBody.token)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastError).toBe('Headers.append: "Bearer [REDACTED]" is an invalid header value.')
+      expect(h.db.select().from(runs).all().map(run => run.error)).toEqual([sourceRow.lastError])
+    } finally {
+      await h.close()
+    }
+  })
+
   it.each([
     { failure: 'a rejected token', error: () => new VercelLogsApiError('Vercel request-logs endpoint returned HTTP 403', 403), errorCode: 'PROVIDER_AUTH' },
     { failure: 'any other pull error', error: () => new Error('request-logs 500: gateway'), errorCode: 'PROVIDER_PULL' },
@@ -2166,6 +2453,26 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     }
   })
 
+  it('keeps the token out of a failed backfill run', async () => {
+    const h = await buildHarness([], { failVercelPullWith: `request quoted Bearer ${vercelConnectBody.token}` })
+    try {
+      const sourceId = await connectVercel(h)
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const finalRun = await waitForRunComplete(h.db, JSON.parse(submitRes.payload).runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toBe('Vercel pull failed: request quoted Bearer [REDACTED]')
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(JSON.stringify(sourceRow)).not.toContain(vercelConnectBody.token)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('fails fast (loud, no rollup replace) on an irreducibly dense one-second slice', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
@@ -2397,6 +2704,47 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(runRows.length).toBe(1)
       expect(runRows[0].kind).toBe(RunKinds['traffic-sync'])
       expect(runRows[0].status).toBe(RunStatuses.completed)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('counts a browser agent\'s page loads as AI user fetches and reports its other requests apart', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const at = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events = [
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/pricing', observedAt: at(1) }),
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/_next/static/chunks/main-4f1c.js', observedAt: at(1) }),
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, path: '/about', queryString: '_rsc=1ld0r', observedAt: at(1) }),
+      buildEvent({ userAgent: CLAUDE_AGENT_UA, method: 'POST', path: '/_vercel/insights/view', observedAt: at(2) }),
+    ]
+    const logs = logCapture()
+    const h = await buildHarness(events, { logger: logs.logger })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'browser-agent', keyJson: SA_KEY },
+      })
+      expect(connectRes.statusCode).toBe(200)
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      expect(syncRes.statusCode).toBe(200)
+      const synced = trafficSyncResponseSchema.parse(JSON.parse(syncRes.payload))
+      expect(synced).toMatchObject({
+        pulledEvents: 4, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 3, aiUserFetchLikelyFakeHits: 0,
+        aiUserFetchBucketRows: 1, unknownHits: 0,
+      })
+      expect(h.db.select({ botId: aiUserFetchEventsHourly.botId, path: aiUserFetchEventsHourly.pathNormalized, hits: aiUserFetchEventsHourly.hits })
+        .from(aiUserFetchEventsHourly).all()).toEqual([{ botId: 'claude-agent', path: '/pricing', hits: 1 }])
+      // A scheduled sync throws its response away, so the log reports them too.
+      expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([{ sourceId, runId: synced.runId, aiUserFetchBrowserNonPageHits: 3 }])
     } finally {
       await h.close()
     }
@@ -3588,6 +3936,32 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
     }
   })
 
+  it('keeps the application password out of a failed sync in every form it travels in', async () => {
+    const password = wpConnectBody.applicationPassword
+    const basic = Buffer.from(`${wpConnectBody.username}:${password}`, 'utf8').toString('base64')
+    const h = await buildHarness([], {
+      failWpPullWith: `sent "${password}" as ${password.replace(/ /g, '')} in Basic ${basic}`,
+    })
+    try {
+      const sourceId = await connectWp(h)
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(res.statusCode).toBe(502)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastError).toBe('sent "[REDACTED]" as [REDACTED] in Basic [REDACTED]')
+      for (const text of [res.payload, sourceRow.lastError!, ...h.db.select().from(runs).all().map(run => run.error ?? '')]) {
+        expect(text).not.toContain(password)
+        expect(text).not.toContain(password.replace(/ /g, ''))
+        expect(text).not.toContain(basic)
+      }
+    } finally {
+      await h.close()
+    }
+  })
+
   it('dedupes by eventId across syncs when the boundary cursor re-returns the same event', async () => {
     // Plugin (or upstream caching) may re-emit the same event on the next page
     // boundary — the sync must drop it via the cross-sync ring buffer and avoid
@@ -4151,6 +4525,181 @@ describe('POST /traffic/sources/:id/backfill', () => {
     } finally {
       await h.close()
       vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    { name: 'clears the marker after replacing its last older row', olderOutsideWindow: false, expectedHits: 1 },
+    { name: 'retains the moved marker while older rows remain', olderOutsideWindow: true, expectedHits: 8 },
+  ])('$name', async ({ olderOutsideWindow, expectedHits }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+    const movedCutoff = '2026-10-25T01:00:00.000Z'
+    const h = await buildHarness([buildEvent({
+      eventId: 'recounted-ai-arrival', observedAt: '2026-10-24T10:15:00.000Z',
+      userAgent: 'Mozilla/5.0', path: '/landing', requestUrl: 'https://example.com/landing?utm_source=chatgpt.com',
+      queryString: 'utm_source=chatgpt.com', referer: 'https://chatgpt.com/',
+    })])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'recount-backfill', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode, connected.payload).toBe(200)
+      const sourceId = JSON.parse(connected.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      h.db.run(sql`UPDATE _migrations SET applied_at = '2026-11-04 12:00:00' WHERE version = 207`)
+      h.db.update(trafficSources).set({ aiReferralOlderCountUntil: movedCutoff, createdAt: '2026-08-16T18:00:00.000Z' })
+        .where(eq(trafficSources.id, sourceId)).run()
+      const peerId = `${sourceId}-peer`
+      h.db.insert(trafficSources).values({
+        ...source, id: peerId, status: TrafficSourceStatuses.paused,
+        createdAt: '2026-08-16T18:00:00.000Z', aiReferralOlderCountUntil: movedCutoff,
+      }).run()
+      // A journey recount already moved the cutoff back. These delayed rows
+      // were written after that boundary but before v207 changed the rule.
+      const referral = {
+        projectId: source.projectId, sourceId, tsHour: '2026-10-24T10:00:00.000Z',
+        product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+        landingPathNormalized: '/landing', status: 200, sessionsOrHits: 100,
+        paidSessionsOrHits: 0, organicSessionsOrHits: 100,
+        createdAt: '2026-11-03T10:20:00.000Z', updatedAt: '2026-11-03T10:20:00.000Z',
+      }
+      h.db.insert(aiReferralEventsHourly).values([
+        referral,
+        { ...referral, sourceId: peerId, sessionsOrHits: 17, organicSessionsOrHits: 17 },
+        ...(olderOutsideWindow ? [{
+          ...referral, tsHour: '2026-10-22T10:00:00.000Z', sessionsOrHits: 7, organicSessionsOrHits: 7,
+        }] : []),
+      ]).run()
+      const query = 'since=2026-10-20T00%3A00%3A00.000Z&granularity=day'
+      const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&${query}`
+      const before = await h.app.inject({ method: 'GET', url })
+      expect(before.statusCode).toBe(200)
+      expect(trafficEventsResponseSchema.parse(JSON.parse(before.payload)).series.aiReferralCountingChangedAt).toBe(movedCutoff)
+
+      const submitted = await h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 14 },
+      })
+      expect(submitted.statusCode, submitted.payload).toBe(200)
+      expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const after = await h.app.inject({ method: 'GET', url })
+      expect(after.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(after.payload))
+      expect(body.totals.aiReferralLandedHits).toBe(expectedHits)
+      expect(body.series.aiReferralCountingChangedAt).toBe(olderOutsideWindow ? movedCutoff : null)
+      const peer = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?sourceId=${peerId}&${query}` })
+      expect(peer.statusCode).toBe(200)
+      const peerBody = trafficEventsResponseSchema.parse(JSON.parse(peer.payload))
+      expect(peerBody.totals.aiReferralLandedHits).toBe(17)
+      expect(peerBody.series.aiReferralCountingChangedAt).toBe(movedCutoff)
+    } finally {
+      await h.close()
+    }
+  })
+
+  /**
+   * A 14-day backfill on 2026-11-06T12:00Z rewrites the hours from
+   * 2026-10-23T12:00Z on, page loads only. Hours before the window keep the
+   * count they were made under, so the marker moves back to the end of the
+   * source's last browser-agent hour among them (counted or likely fake, in
+   * this project), never forward, and clears when none is left.
+   */
+  type RowBeforeWindow = { kind: 'counted' | 'likely-fake', botId: string, tsHour: string, hits: number, foreignProject?: true }
+  // Vitest cuts a `$name` value at 40 characters, so each stays shorter.
+  it.each<{ name: string, changedAt: string, before: RowBeforeWindow[], expectedUntil: string | null, expectedHits: number }>([
+    {
+      name: 'clears once no older hour remains',
+      changedAt: '2026-11-01T10:00:00.000Z', before: [], expectedUntil: null, expectedHits: 1,
+    },
+    {
+      name: 'moves back to the last older hour',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [
+        { kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20 },
+        // A link fetcher counted every request all along.
+        { kind: 'counted', botId: 'chatgpt-user', tsHour: '2026-10-22T10:00:00.000Z', hits: 5 },
+      ],
+      expectedUntil: '2026-10-20T11:00:00.000Z', expectedHits: 26,
+    },
+    {
+      name: 'moves back to a likely-fake hour',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [{ kind: 'likely-fake', botId: 'claude-agent', tsHour: '2026-10-21T15:00:00.000Z', hits: 4 }],
+      expectedUntil: '2026-10-21T16:00:00.000Z', expectedHits: 1,
+    },
+    {
+      // A browser-agent hour after the marker was counted page loads only.
+      name: 'stays when it ends earlier',
+      changedAt: '2026-10-18T00:00:00.000Z',
+      before: [{ kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20 }],
+      expectedUntil: '2026-10-18T00:00:00.000Z', expectedHits: 21,
+    },
+    {
+      name: 'ignores another project\'s hours',
+      changedAt: '2026-11-01T10:00:00.000Z',
+      before: [{ kind: 'counted', botId: 'google-agent', tsHour: '2026-10-20T10:00:00.000Z', hits: 20, foreignProject: true }],
+      expectedUntil: null, expectedHits: 1,
+    },
+  ])('the browser-agent count marker $name after a backfill', async ({ changedAt, before: rowsBeforeWindow, expectedUntil, expectedHits }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+    // A Google-Agent page load and the script its page loaded, inside the backfill window.
+    const h = await buildHarness([
+      buildEvent({ eventId: 'page', observedAt: '2026-10-24T10:15:00.000Z', userAgent: GOOGLE_AGENT_UA, path: '/pricing' }),
+      buildEvent({ eventId: 'script', observedAt: '2026-10-24T10:15:01.000Z', userAgent: GOOGLE_AGENT_UA, path: '/assets/app.js' }),
+    ])
+    try {
+      const connected = await h.app.inject({
+        method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'browser-agent-backfill', keyJson: SA_KEY },
+      })
+      expect(connected.statusCode, connected.payload).toBe(200)
+      const sourceId = JSON.parse(connected.payload).id as string
+      const source = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      h.db.update(trafficSources).set({ aiUserFetchOlderCountUntil: changedAt }).where(eq(trafficSources.id, sourceId)).run()
+      // Hours stored before page loads alone counted: every request counted.
+      const older = {
+        projectId: source.projectId, sourceId, tsHour: '2026-10-24T10:00:00.000Z', botId: 'google-agent', operator: 'Google',
+        verificationStatus: 'claimed_unverified', pathNormalized: '/assets/app.js', status: 200, hits: 30,
+        sampledUserAgent: GOOGLE_AGENT_UA, createdAt: '2026-10-24T10:20:00.000Z', updatedAt: '2026-10-24T10:20:00.000Z',
+      }
+      h.db.insert(aiUserFetchEventsHourly).values(older).run()
+      const foreignProjectId = 'foreign-browser-agent-project'
+      if (rowsBeforeWindow.some(row => row.foreignProject)) {
+        const project = h.db.select().from(projects).where(eq(projects.id, source.projectId)).get()!
+        h.db.insert(projects).values({ ...project, id: foreignProjectId, name: 'foreign-browser-agent', canonicalDomain: 'foreign-agent.example' }).run()
+      }
+      for (const row of rowsBeforeWindow) {
+        const projectId = row.foreignProject ? foreignProjectId : source.projectId
+        if (row.kind === 'counted') {
+          h.db.insert(aiUserFetchEventsHourly).values({ ...older, projectId, botId: row.botId, tsHour: row.tsHour, pathNormalized: '/pricing', hits: row.hits }).run()
+        } else {
+          h.db.insert(aiUserFetchLikelyFakeHourly).values({
+            projectId, sourceId, tsHour: row.tsHour, botId: row.botId, operator: 'Anthropic',
+            reason: AgentTrustReasons['scanner-burst'], hits: row.hits, createdAt: row.tsHour, updatedAt: row.tsHour,
+          }).run()
+        }
+      }
+      const url = `/api/v1/projects/test-project/traffic/events?sourceId=${sourceId}&since=2026-10-15T00%3A00%3A00.000Z&granularity=day`
+      const before = trafficEventsResponseSchema.parse(JSON.parse((await h.app.inject({ method: 'GET', url })).payload))
+      expect(before.series.aiUserFetchCountingChangedAt).toBe(changedAt)
+
+      const submitted = await h.app.inject({
+        method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 14 },
+      })
+      expect(submitted.statusCode, submitted.payload).toBe(200)
+      expect((await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const after = trafficEventsResponseSchema.parse(JSON.parse((await h.app.inject({ method: 'GET', url })).payload))
+      // The rewritten hour counts the page load only; hours before the window keep their count.
+      expect(after.totals.aiUserFetchHits).toBe(expectedHits)
+      expect(after.series.aiUserFetchCountingChangedAt).toBe(expectedUntil)
+      expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.aiUserFetchOlderCountUntil)
+        .toBe(expectedUntil)
+    } finally {
+      await h.close()
     }
   })
 
@@ -5358,7 +5907,7 @@ describe('GET /traffic/events', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       expect(body.totals).toMatchObject({ crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1 })
-      expect(body.eventRows).toEqual({ total: 3, returned: 3, truncated: false })
+      expect(body.eventRows).toEqual({ total: 3, returned: 3, truncated: false, nextCursor: null })
       expect(body.series.granularity).toBe('hour')
       expect(
         body.series.points.reduce(
@@ -5468,6 +6017,125 @@ describe('GET /traffic/events', () => {
     } finally { await h.close() }
   })
 
+  // A caller showing two series asks for exactly those two. Under the row cap,
+  // "all" is almost only crawler rows on a busy site, so the AI rows a chart
+  // shows never reach the table.
+  it('filters by a comma-separated list of kinds', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/bar', status: 200, observedAt: fromBase(2) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'Mozilla/5.0', path: '/landing', queryString: 'utm_source=chatgpt.com', status: 200, observedAt: fromBase(15) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      const read = async (query: string) => {
+        const res = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events${query}` })
+        expect(res.statusCode).toBe(200)
+        return JSON.parse(res.payload) as TrafficEventsResponse
+      }
+
+      const body = await read('?kind=ai-user-fetch,ai-referral')
+      expect(body.events.map(e => e.kind).sort()).toEqual(['ai-referral', 'ai-user-fetch'])
+      expect(body.eventRows.total).toBe(2)
+      // Totals and series cover the listed kinds only, like a single kind.
+      expect(body.totals.crawlerHits).toBe(0)
+      expect(body.totals.aiUserFetchHits).toBe(1)
+      expect(body.totals.aiReferralHits).toBe(1)
+      const sum = (key: 'crawlerHits' | 'aiUserFetchHits' | 'aiReferralHits') =>
+        body.series.points.reduce((n, point) => n + point[key], 0)
+      expect(sum('crawlerHits')).toBe(0)
+      expect(sum('aiUserFetchHits')).toBe(1)
+      expect(sum('aiReferralHits')).toBe(1)
+
+      // The list's order does not matter, and spaces around a member are fine.
+      const reordered = await read(`?kind=${encodeURIComponent('ai-referral, ai-user-fetch')}`)
+      expect(reordered.totals).toEqual(body.totals)
+      expect(reordered.events.length).toBe(2)
+
+      // Every kind listed is the same read as no filter.
+      const everyKind = await read('?kind=crawler,ai-user-fetch,ai-referral')
+      const unfiltered = await read('')
+      expect(everyKind.totals).toEqual(unfiltered.totals)
+      expect(everyKind.events.length).toBe(unfiltered.events.length)
+      expect(everyKind.eventRows.total).toBe(unfiltered.eventRows.total)
+    } finally { await h.close() }
+  })
+
+  it('rejects a kind list with an unknown or empty member', async () => {
+    const { h } = await syncedHarness()
+    try {
+      for (const kind of ['crawler,bogus', ',', 'all,crawler']) {
+        const res = await h.app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/test-project/traffic/events?kind=${encodeURIComponent(kind)}`,
+        })
+        expect(res.statusCode, kind).toBe(400)
+        expect(JSON.parse(res.payload).error.message).toMatch(/kind/)
+      }
+      // A repeated parameter arrives as an array: refused, not a server error.
+      const repeated = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=crawler&kind=ai-referral',
+      })
+      expect(repeated.statusCode).toBe(400)
+    } finally { await h.close() }
+  })
+
+  // The dashboard fetches a clicked hour bar's rows with since and until both
+  // set to that hour, so the hour's rows load however many newer rows exist.
+  it('returns exactly one hour when since and until are that hour', async () => {
+    const baseTime = new Date(Date.now() - 3 * 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/early', status: 200, observedAt: fromBase(5) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(65) }),
+      buildEvent({ userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: null, path: '/', status: 200, observedAt: fromBase(70) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/late', status: 200, observedAt: fromBase(125) }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 300 },
+      })
+      const hour = new Date(baseTime.getTime() + 60 * 60_000).toISOString()
+      const window = `since=${encodeURIComponent(hour)}&until=${encodeURIComponent(hour)}`
+
+      const res = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}` })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload) as TrafficEventsResponse
+      expect(body.events.map(e => e.tsHour)).toEqual([hour, hour])
+      expect(body.events.map(e => e.kind).sort()).toEqual(['ai-user-fetch', 'crawler'])
+
+      const narrowed = await h.app.inject({ method: 'GET', url: `/api/v1/projects/test-project/traffic/events?${window}&kind=ai-user-fetch` })
+      const narrowedBody = JSON.parse(narrowed.payload) as TrafficEventsResponse
+      expect(narrowedBody.events.map(e => e.kind)).toEqual(['ai-user-fetch'])
+    } finally { await h.close() }
+  })
+
   it('rejects invalid since/until and reversed windows', async () => {
     const { h } = await syncedHarness()
     try {
@@ -5505,7 +6173,7 @@ describe('GET /traffic/events', () => {
       expect(body.events.length).toBe(1)
       expect(body.totals.crawlerHits).toBe(2)
       expect(body.totals.aiReferralHits).toBe(1)
-      expect(body.eventRows).toEqual({ total: 2, returned: 1, truncated: true })
+      expect(body.eventRows).toEqual({ total: 2, returned: 1, truncated: true, nextCursor: expect.any(String) })
     } finally { await h.close() }
   })
 
@@ -5608,7 +6276,7 @@ describe('GET /traffic/events', () => {
       expect(body.windowStart).toBe('2026-02-06T00:00:00.000Z')
       expect(body.windowEnd).toBe('2026-05-07T13:45:00.000Z')
       expect(body.events).toHaveLength(1)
-      expect(body.eventRows).toEqual({ total: 4, returned: 1, truncated: true })
+      expect(body.eventRows).toEqual({ total: 4, returned: 1, truncated: true, nextCursor: expect.any(String) })
       expect(body.series.granularity).toBe('day')
       expect(body.series.coverageStart).toBe('2026-02-06T00:00:00.000Z')
       const expectedPoints = Array.from({ length: 91 }, (_, index) => ({
@@ -5907,6 +6575,145 @@ describe('crawler-hit content/infra segmentation', () => {
   })
 
   /**
+   * The other end of coverage. A source whose syncs keep failing (an expired
+   * token answers every sync with HTTP 403) holds its watermark still, and the
+   * days after it read as a measured zero: the chart showed crawlers stopping
+   * when only the log pull had. A bucket past every selected source's
+   * watermark was not measured; one that holds a watermark, or runs past one
+   * while another source keeps reporting, is partial.
+   */
+  describe('buckets after the last sync', () => {
+    const WINDOW = 'since=2026-04-30T13%3A45%3A00.000Z&granularity=day'
+    const DAYS = Array.from({ length: 8 }, (_, index) =>
+      new Date(Date.UTC(2026, 3, 30) + index * 86_400_000).toISOString().slice(0, 10))
+    const STOPPED_AT = '2026-05-04T09:30:00.000Z'
+    const NOW = '2026-05-07T13:45:00.000Z'
+
+    async function seriesOf(h: Awaited<ReturnType<typeof buildHarness>>, sourceId?: string) {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?${WINDOW}${sourceId ? `&sourceId=${sourceId}` : ''}`,
+      })
+      expect(res.statusCode).toBe(200)
+      return trafficEventsResponseSchema.parse(JSON.parse(res.payload)).series
+    }
+
+    /** 100 content crawls a day from May 1 through the morning of May 4. */
+    function crawlsUntilStopped(h: Awaited<ReturnType<typeof buildHarness>>, source: typeof trafficSources.$inferSelect) {
+      insertSeriesCrawlerRows(h, source, [
+        ...[1, 2, 3].map(day => ({ tsHour: `2026-05-0${day}T00:00:00.000Z`, pathNormalized: `/day-${day}`, hits: 100 })),
+        { tsHour: '2026-05-04T05:00:00.000Z', pathNormalized: '/day-4', hits: 30 },
+      ])
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(NOW))
+    })
+
+    it('marks every bucket after a failing source\'s watermark as unmeasured', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT, lastError: 'HTTP 403' })
+          .where(eq(trafficSources.id, source.id)).run()
+        crawlsUntilStopped(h, source)
+
+        for (const series of [await seriesOf(h), await seriesOf(h, source.id)]) {
+          expect(series.coverageStart).toBe('2026-05-01T00:00:00.000Z')
+          expect(series.recordedThrough).toBe(STOPPED_AT)
+          expect(series.points.map(point => [point.bucket, point.measured])).toEqual(DAYS.map((day, index) => [day, index >= 1 && index <= 4]))
+          expect(series.partialBuckets, 'the day the source stopped inside; an unmeasured today is not partial').toEqual(['2026-05-04'])
+          expect(series.trends.crawlerContentHits, 'only the three full days').toMatchObject({ slope: 0, start: 100, end: 100, n: 3, startIndex: 1, endIndex: 3 })
+        }
+      } finally { await h.close() }
+    })
+
+    it('keeps the day measured but partial while another source still reports', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT })
+          .where(eq(trafficSources.id, source.id)).run()
+        const healthy = { ...source, id: 'healthy-source', displayName: 'Healthy', status: TrafficSourceStatuses.connected, lastSyncedAt: NOW }
+        h.db.insert(trafficSources).values(healthy).run()
+        crawlsUntilStopped(h, source)
+        insertSeriesCrawlerRows(h, healthy, [3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/healthy-${day}`, hits: 10 })))
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBe(NOW)
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07'])
+        expect(project.trends.crawlerContentHits, 'fitted only before the stopped source fell behind').toMatchObject({ n: 3, startIndex: 1, endIndex: 3 })
+
+        const stopped = await seriesOf(h, source.id)
+        expect(stopped.recordedThrough).toBe(STOPPED_AT)
+        expect(stopped.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1 && index <= 4))
+
+        const reporting = await seriesOf(h, healthy.id)
+        expect(reporting.recordedThrough).toBe(NOW)
+        expect(reporting.points.map(point => point.measured), 'its own coverage starts May 3').toEqual(DAYS.map((_, index) => index >= 3))
+        expect(reporting.partialBuckets, 'its first day began at noon; today is still running').toEqual(['2026-05-03', '2026-05-07'])
+      } finally { await h.close() }
+    })
+
+    it('never marks a bucket unmeasured while a direct-push source can still report', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT })
+          .where(eq(trafficSources.id, source.id)).run()
+        // A missing delivery mode is the legacy direct-push shape; its own
+        // last-sync time is not a pull watermark.
+        h.db.insert(trafficSources).values({
+          ...source, id: 'worker-source', sourceType: 'cloudflare', displayName: 'Worker',
+          status: TrafficSourceStatuses.connected, lastSyncedAt: '2026-05-02T00:00:00.000Z', configJson: {},
+        }).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBeNull()
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07'])
+      } finally { await h.close() }
+    })
+
+    it('ignores paused, archived and never-synced sources project-wide', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.connected, lastSyncedAt: NOW })
+          .where(eq(trafficSources.id, source.id)).run()
+        h.db.insert(trafficSources).values([
+          { ...source, id: 'paused-source', displayName: 'Paused', status: TrafficSourceStatuses.paused, lastSyncedAt: '2026-05-02T00:00:00.000Z' },
+          { ...source, id: 'archived-source', displayName: 'Archived', status: TrafficSourceStatuses.archived, lastSyncedAt: '2026-05-02T00:00:00.000Z' },
+          { ...source, id: 'never-synced-source', displayName: 'New', status: TrafficSourceStatuses.error, lastSyncedAt: null },
+        ]).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBe(NOW)
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets, 'only today, still running').toEqual(['2026-05-07'])
+
+        const paused = await seriesOf(h, 'paused-source')
+        expect(paused.recordedThrough, 'a selected source counts in any status').toBe('2026-05-02T00:00:00.000Z')
+        expect(paused.points.every(point => !point.measured), 'it recorded nothing of its own').toBe(true)
+      } finally { await h.close() }
+    })
+
+    it('leaves the series as it was when no selected source has a watermark', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: null })
+          .where(eq(trafficSources.id, source.id)).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBeNull()
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-07'])
+      } finally { await h.close() }
+    })
+  })
+
+  /**
    * Review finding: `until` defaults to now, so the newest daily bucket holds
    * only the elapsed fraction of the current UTC day. Fitting through it makes a
    * flat site read as declining, every time, for everyone. Same class of error
@@ -6026,6 +6833,198 @@ describe('crawler-hit content/infra segmentation', () => {
     } finally { await h.close() }
   })
 
+  function insertSeriesReferralRows(
+    h: Awaited<ReturnType<typeof buildHarness>>,
+    source: typeof trafficSources.$inferSelect,
+    observations: { tsHour: string; hits: number }[],
+  ) {
+    h.db.insert(aiReferralEventsHourly).values(observations.map(observation => ({
+      projectId: source.projectId, sourceId: source.id, tsHour: observation.tsHour,
+      product: 'ChatGPT', operator: 'OpenAI', sourceDomain: 'chatgpt.com', evidenceType: 'utm',
+      landingPathNormalized: '/', status: 200, sessionsOrHits: observation.hits,
+      paidSessionsOrHits: 0, organicSessionsOrHits: observation.hits, usersEstimated: null,
+      createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+    }))).run()
+  }
+
+  /**
+   * Hours a source counted by the older AI-referral rule read high, so a line
+   * fitted across the change slopes down for traffic that held steady.
+   *
+   * Fixture: two older days at 100, the count changing at 12:00 on the second,
+   * then three whole days flat at 10. The fit must use only those three days;
+   * without the marker the same rows fit a steep decline.
+   */
+  it('fits the AI-referral trend only after the older count ended', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'older count marked', until: '2026-05-03T12:00:00.000Z' },
+      { name: 'no older count', until: null },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        if (scenario.until) {
+          h.db.update(trafficSources).set({ aiReferralOlderCountUntil: scenario.until })
+            .where(eq(trafficSources.id, source.id)).run()
+        }
+        insertSeriesReferralRows(h, source, [
+          { tsHour: '2026-05-02T00:00:00.000Z', hits: 100 },
+          { tsHour: '2026-05-03T00:00:00.000Z', hits: 100 },
+          ...[4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 10 })),
+        ])
+        insertSeriesCrawlerRows(h, source, [2, 3, 4, 5, 6].map(day => ({
+          tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/blog/day-${day}`, hits: 50,
+        })))
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.aiReferralCountingChangedAt, scenario.name).toBe(scenario.until)
+        expect(body.series.points.map(point => point.aiReferralLandedHits), 'raw counts are unchanged').toEqual([0, 0, 100, 100, 10, 10, 10, 0])
+        // Other series keep every measured day.
+        expect(body.series.trends.crawlerContentHits, scenario.name).toEqual({
+          slope: 0, intercept: 50, r2: 1, start: 50, end: 50, n: 5, startIndex: 2, endIndex: 6,
+        })
+        if (scenario.until) {
+          expect(body.series.trends.aiReferralLandedHits, 'three whole days after the change, at their own indices').toEqual({
+            slope: 0, intercept: 10, r2: 1, start: 10, end: 10, n: 3, startIndex: 4, endIndex: 6,
+          })
+        } else {
+          expect(body.series.trends.aiReferralLandedHits?.n).toBe(5)
+          expect(body.series.trends.aiReferralLandedHits?.slope).toBeLessThan(0)
+        }
+      } finally { await h.close() }
+    }
+  })
+
+  /**
+   * Hours stored before browser agents counted page loads only also counted
+   * every file, data call and beacon their pages made, so a line fitted
+   * across the change slopes down for agents that kept reading as much.
+   *
+   * Fixture: Google-Agent at 120 a day on two older days, the count changing
+   * at 09:30 on the second, then three whole days flat at 6 page loads. The
+   * fit must use only those three days; without the marker it fits a decline.
+   */
+  it('fits the AI user fetch trend only after browser agents counted page loads only', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-05-07T13:45:00.000Z'))
+    for (const scenario of [
+      { name: 'older count marked', until: '2026-05-03T09:30:00.000Z' },
+      { name: 'no older count', until: null },
+    ]) {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        if (scenario.until) {
+          h.db.update(trafficSources).set({ aiUserFetchOlderCountUntil: scenario.until })
+            .where(eq(trafficSources.id, source.id)).run()
+        }
+        h.db.insert(aiUserFetchEventsHourly).values([
+          { tsHour: '2026-05-02T00:00:00.000Z', hits: 120 },
+          { tsHour: '2026-05-03T00:00:00.000Z', hits: 120 },
+          ...[4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 6 })),
+        ].map(observation => ({
+          ...observation, projectId: source.projectId, sourceId: source.id, botId: 'google-agent', operator: 'Google',
+          verificationStatus: 'claimed_unverified', pathNormalized: '/pricing', status: 200, sampledUserAgent: GOOGLE_AGENT_UA,
+          createdAt: '2026-05-07T13:45:00.000Z', updatedAt: '2026-05-07T13:45:00.000Z',
+        }))).run()
+        insertSeriesReferralRows(h, source, [2, 3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, hits: 10 })))
+        const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-30T13%3A45%3A00.000Z&granularity=day' })
+        expect(res.statusCode, scenario.name).toBe(200)
+        const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+        expect(body.series.aiUserFetchCountingChangedAt, scenario.name).toBe(scenario.until)
+        expect(body.series.points.map(point => point.aiUserFetchHits), 'raw counts are unchanged').toEqual([0, 0, 120, 120, 6, 6, 6, 0])
+        expect(body.totals.aiUserFetchHits, 'totals keep the stored count').toBe(258)
+        // The referral series never changed its count, so it keeps every measured day.
+        expect(body.series.trends.aiReferralLandedHits, scenario.name).toEqual({
+          slope: 0, intercept: 10, r2: 1, start: 10, end: 10, n: 5, startIndex: 2, endIndex: 6,
+        })
+        if (scenario.until) {
+          expect(body.series.trends.aiUserFetchHits, 'three whole days after the change, at their own indices').toEqual({
+            slope: 0, intercept: 6, r2: 1, start: 6, end: 6, n: 3, startIndex: 4, endIndex: 6,
+          })
+        } else {
+          // linearTrend([null, null, 120, 120, 6, 6, 6, null]): mean (4, 51.6),
+          // Sxy -342 over Sxx 10, and 3898.8 of 15595.2 left unexplained.
+          expect(body.series.trends.aiUserFetchHits, 'every measured whole day').toEqual({
+            slope: -34.2, intercept: 188.4, r2: 0.75, start: 120, end: -16.8, n: 5, startIndex: 2, endIndex: 6,
+          })
+        }
+      } finally { await h.close() }
+    }
+  })
+
+  /**
+   * Months are UTC calendar months. The month recording began inside and the
+   * month still running are named partial and left out of the fits.
+   *
+   * Fixture: recording begins May 25; visits 10 in June, 20 a month July to
+   * October, 3 so far in November. The fit is June to October.
+   */
+  it('buckets the series by month', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T13:45:00.000Z'))
+    const { h, source } = await emptySeriesHarness()
+    try {
+      insertSeriesReferralRows(h, source, [
+        { tsHour: '2026-05-25T10:00:00.000Z', hits: 5 },
+        { tsHour: '2026-06-10T10:00:00.000Z', hits: 10 },
+        ...['07', '08', '09', '10'].map(month => ({ tsHour: `2026-${month}-10T10:00:00.000Z`, hits: 20 })),
+        { tsHour: '2026-11-02T10:00:00.000Z', hits: 3 },
+      ])
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?since=2026-04-01T00%3A00%3A00.000Z&granularity=month' })
+      expect(res.statusCode).toBe(200)
+      const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
+      expect(body.series.granularity).toBe('month')
+      expect(body.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured])).toEqual([
+        ['2026-04', 0, false], ['2026-05', 5, true], ['2026-06', 10, true], ['2026-07', 20, true],
+        ['2026-08', 20, true], ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+      ])
+      expect(body.totals.aiReferralLandedHits).toBe(98)
+      expect(body.series.points.reduce((sum, p) => sum + p.aiReferralLandedHits, 0), 'buckets sum to the total').toBe(body.totals.aiReferralLandedHits)
+      expect(body.series.partialBuckets).toEqual(['2026-05', '2026-11'])
+      expect(body.series.trends.aiReferralLandedHits).toEqual({
+        slope: 2, intercept: 10, r2: 0.5, start: 14, end: 22, n: 5, startIndex: 2, endIndex: 6,
+      })
+
+      // Prior coverage cannot make a requested slice of June a complete month.
+      for (const scenario of [
+        {
+          since: '2026-06-01T00:00:00.000Z', juneHits: 10, partialBuckets: ['2026-11'],
+          trend: { slope: 2, intercept: 14, r2: 0.5, start: 14, end: 22, n: 5, startIndex: 0, endIndex: 4 },
+        },
+        {
+          since: '2026-06-15T00:00:00.000Z', juneHits: 0, partialBuckets: ['2026-06', '2026-11'],
+          trend: { slope: 0, intercept: 20, r2: 1, start: 20, end: 20, n: 4, startIndex: 1, endIndex: 4 },
+        },
+      ]) {
+        const ranged = await h.app.inject({
+          method: 'GET',
+          url: `/api/v1/projects/test-project/traffic/events?since=${encodeURIComponent(scenario.since)}&granularity=month`,
+        })
+        expect(ranged.statusCode, scenario.since).toBe(200)
+        const rangedBody = trafficEventsResponseSchema.parse(JSON.parse(ranged.payload))
+        expect(rangedBody.series.coverageStart, scenario.since).toBe('2026-05-25T10:00:00.000Z')
+        expect(rangedBody.series.points.map(p => [p.bucket, p.aiReferralLandedHits, p.measured]), scenario.since).toEqual([
+          ['2026-06', scenario.juneHits, true], ['2026-07', 20, true], ['2026-08', 20, true],
+          ['2026-09', 20, true], ['2026-10', 20, true], ['2026-11', 3, true],
+        ])
+        expect(rangedBody.totals.aiReferralLandedHits, scenario.since).toBe(scenario.juneHits + 83)
+        expect(rangedBody.series.partialBuckets, scenario.since).toEqual(scenario.partialBuckets)
+        expect(rangedBody.series.trends.aiReferralLandedHits, scenario.since).toEqual(scenario.trend)
+      }
+    } finally { await h.close() }
+  })
+
+  it('refuses an unknown granularity', async () => {
+    const { h } = await emptySeriesHarness()
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/events?granularity=week' })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toBe('"granularity" must be one of: hour, day, month')
+    } finally { await h.close() }
+  })
+
   it('rejects sinceMinutes rather than silently answering for 24 hours', async () => {
     const { h } = await mixedPathHarness()
     try {
@@ -6087,7 +7086,7 @@ describe('crawler-hit content/infra segmentation', () => {
           })
           expect(res.statusCode, `${scenario.pathCount} repeated paths`).toBe(200)
           const body = trafficEventsResponseSchema.parse(JSON.parse(res.payload))
-          expect(body.eventRows).toEqual({ total: scenario.eventRows, returned: 1, truncated: true })
+          expect(body.eventRows).toEqual({ total: scenario.eventRows, returned: 1, truncated: true, nextCursor: expect.any(String) })
           expect(body.series.points).toEqual(Array.from({ length: 11 }, (_, index) => ({
             bucket: new Date(Date.UTC(2026, 3, 27) + index * 86_400_000).toISOString().slice(0, 10),
             crawlerHits: index < 4 ? 0 : index === 10 ? 15 : scenario.pathCount + 2,

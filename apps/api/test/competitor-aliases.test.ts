@@ -53,7 +53,6 @@ async function seedCloud() {
   const app = buildApp(getPlatformEnv({
     DATABASE_URL: dbPath,
     API_PORT: '3000',
-    WORKER_PORT: '3001',
     GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b',
   }))
   onTestFinished(async () => {

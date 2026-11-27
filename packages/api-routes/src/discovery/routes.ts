@@ -53,6 +53,7 @@ import {
   type DiscoverySessionStatus,
   type LocationContext,
 } from '@canonry/canonry-contracts'
+import { requireAdminSession, requirePaidReadScope } from '../auth.js'
 import { resolveProject, writeAuditLog } from '../helpers.js'
 import { pruneQualifiedAliasesForCompetitors } from '../projects.js'
 import {
@@ -388,15 +389,16 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // GET /projects/:name/discover/sessions/:id/harvest — read the issued search
   // queries (Gemini's grounding fan-out) back out of the session's stored probe
   // payloads, gate them for buyer-intent + novelty, and return the survivors as
-  // candidate seeds for the operator/agent to review. Read-only and derived: it
-  // never probes, tracks, or promotes anything — the harvest is a third signal
-  // (issued retrieval queries), distinct from mention and citation. Issue #713.
+  // candidate seeds for review. Semantic novelty can call the configured
+  // embedding provider, so gate the entire route as a paid read.
   app.get<{
     Params: { name: string; id: string }
     Querystring: { minProbeHits?: string; anchor?: string }
   }>(
     '/projects/:name/discover/sessions/:id/harvest',
     async (request, reply) => {
+      requireAdminSession(request)
+      requirePaidReadScope(request, [], 'Discovery harvest requires wildcard (*) API key scope because it can call the embedding provider.')
       const project = resolveProject(app.db, request.params.name)
       const session = app.db
         .select()

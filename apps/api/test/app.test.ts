@@ -116,7 +116,7 @@ test('cloud REST host exposes durable redacted runtime logs without weakening ac
     keyPrefix: token.slice(0, 9), scopes: ['read', 'logs.read'], createdAt: new Date().toISOString(),
   }).run()
   db.$client.close()
-  const env = getPlatformEnv({ DATABASE_URL: dbPath, API_PORT: '3000', WORKER_PORT: '3001', GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b' })
+  const env = getPlatformEnv({ DATABASE_URL: dbPath, API_PORT: '3000', GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b' })
   const app = buildApp(env)
   onTestFinished(async () => { await app.close(); fs.rmSync(tmpDir, { recursive: true, force: true }) })
   await app.ready()
@@ -138,7 +138,7 @@ test.each(['fresh', 'upgrade'] as const)('cloud boot prepares runtime storage on
     migrate(previous, MIGRATION_VERSIONS.filter(migration => migration.version < 155))
     previous.$client.close()
   }
-  const env = getPlatformEnv({ DATABASE_URL: dbPath, API_PORT: '3000', WORKER_PORT: '3001', GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b' })
+  const env = getPlatformEnv({ DATABASE_URL: dbPath, API_PORT: '3000', GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b' })
   const app = buildApp(env)
   onTestFinished(async () => { await app.close(); fs.rmSync(tmpDir, { recursive: true, force: true }) })
   await app.ready()
@@ -164,7 +164,6 @@ test('buildApp registers health and API routes', async () => {
   const env = getPlatformEnv({
     DATABASE_URL: dbPath,
     API_PORT: '3000',
-    WORKER_PORT: '3001',
     GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b',
   })
   const app = buildApp(env)
@@ -250,7 +249,6 @@ test('cloud accepts every registered provider name', async () => {
   const app = buildApp(getPlatformEnv({
     DATABASE_URL: dbPath,
     API_PORT: '3000',
-    WORKER_PORT: '3001',
     GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b',
   }))
 
@@ -317,7 +315,6 @@ test('loadApiEnv delegates to shared platform config', () => {
   const env = loadApiEnv({
     DATABASE_URL: 'postgresql://aeo:aeo@localhost:5432/aeo_platform',
     API_PORT: '4100',
-    WORKER_PORT: '4101',
     WEB_PORT: '4173',
     CANONRY_BASE_PATH: '/canonry',
     BOOTSTRAP_SECRET: 'secret',
@@ -332,7 +329,6 @@ test('loadApiEnv delegates to shared platform config', () => {
   })
 
   expect(env.apiPort).toBe(4100)
-  expect(env.workerPort).toBe(4101)
   expect(env.basePath).toBe('/canonry')
   expect(env.bootstrapSecret).toBe('secret')
   expect(env.providers.gemini).toBeTruthy()
@@ -377,7 +373,6 @@ test('a plan-pinned run queued on Cloud freezes the inherited provider model int
   const app = buildApp(getPlatformEnv({
     DATABASE_URL: dbPath,
     API_PORT: '3000',
-    WORKER_PORT: '3001',
     GOOGLE_STATE_SECRET: 'test-only-google-state-secret-32b',
     GEMINI_API_KEY: 'gemini-test-key',
   }))

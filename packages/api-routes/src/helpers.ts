@@ -36,6 +36,10 @@ export function notProbeRun(): SQL {
   return ne(runs.trigger, RunTriggers.probe)
 }
 
+// Spot checks: run-scope.ts has no Fastify dependency, so stored-evidence
+// readers that scripts also load can use it without this module.
+export { isScopedRun, notScopedRun } from './run-scope.js'
+
 /** The host-only claim consumed when its scheduler calls a sync endpoint. */
 export type ScheduledSyncClaim = (projectName: string, kind: RunKind, sourceId?: string) => boolean
 
@@ -192,23 +196,40 @@ export interface SnapshotMentionInput {
   mentionIdentity: MentionIdentity | null
 }
 
+/** The names and domains an answer is matched against for one project. */
+interface MentionTerms { brandNames: string[]; domains: string[] }
+
+function mentionTerms(project: SnapshotVisibilityProject): MentionTerms {
+  return {
+    domains: effectiveDomains({
+      canonicalDomain: project.canonicalDomain,
+      ownedDomains: normalizeOwnedDomains(project.ownedDomains),
+    }),
+    brandNames: effectiveBrandNames({
+      displayName: project.displayName,
+      aliases: normalizeOwnedDomains(project.aliases),
+    }),
+  }
+}
+
 function resolveSnapshotMentionResult(
   snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
+): { mentioned: boolean; matchedTerms: string[] } {
+  return mentionResult(snapshot, () => mentionTerms(project))
+}
+
+/** `terms` is resolved only for an answer with text, so a legacy row costs nothing extra. */
+function mentionResult(
+  snapshot: SnapshotMentionInput,
+  terms: () => MentionTerms,
 ): { mentioned: boolean; matchedTerms: string[] } {
   // Prefer recomputing from answerText so mentioned and matchedTerms always
   // derive from the same source of truth. The one exception is sentiment's
   // `wrong-subject` verdict: the terms the answer wrote stay listed, and
   // `mentionIdentity` on the DTO says why they do not count.
   if (snapshot.answerText) {
-    const domains = effectiveDomains({
-      canonicalDomain: project.canonicalDomain,
-      ownedDomains: normalizeOwnedDomains(project.ownedDomains),
-    })
-    const brandNames = effectiveBrandNames({
-      displayName: project.displayName,
-      aliases: normalizeOwnedDomains(project.aliases),
-    })
+    const { brandNames, domains } = terms()
     const matched = extractAnswerMentions(snapshot.answerText, brandNames, domains)
     return { mentioned: countsAsMention(matched.mentioned, snapshot.mentionIdentity), matchedTerms: matched.matchedTerms }
   }
@@ -225,6 +246,23 @@ export function resolveSnapshotAnswerMentioned(
   project: SnapshotVisibilityProject,
 ): boolean {
   return resolveSnapshotMentionResult(snapshot, project).mentioned
+}
+
+/**
+ * A reader of many stored answers of one project: each answer's mention as
+ * `resolveSnapshotAnswerMentioned` reads it, or null when it was never
+ * checked (no stored answer text and no stored verdict). A reader that
+ * compares two answers (a change alert) needs that distinction, because an
+ * unchecked answer read as "not mentioned" would report a lost mention that
+ * was never observed. The project's names and domains are resolved once.
+ */
+export function snapshotMentionObserver(project: SnapshotVisibilityProject): (snapshot: SnapshotMentionInput) => boolean | null {
+  let terms: MentionTerms | null = null
+  const resolveTerms = () => (terms ??= mentionTerms(project))
+  return snapshot => {
+    if (!snapshot.answerText && typeof snapshot.answerMentioned !== 'boolean') return null
+    return mentionResult(snapshot, resolveTerms).mentioned
+  }
 }
 
 export function resolveSnapshotVisibilityState(

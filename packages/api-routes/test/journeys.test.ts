@@ -367,6 +367,10 @@ describe('AI visitor journeys', () => {
       expect(await read()).toEqual([{ sourceId: 'edge', sourceType: 'cloudflare', reason: JOURNEY_PAGE_VIEWS_PENDING_REASON }])
       db.update(trafficSources).set({ lastWorkerVersion: pageViewVersion }).where(eq(trafficSources.id, 'edge')).run()
       expect(await read()).toEqual([])
+      // An older page-view Worker still forwards page views; a version bump for
+      // an unrelated change (a new bot keyword) must not mark it incomplete.
+      db.update(trafficSources).set({ lastWorkerVersion: '1.0.0+page-views' }).where(eq(trafficSources.id, 'edge')).run()
+      expect(await read()).toEqual([])
     })
 
     it('lists visitors newest first with filters and paging', async () => {

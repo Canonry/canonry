@@ -17,7 +17,7 @@ import {
 
 const TABS = [
   'overview', 'portfolio', 'search-console', 'conversions', 'local', 'queries', 'discovery',
-  'activity', 'backlinks', 'technical-aeo', 'history', 'settings',
+  'activity', 'traffic', 'backlinks', 'agent-readiness', 'history', 'settings',
 ] as const satisfies readonly ProjectPageTab[]
 
 const SURFACES = ['simple-overview', 'advanced-overview-v1', 'advanced-overview', 'unresolved'] as const satisfies readonly ProjectScopeSurface[]
@@ -32,7 +32,7 @@ const TRACKING: Record<string, ProjectScopeTracking> = {
 }
 
 const QUERY_TABS: readonly ProjectPageTab[] = ['queries', 'discovery']
-const SCOPE_BLIND_TABS: readonly ProjectPageTab[] = ['search-console', 'activity', 'technical-aeo', 'conversions', 'local', 'backlinks', 'history']
+const SCOPE_BLIND_TABS: readonly ProjectPageTab[] = ['search-console', 'activity', 'traffic', 'agent-readiness', 'conversions', 'local', 'backlinks', 'history']
 
 type SlotInput = Parameters<typeof projectScopeSlot>[0]
 
@@ -65,13 +65,13 @@ describe('projectScopeSlot', () => {
       }
     }
     expect(mismatches).toEqual([])
-    // 12 tabs x 4 surfaces x 2 scope states x 2 workspaces x 6 tracking states x 2 embed states.
+    // 13 tabs x 4 surfaces x 2 scope states x 2 workspaces x 6 tracking states x 2 embed states.
     expect(counts).toEqual({
       'report-picker': 24, // overview x v2 x 2 x 2 x 6
       'tracking-picker': 16, // queries+discovery x 4 surfaces x 2 x tracked x advanced
       'scope-unavailable': 16,
-      'project-wide': 84, // 7 scope-blind tabs x v2 x scoped x 2 x 6
-      none: 2164,
+      'project-wide': 96, // 8 scope-blind tabs x v2 x scoped x 2 x 6
+      none: 2344,
     })
   })
 
@@ -86,7 +86,7 @@ describe('projectScopeSlot', () => {
   })
 
   it('shows Project-wide on a scope-blind tab only for a scoped v2 selection', () => {
-    const siteHealth = { tab: 'technical-aeo', queryWorkspace: 'tracked', tracking: { state: 'pending' }, embedded: false } as const
+    const siteHealth = { tab: 'agent-readiness', queryWorkspace: 'tracked', tracking: { state: 'pending' }, embedded: false } as const
     expect(projectScopeSlot({ ...siteHealth, surface: 'advanced-overview', scoped: true })).toEqual({ kind: 'project-wide' })
     expect(projectScopeSlot({ ...siteHealth, surface: 'advanced-overview', scoped: false })).toEqual({ kind: 'none' })
     expect(projectScopeSlot({ ...siteHealth, surface: 'advanced-overview-v1', scoped: true })).toEqual({ kind: 'none' })

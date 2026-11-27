@@ -1,9 +1,12 @@
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { RunKinds } from '@canonry/canonry-contracts'
 
 import {
   resetRunTracker,
   selectStaleTrackedRuns,
   STALE_TRACKED_RUN_MS,
+  subscribeRunTracker,
+  trackRun,
   type TrackedRun,
 } from '../src/lib/run-tracker-store.js'
 
@@ -13,8 +16,25 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetRunTracker()
   window.sessionStorage.clear()
+})
+
+test('an accepted SEO refresh reaches task subscribers when session storage rejects writes', () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+  })
+  const listener = vi.fn()
+  const unsubscribe = subscribeRunTracker(listener)
+  try {
+    trackRun({ id: 'refresh', projectId: 'p1', kind: RunKinds['seo-sync'], sourceAction: 'seo-sync' })
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      runs: { refresh: expect.objectContaining({ runId: 'refresh', lastAnnouncedStatus: 'queued' }) },
+    }))
+  } finally {
+    unsubscribe()
+  }
 })
 
 function tracked(partial: Partial<TrackedRun> & { runId: string }): TrackedRun {

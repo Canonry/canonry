@@ -4,6 +4,8 @@ import {
   classifyProviderErrorMessages,
   extractProviderHttpStatus,
   mostActionableProviderErrorCode,
+  providerErrorCodeSchema,
+  providerFailureRemedy,
 } from '../src/provider-errors.js'
 
 describe('extractProviderHttpStatus', () => {
@@ -96,5 +98,30 @@ describe('mostActionableProviderErrorCode', () => {
     expect(mostActionableProviderErrorCode(['PROVIDER_BILLING', 'PROVIDER_AUTH'])).toBe('PROVIDER_AUTH')
     expect(mostActionableProviderErrorCode(['TIMEOUT', 'NETWORK'])).toBe('TIMEOUT')
     expect(mostActionableProviderErrorCode([])).toBe('UNKNOWN')
+  })
+})
+
+describe('providerFailureRemedy', () => {
+  it('names the step an operator takes for each failure kind, with the engine in it', () => {
+    expect(providerFailureRemedy('PROVIDER_BILLING', 'OpenRouter')).toBe('Your OpenRouter account is out of credit. Add credit at OpenRouter, then run the check again.')
+    expect(providerFailureRemedy('PROVIDER_AUTH', 'Gemini')).toBe('Gemini rejected its key or denied access. Save a working key for Gemini, then run the check again.')
+    expect(providerFailureRemedy('RATE_LIMITED', 'OpenAI')).toBe('OpenAI limited the requests. Wait a few minutes, then run the check again.')
+    expect(providerFailureRemedy('PROVIDER_UNAVAILABLE', 'Claude')).toBe('Claude was unavailable. Run the check again later.')
+    expect(providerFailureRemedy('NETWORK', 'Local')).toBe("Canonry could not reach Local. Check the network and the engine's endpoint, then run the check again.")
+    expect(providerFailureRemedy('TIMEOUT', 'Local')).toBe(providerFailureRemedy('NETWORK', 'Local'))
+  })
+
+  it('names no step for a failure it cannot explain, or an error stored without a kind', () => {
+    expect(providerFailureRemedy('PARSE_ERROR', 'Gemini')).toBeNull()
+    expect(providerFailureRemedy('UNKNOWN', 'Gemini')).toBeNull()
+    expect(providerFailureRemedy(null, 'Gemini')).toBeNull()
+    expect(providerFailureRemedy(undefined, 'Gemini')).toBeNull()
+  })
+
+  it('answers for every failure kind the classifier can produce', () => {
+    for (const code of providerErrorCodeSchema.options) {
+      const remedy = providerFailureRemedy(code, 'Gemini')
+      expect(remedy === null || remedy.includes('Gemini'), code).toBe(true)
+    }
   })
 })

@@ -777,7 +777,7 @@ describe('executeAdsSync outcome telemetry', () => {
 
     expect(outcomes()).toEqual([[
       {
-        feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'succeeded',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'succeeded',
         durationBucket: 'under_1s', counts: { campaigns: 1, rows: 3, failures: 0 },
       },
       undefined,
@@ -793,7 +793,7 @@ describe('executeAdsSync outcome telemetry', () => {
 
     expect(outcomes()).toEqual([[
       {
-        feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'skipped', reasonCode: 'NO_DATA',
         durationBucket: 'under_1s', counts: { campaigns: 0, rows: 0, failures: 0 },
       },
       { errorCode: 'NO_DATA' },
@@ -814,14 +814,14 @@ describe('executeAdsSync outcome telemetry', () => {
     expect(outcomes()).toEqual([
       [
         {
-          feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_4XX',
+          operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'HTTP_4XX',
           errorName: 'OpenAiAdsApiError', durationBucket: 'under_1s', counts: { campaigns: 0, rows: 0, failures: 1 },
         },
         { errorCode: 'HTTP_4XX' },
       ],
       [
         {
-          feature: 'openai_ads', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'failed',
+          operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'openai_ads', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'failed',
           reasonCode: 'INVALID_CREDENTIALS', errorName: 'OpenAiAdsApiError', durationBucket: 'under_1s',
         },
         { errorCode: 'INVALID_CREDENTIALS' },
@@ -838,7 +838,7 @@ describe('executeAdsSync outcome telemetry', () => {
 
     expect(outcomes()).toEqual([[
       {
-        feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED',
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'openai_ads', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'NOT_CONNECTED',
         errorName: 'Error', durationBucket: 'under_1s',
       },
       { errorCode: 'NOT_CONNECTED' },

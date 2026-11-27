@@ -66,7 +66,7 @@ describe('advanced measurement setup composition', () => {
     ['properties', 'Properties'],
     ['queries', 'Queries'],
     ['groups', 'Group name'],
-    ['review', 'Flagged exceptions'],
+    ['review', 'Review & publish'],
   ] as const)('renders the %s step inside the shared draft shell', (currentStep, expectedText) => {
     const stepProps = currentStep === 'import' || currentStep === 'properties'
       ? { currentStep, importProperties }
@@ -85,7 +85,7 @@ describe('advanced measurement setup composition', () => {
       />,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0)
   })
 
@@ -120,7 +120,8 @@ describe('advanced measurement setup composition', () => {
       />,
     )
 
-    expect(screen.getByText('Flagged exceptions')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeTruthy()
+    expect(screen.queryByText('Flagged exceptions')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Queries' }))
     expect(onStepChange).toHaveBeenCalledWith('queries')
   })

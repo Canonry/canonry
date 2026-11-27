@@ -1,4 +1,4 @@
-import { listModels } from './list-models.js'
+import { GEMINI_ANSWER_MODELS, listModels } from './list-models.js'
 import { FinishReason, type GenerateContentResponse } from '@google/genai'
 import type {
   ProviderAdapter,
@@ -109,22 +109,7 @@ export const geminiAdapter: ProviderAdapter = {
     defaultModel: 'gemini-flash-latest',
     validationPattern: /./,
     validationHint: 'any valid Google model name (e.g. gemini-flash-latest, gemini-3.8-flash)',
-    knownModels: [
-      // Google's moving aliases: always the newest Flash / Flash-Lite, with
-      // 2 weeks' email notice before a breaking change. The model actually
-      // served is recorded per snapshot (`servedModel`), so trends still show
-      // when the model behind an alias changed.
-      { id: 'gemini-flash-latest', displayName: 'Gemini Flash (latest)', tier: 'standard' },
-      { id: 'gemini-flash-lite-latest', displayName: 'Gemini Flash-Lite (latest)', tier: 'economy' },
-      { id: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', tier: 'standard' },
-      { id: 'gemini-3.5-flash-lite', displayName: 'Gemini 3.5 Flash-Lite', tier: 'economy' },
-      // Google limits the 2.5 models to projects that already used them, so a
-      // new key may be refused. Listed for installs that still pin them.
-      { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' },
-      { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' },
-      { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', tier: 'economy' },
-      { id: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', tier: 'standard' },
-    ],
+    knownModels: GEMINI_ANSWER_MODELS,
   },
 
   listModels: (config, signal) => listModels(toGeminiConfig(config), signal),
@@ -139,8 +124,8 @@ export const geminiAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await geminiHealthcheck(toGeminiConfig(config))
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    const result = await geminiHealthcheck(toGeminiConfig(config), signal)
     return {
       ok: result.ok,
       provider: 'gemini',

@@ -30,9 +30,12 @@ export function detectPersistentGaps(
     let streak = 0
     for (let i = runs.length - 1; i >= 0; i--) {
       const run = runs[i]!
-      const snaps = run.snapshots.filter(s => s.query === query)
+      // Only answers whose sources were checked can show the query uncited. A
+      // run that measured no citation for it (every answer came from an engine
+      // that returns no sources, or none answered) breaks the streak.
+      const snaps = run.snapshots.filter(s => s.query === query && s.cited !== null)
       if (snaps.length === 0) break
-      const anyCited = snaps.some(s => s.cited)
+      const anyCited = snaps.some(s => s.cited === true)
       if (anyCited) break
       streak++
     }

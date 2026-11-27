@@ -10,14 +10,14 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@canonry/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameAgentProvidersQueryKey, getApiV1ProjectsQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
 import * as api from '../src/api.js'
-import { AeroBar } from '../src/components/shared/AeroBar.js'
+import { AeroBar, AeroBarHost } from '../src/components/shared/AeroBar.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
 import * as aero from '../src/api-aero.js'
-import type { AeroPreviewResponse, AgentProvidersResponse } from '@canonry/canonry-contracts'
+import type { AeroPreviewResponse, AgentProvidersResponse, ProjectDto } from '@canonry/canonry-contracts'
 
 const PROJECT_NAME = 'citypoint'
 
@@ -71,23 +71,74 @@ async function renderWithProviderReadiness(data: AgentProvidersResponse | null, 
   return { ...rendered, router }
 }
 
+test('the bar names the project by its display name, not its slug', async () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryData(getApiV1ProjectsByNameAgentProvidersQueryKey({ client: heyClient, path: { name: PROJECT_NAME } }), {
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: true, keySource: 'config' }],
+    defaultProvider: 'openai',
+  } satisfies AgentProvidersResponse)
+  queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), [
+    { id: 'project_citypoint', name: PROJECT_NAME, displayName: 'Citypoint Dental' },
+  ] as ProjectDto[])
+  const rootRoute = createRootRoute({ component: () => <><AeroBarHost /><Outlet /></> })
+  const projectRoute = createRoute({ getParentRoute: () => rootRoute, path: 'projects/$name', component: () => null })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([projectRoute]),
+    history: createMemoryHistory({ initialEntries: [`/projects/${PROJECT_NAME}`] }),
+  })
+  await router.load()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AccountProvider account={null}>
+        <RouterProvider router={router} />
+      </AccountProvider>
+    </QueryClientProvider>,
+  )
+
+  expect(await screen.findByRole('button', { name: 'Ask Aero about Citypoint Dental…' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Ask Aero about citypoint/ })).toBeNull()
+})
+
 test('does not advertise a working Aero prompt when no agent provider is configured', async () => {
+  // The server lists every provider Aero can answer with, unconfigured ones
+  // included. A Local or Perplexity engine connected for checks is not one,
+  // so the help names these rather than "a supported answer engine".
+  const unconfigured = (id: AgentProvidersResponse['providers'][number]['id'], label: string) => ({ id, label, defaultModel: 'model', configured: false, keySource: null })
   const { router } = await renderWithProviderReadiness({
-    providers: [{
-      id: 'openai',
-      label: 'OpenAI',
-      defaultModel: 'gpt-5.4',
-      configured: false,
-      keySource: null,
-    }],
+    providers: [
+      unconfigured('claude', 'Anthropic (Claude)'),
+      unconfigured('openai', 'OpenAI'),
+      unconfigured('gemini', 'Google (Gemini)'),
+      unconfigured('zai', 'Z.ai (GLM)'),
+      unconfigured('openrouter', 'OpenRouter'),
+    ],
     defaultProvider: null,
   })
 
-  expect(screen.getByRole('status').textContent).toBe('Aero needs an answer-engine provider.Open Settings')
+  const status = screen.getByRole('status')
+  expect(within(status).getByText('Aero')).toBeTruthy()
+  const help = 'Aero is the built-in analyst for answer engine optimization (AEO). Connect Anthropic (Claude), OpenAI, Google (Gemini), Z.ai (GLM), or OpenRouter to ask about these results. Other answer engines run AI Visibility checks only.'
+  expect(screen.queryByText(help)).toBeNull()
+  fireEvent.focus(within(status).getByRole('button', { name: help }))
+  expect(screen.getByText(help)).toBeTruthy()
   expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
 
-  fireEvent.click(screen.getByRole('link', { name: 'Open Settings' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Set up Aero' }))
   await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
+})
+
+test('a credential that cannot change settings is told who can set up Aero', async () => {
+  await renderWithProviderReadiness({
+    providers: [{ id: 'openai', label: 'OpenAI', defaultModel: 'gpt-5.4', configured: false, keySource: null }],
+    defaultProvider: null,
+  }, null, { id: 'reader', scopes: ['read'], projectId: null, readOnly: true })
+
+  const status = screen.getByRole('status')
+  expect(within(status).getByText('Ask an administrator to set up Aero.')).toBeTruthy()
+  expect(within(status).queryByRole('link', { name: 'Set up Aero' })).toBeNull()
+  expect(within(status).getByRole('button', {
+    name: 'Aero is the built-in analyst for answer engine optimization (AEO). Connect OpenAI to ask about these results. Other answer engines run AI Visibility checks only.',
+  })).toBeTruthy()
 })
 
 test('shows the prompt affordance only after provider readiness is confirmed', async () => {
@@ -115,7 +166,7 @@ test('names the missing key when the default provider is a pin with no key', asy
   expect(screen.getByRole('status').textContent).toContain('Aero is set to OpenAI, which has no API key.')
   expect(screen.queryByRole('button', { name: /Ask Aero/i })).toBeNull()
   // Settings cannot add every agent provider's key, so it is not offered.
-  expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Set up Aero' })).toBeNull()
 })
 
 test('does not show a view-only user provider state or administrator settings', async () => {
@@ -133,7 +184,7 @@ test('does not show a view-only user provider state or administrator settings', 
   // Which providers exist is operator knowledge, so a viewer's bar never asks
   // and never shows provider state; the server answers each turn or says why not.
   expect(screen.queryByRole('status')).toBeNull()
-  expect(screen.queryByRole('link', { name: 'Open Settings' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Set up Aero' })).toBeNull()
   expect(screen.getByRole('button', { name: /Ask Aero about citypoint/i })).toBeTruthy()
 })
 

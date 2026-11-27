@@ -10,6 +10,7 @@ import {
   canonicalSimpleMeasurementDefinitionJson,
   canonicalMeasurementPlanV2Json,
   buildMeasurementRunManifestV1,
+  parseMeasurementRunManifestV1,
   measurementPlanV2ChecksumJson,
   measurementPlanV2Schema,
   queryTrackingCommitResponseSchema,
@@ -333,7 +334,10 @@ beforeEach(async () => {
     { name: 'openai', configured: true, model: 'gpt-test' },
   ]
   app = Fastify()
-  app.register(apiRoutes, { db, getRunnableProviderNames: () => ['gemini', 'openai'], providerSummary })
+  app.register(apiRoutes, {
+    db, getRunnableProviderNames: () => ['gemini', 'openai'], providerSummary,
+    getEffectiveProviderModels: () => Object.fromEntries(providerSummary.flatMap(provider => provider.model ? [[provider.name, provider.model]] : [])),
+  })
   await app.ready()
 })
 
@@ -1200,8 +1204,11 @@ describe('query tracking workspace: advanced portfolios', () => {
     expect(plan.usageEdges).toEqual([expect.objectContaining({ targetKey: 'river-point', queryId: riverQuery?.queryId })])
   })
 
-  it('keeps unchanged frozen assignments measured after a material publish, while new work awaits a sweep', async () => {
+  it.each(['pinned', 'inherited'] as const)('keeps unchanged frozen assignments measured with %s models after a material publish, while new work awaits a sweep', async modelSelection => {
     seedAdvancedPlan()
+    if (modelSelection === 'inherited') rewriteActivePlan(plan => {
+      for (const node of plan.executionNodes as Array<{ context: { models: Record<string, string> } }>) node.context.models = {}
+    })
     seedOtherProject()
     db.insert(runs).values({
       id: 'foreign-run', projectId: 'project-other', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
@@ -1213,8 +1220,46 @@ describe('query tracking workspace: advanced portfolios', () => {
     }).run()
     expect((await workspace()).tracked[0]?.state).toBe('awaiting-sweep')
 
-    insertFrozenV2Run({ id: 'local-run' })
-    expect((await workspace()).tracked[0]?.state).toBe('tracked')
+    // Use real run preparation so an inherited default is frozen exactly as
+    // production writes it, instead of manufacturing a plan-shaped manifest.
+    const launched = await request('POST', '/runs', {})
+    expect(launched.statusCode, launched.body).toBe(201)
+    const runId = launched.json<{ id: string }>().id
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get()!
+    const manifest = parseMeasurementRunManifestV1(run.measurementManifest)
+    expect(manifest.expectedSlots.map(slot => ({ provider: slot.provider, requestedModel: slot.requestedModel }))).toEqual([
+      { provider: 'openai', requestedModel: 'gpt-test' },
+      { provider: 'gemini', requestedModel: 'gemini-test' },
+      { provider: 'openai', requestedModel: 'gpt-test' },
+    ])
+    for (const [index, slot] of manifest.expectedSlots.entries()) db.insert(querySnapshots).values({
+      id: `prepared-${index}`, runId, queryId: 'q-existing', queryText: slot.queryText,
+      provider: slot.provider, model: slot.requestedModel, measurementExecutionId: slot.executionId,
+      location: slot.context?.label ?? null, requestedContext: slot.context,
+      supportedContext: slot.context ? { status: 'applied', resolved: slot.context } : null,
+      citationState: 'not-cited', answerText: 'No matching property in this answer.', citedUrls: [], captureStatus: 'unsupported',
+      citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: NOW,
+    }).run()
+    db.update(runs).set({ status: 'completed', finishedAt: NOW }).where(eq(runs.id, runId)).run()
+    expect((await workspace()).tracked[0]).toMatchObject({ state: 'tracked', lastMeasuredAt: NOW })
+
+    // Current defaults are irrelevant to the saved run's model identity.
+    for (const provider of providerSummary) provider.model = `${provider.model}-next`
+    db.update(projects).set({ providerModels: { openai: 'gpt-next', gemini: 'gemini-next' } }).where(eq(projects.id, 'project-northwind')).run()
+    expect((await workspace()).tracked[0]).toMatchObject({ state: 'tracked', lastMeasuredAt: NOW })
+
+    // Unpinned plans still require snapshot/manifest agreement. Pinned plans
+    // also reject a substituted model even if the snapshot agrees with it.
+    db.update(querySnapshots).set({ model: 'substituted-model' }).where(eq(querySnapshots.id, 'prepared-0')).run()
+    expect((await workspace()).tracked[0]).toMatchObject({ state: 'awaiting-sweep', lastMeasuredAt: null })
+    if (modelSelection === 'pinned') {
+      const substituted = structuredClone(manifest)
+      substituted.expectedSlots[0]!.requestedModel = 'substituted-model'
+      db.update(runs).set({ measurementManifest: substituted }).where(eq(runs.id, runId)).run()
+      expect((await workspace()).tracked[0]).toMatchObject({ state: 'awaiting-sweep', lastMeasuredAt: null })
+      db.update(runs).set({ measurementManifest: manifest }).where(eq(runs.id, runId)).run()
+    }
+    db.update(querySnapshots).set({ model: manifest.expectedSlots[0]!.requestedModel }).where(eq(querySnapshots.id, 'prepared-0')).run()
 
     const current = await workspace()
     const mutation = {

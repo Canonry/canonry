@@ -9,7 +9,8 @@ export function formatTrackedRunKind(kind: RunKind): string {
     case RunKinds['traffic-sync']: return 'Traffic sync'
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
-    case RunKinds['site-audit']: return 'Technical AEO audit'
+    case RunKinds['bing-sync']: return 'Bing data sync'
+    case RunKinds['site-audit']: return 'Agent Readiness audit scan'
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
     case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
@@ -18,5 +19,6 @@ export function formatTrackedRunKind(kind: RunKind): string {
     case RunKinds['google-ads-sync']: return 'Google Ads sync'
     case RunKinds['gtm-sync']: return 'Tag Manager sync'
     case RunKinds['seo-sync']: return 'SEO data refresh'
+    case RunKinds['social-monitor']: return 'Social monitoring'
   }
 }

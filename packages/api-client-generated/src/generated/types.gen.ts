@@ -606,6 +606,95 @@ export type SeoOverview = {
     keywordGapCount: number;
 };
 
+export type SeoTrends = {
+    kind: 'domain' | 'market' | 'ranked' | null;
+    profileId: string;
+    profileRevision: number | null;
+    target: {
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    } | null;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    } | null;
+    languageCode: string;
+    locationCode: number | null;
+    days: 30 | 90 | 180;
+    marketQueryCount: number | null;
+    hasRankingReadings?: boolean;
+    keyword?: string | null;
+    rankedKeywords?: Array<string>;
+    points: Array<{
+        runId: string;
+        observedAt: string;
+        organicKeywords: number | null;
+        inTop10: number | null;
+        estimatedOrganicTraffic: number | null;
+        page1: number | null;
+        rankOrganic?: number | null;
+    }>;
+    changes: {
+        organicKeywords: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        inTop10: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        estimatedOrganicTraffic: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        page1: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+        rankOrganic?: {
+            difference: number;
+            ratio: number | null;
+            tone: 'better' | 'worse' | 'neutral';
+            basis: {
+                type: 'first-in-window';
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+            };
+        } | null;
+    };
+};
+
 export type SeoKeywordMetricsList = {
     runId: string | null;
     total: number;
@@ -1174,7 +1263,7 @@ export type SentimentSettings = {
         configure: boolean;
         backfill: boolean;
     };
-    experimental: true;
+    experimental: boolean;
     disclosure: string;
 };
 
@@ -2123,25 +2212,28 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             propertyReach: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             outcomes: {
                 bothSignals: number;
@@ -2152,6 +2244,7 @@ export type VisibilityReportResponse = {
                 total: number;
             };
             notMeasuredUnchecked?: number;
+            notMeasuredNoSources?: number;
         };
         trend: Array<{
             runId: string;
@@ -2176,17 +2269,19 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             continuity: {
                 state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
@@ -2206,9 +2301,10 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 delta: number;
             } | {
@@ -2221,9 +2317,10 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 delta: number;
             } | {
@@ -2236,9 +2333,10 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 delta: number;
             } | {
@@ -2270,17 +2368,19 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 uncheckedSources?: {
                     answers: number;
@@ -2304,6 +2404,7 @@ export type VisibilityReportResponse = {
                 mentioned: boolean | null;
                 mentionUnavailableReason?: 'identity-ambiguous';
                 cited: boolean | null;
+                citationUnavailableReason?: 'citation-not-measured';
                 answerText: string | null;
                 createdAt: string;
                 sources: Array<string>;
@@ -2325,17 +2426,19 @@ export type VisibilityReportResponse = {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 numerator: number | null;
                 denominator: number | null;
                 rate: number | null;
-                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
         }>;
         observedCompetitors: Array<{
@@ -2351,17 +2454,19 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
             }>;
             groups: Array<{
@@ -2372,17 +2477,42 @@ export type VisibilityReportResponse = {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
                     denominator: number | null;
                     rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
+                };
+            }>;
+            providers?: Array<{
+                provider: string;
+                queryCount: number;
+                answerCount: number;
+                mentionCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                    unattributed?: number;
+                    unchecked?: number;
+                    citationNotMeasured?: number;
+                };
+                citationCoverage: {
+                    numerator: number | null;
+                    denominator: number | null;
+                    rate: number | null;
+                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                    unattributed?: number;
+                    unchecked?: number;
+                    citationNotMeasured?: number;
                 };
             }>;
         };
@@ -2744,6 +2874,11 @@ export type AgentPromptRequest = {
         seoRunId?: string;
         seoRegionKey?: string;
         seoMarketKey?: string;
+        seoTrend?: {
+            days: 30 | 90 | 180;
+            metric: 'inTop10' | 'organicKeywords' | 'estimatedOrganicTraffic' | 'page1' | 'rankOrganic';
+            keyword?: string;
+        };
         unavailableReason?: string;
         selection?: {
             mode: 'auto' | 'simple' | 'advanced';
@@ -2821,6 +2956,11 @@ export type AgentProvidersResponseDto = {
         defaultModel: string;
         configured: boolean;
         keySource: 'config' | 'env' | null;
+        backgroundPause?: {
+            reason: 'PROVIDER_AUTH' | 'PROVIDER_BILLING';
+            retryAt: string;
+            recovery: string;
+        } | null;
         models?: Array<{
             id: string;
             displayName: string;
@@ -2944,6 +3084,10 @@ export type ApplyPreviewDto = {
         siteAuditMaxPages?: {
             before: number | null;
             after: number | null;
+        };
+        siteAuditDomains?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
         };
         competitorAutoAliases?: {
             before: 'off' | 'preview' | 'apply' | null;
@@ -4079,6 +4223,9 @@ export type AuthSessionDto = {
         name: string;
         role: 'admin' | 'viewer';
     } | null;
+    signInMethods?: {
+        chatgpt: boolean;
+    };
 };
 
 export type BacklinkHistoryEntry = {
@@ -4154,6 +4301,12 @@ export type BacklinksInstallStatusDto = {
     pluginDir: string;
 };
 
+export type BingConnectRequest = {
+    apiKey: string;
+} | {
+    useSavedKey: true;
+};
+
 export type BingConnectResponseDto = {
     connected: boolean;
     domain: string;
@@ -4162,6 +4315,452 @@ export type BingConnectResponseDto = {
         url: string;
         verified: boolean;
     }>;
+};
+
+export type BingCrawlStatsResponseDto = {
+    rows: Array<{
+        date: string;
+        crawledPages: number;
+        inIndex: number;
+        crawlErrors: number;
+        inLinks: number;
+        code2xx: number;
+        code301: number;
+        code302: number;
+        code4xx: number;
+        code5xx: number;
+        allOtherCodes: number;
+        blockedByRobotsTxt: number;
+        connectionTimeout: number;
+        containsMalware: number;
+        dnsFailures: number;
+    }>;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+};
+
+export type BingFetchedUrlsResponseDto = {
+    rows: Array<{
+        url: string;
+        date: string | null;
+        expired: boolean | null;
+        fetched: boolean | null;
+    }>;
+    details: {
+        url: string;
+        date: string | null;
+        status: string | null;
+        headers: string | null;
+        document: string | null;
+    } | null;
+};
+
+export type BingKeywordDemandResponseDto = {
+    market: {
+        country: string;
+        language: string;
+    };
+    rows: Array<{
+        query: string;
+        country: string;
+        language: string;
+        latestWeek: string | null;
+        latestImpressions: number | null;
+        latestBroadImpressions: number | null;
+        avgWeeklyImpressions: number | null;
+        weeks: number;
+        syncedAt: string | null;
+    }>;
+    history: Array<{
+        date: string;
+        impressions: number;
+        broadImpressions: number;
+    }>;
+};
+
+export type BingKeywordResearchResponseDto = {
+    keyword: string;
+    market: {
+        country: string;
+        language: string;
+    };
+    window: {
+        startDate: string;
+        endDate: string;
+    };
+    volume: {
+        impressions: number;
+        broadImpressions: number;
+    } | null;
+    history: Array<{
+        date: string;
+        impressions: number;
+        broadImpressions: number;
+    }>;
+    related: Array<{
+        query: string;
+        impressions: number;
+        broadImpressions: number;
+    }>;
+};
+
+export type BingLinksResponseDto = {
+    url: string | null;
+    page: number;
+    totalPages: number;
+    rows: Array<{
+        url: string;
+        count: number | null;
+        anchorText: string | null;
+    }>;
+};
+
+export type BingPageQueriesResponseDto = {
+    page: string;
+    rows: Array<{
+        date: string | null;
+        key: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+    }>;
+};
+
+export type BingPageTotalsResponseDto = {
+    groupBy: 'page' | 'week';
+    rows: Array<{
+        page: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    weekly: Array<{
+        date: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    totalMatching: number;
+    truncated: boolean;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+    totals: {
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    } | null;
+    comparison: {
+        days: number;
+        prior: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+            avgClickPosition: number | null;
+            weeks: number;
+        };
+        difference: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+        };
+    } | null;
+};
+
+export type BingQueryHistoryResponseDto = {
+    query: string;
+    page: string | null;
+    granularity: 'day' | 'week';
+    rows: Array<{
+        date: string | null;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        position: number | null;
+    }>;
+};
+
+export type BingQueryPagesResponseDto = {
+    query: string;
+    rows: Array<{
+        date: string | null;
+        key: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+    }>;
+};
+
+export type BingQueryTotalsResponseDto = {
+    groupBy: 'query' | 'week';
+    rows: Array<{
+        query: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    weekly: Array<{
+        date: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    }>;
+    totalMatching: number;
+    truncated: boolean;
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+    totals: {
+        clicks: number;
+        impressions: number;
+        ctr: number;
+        avgImpressionPosition: number | null;
+        avgClickPosition: number | null;
+        weeks: number;
+    } | null;
+    comparison: {
+        days: number;
+        prior: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+            avgClickPosition: number | null;
+            weeks: number;
+        };
+        difference: {
+            clicks: number;
+            impressions: number;
+            ctr: number;
+            avgImpressionPosition: number | null;
+        };
+    } | null;
+};
+
+export type BingSiteResponseDto = {
+    snapshots: Array<{
+        kind: 'url-submission-quota' | 'content-submission-quota' | 'crawl-settings' | 'crawl-issues' | 'blocked-urls' | 'page-preview-blocks' | 'deep-link-blocks' | 'query-parameters' | 'country-region-settings' | 'fetched-urls' | 'connected-pages' | 'site-roles';
+        status: 'ok' | 'unauthorized' | 'failed';
+        payload: unknown;
+        error: string | null;
+        syncedAt: string;
+    }>;
+    syncedAt: string | null;
+};
+
+export type BingSitemapsResponseDto = {
+    sitemaps: Array<{
+        url: string;
+        parentUrl: string | null;
+        type: string;
+        status: string;
+        urlCount: number;
+        fileSize: number;
+        compressed: boolean;
+        submittedAt: string | null;
+        lastCrawledAt: string | null;
+        syncedAt: string;
+    }>;
+    syncedAt: string | null;
+};
+
+export type BingTrafficResponseDto = {
+    rows: Array<{
+        date: string;
+        clicks: number;
+        impressions: number;
+        ctr: number;
+    }>;
+    totals: {
+        clicks: number;
+        impressions: number;
+        ctr: number;
+    };
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    latestAvailableDate: string | null;
+    earliestAvailableDate: string | null;
+    trends: {
+        clicks: {
+            slope: number;
+            intercept: number;
+            r2: number;
+            start: number;
+            end: number;
+            n: number;
+            startIndex: number;
+            endIndex: number;
+        } | null;
+        impressions: {
+            slope: number;
+            intercept: number;
+            r2: number;
+            start: number;
+            end: number;
+            n: number;
+            startIndex: number;
+            endIndex: number;
+        } | null;
+        ctr: {
+            slope: number;
+            intercept: number;
+            r2: number;
+            start: number;
+            end: number;
+            n: number;
+            startIndex: number;
+            endIndex: number;
+        } | null;
+    };
+    periodComparison: {
+        days: number;
+        basis?: 'prior-window' | 'split-window';
+        prior: {
+            startDate: string;
+            endDate: string;
+            clicks: number;
+            impressions: number;
+            ctr: number | null;
+            position: number | null;
+            source: 'property-daily' | 'dimensioned' | 'mixed' | 'empty';
+        };
+        trailing: {
+            startDate: string;
+            endDate: string;
+            clicks: number;
+            impressions: number;
+            ctr: number | null;
+            position: number | null;
+            source: 'property-daily' | 'dimensioned' | 'mixed' | 'empty';
+        };
+        comparable: boolean;
+        change: {
+            clicks: number | null;
+            impressions: number | null;
+            ctr: number | null;
+            position: number | null;
+        };
+        difference?: {
+            clicks: number | null;
+            impressions: number | null;
+            ctr: number | null;
+            position: number | null;
+        };
+    } | null;
+};
+
+export type BingSubmitSitemapResponseDto = {
+    sitemapUrl: string;
+    accepted: true;
+};
+
+export type SitemapCoverageResponseDto = {
+    site: {
+        scannedAt: string | null;
+        runId: string | null;
+        sitemaps: Array<string>;
+    };
+    google: {
+        syncedAt: string;
+        sitemaps: Array<{
+            url: string;
+            parentUrl: string | null;
+            isIndex: boolean;
+            type: string | null;
+            state: 'ok' | 'pending' | 'warnings' | 'errors' | 'other';
+            statusLabel: string;
+            warnings: number | null;
+            errors: number | null;
+            urlCount: number | null;
+            submittedAt: string | null;
+            lastReadAt: string | null;
+        }>;
+        missing: Array<{
+            url: string;
+            foundIn: Array<'site' | 'google' | 'bing'>;
+        }>;
+    } | null;
+    bing: {
+        syncedAt: string;
+        sitemaps: Array<{
+            url: string;
+            parentUrl: string | null;
+            isIndex: boolean;
+            type: string | null;
+            state: 'ok' | 'pending' | 'warnings' | 'errors' | 'other';
+            statusLabel: string;
+            warnings: number | null;
+            errors: number | null;
+            urlCount: number | null;
+            submittedAt: string | null;
+            lastReadAt: string | null;
+        }>;
+        missing: Array<{
+            url: string;
+            foundIn: Array<'site' | 'google' | 'bing'>;
+        }>;
+    } | null;
+};
+
+export type BingUrlChildrenResponseDto = {
+    url: string;
+    page: number;
+    rows: Array<{
+        url: string;
+        httpStatus: number | null;
+        documentSize: number | null;
+        anchorCount: number | null;
+        isPage: boolean | null;
+        totalChildUrlCount: number | null;
+        discoveryDate: string | null;
+        lastCrawledDate: string | null;
+    }>;
+};
+
+export type BingUrlTrafficResponseDto = {
+    url: {
+        url: string;
+        clicks: number;
+        impressions: number;
+        isPage: boolean;
+    };
+    children: Array<{
+        url: string;
+        clicks: number;
+        impressions: number;
+        isPage: boolean;
+    }>;
+    page: number;
 };
 
 export type BingCoverageSnapshotDto = {
@@ -4230,6 +4829,10 @@ export type BingIndexingRequestResponseDto = {
         submittedAt: string;
         error?: string;
     }>;
+    quota?: {
+        dailyQuota: number;
+        monthlyQuota: number;
+    } | null;
 };
 
 export type BingKeywordStatsDto = {
@@ -4238,6 +4841,7 @@ export type BingKeywordStatsDto = {
     clicks: number;
     ctr: number;
     averagePosition: number;
+    date?: string | null;
 };
 
 export type BingSetSiteResponseDto = {
@@ -4282,9 +4886,11 @@ export type BrandMetricsDto = {
         dataStartDate: string;
         dataEndDate: string;
         sweepCount: number;
-        citationRate: number;
+        citationRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
+        citedTotal?: number;
         queryCount: number;
         mentionRate: number;
         mentionedCount: number;
@@ -4296,9 +4902,11 @@ export type BrandMetricsDto = {
         };
         byProvider: {
             [key: string]: {
-                citationRate: number;
+                citationRate: number | null;
                 cited: number;
                 total: number;
+                citationNotMeasured: number;
+                citedTotal?: number;
                 mentionRate: number;
                 mentionedCount: number;
             };
@@ -4318,17 +4926,21 @@ export type BrandMetricsDto = {
         basketRevision: number | null;
     }>;
     overall: {
-        citationRate: number;
+        citationRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
+        citedTotal?: number;
         mentionRate: number;
         mentionedCount: number;
     };
     byProvider: {
         [key: string]: {
-            citationRate: number;
+            citationRate: number | null;
             cited: number;
             total: number;
+            citationNotMeasured: number;
+            citedTotal?: number;
             mentionRate: number;
             mentionedCount: number;
         };
@@ -4575,11 +5187,13 @@ export type CitationVisibilityResponse = {
         providersConfigured: number;
         providersCiting: number;
         providersMentioning: number;
+        providersCitationNotMeasured: number;
         totalQueries: number;
         queriesCitedAndMentioned: number;
         queriesCitedOnly: number;
         queriesMentionedOnly: number;
         queriesInvisible: number;
+        queriesCitationNotMeasured: number;
         latestRunId: string | null;
         latestRunAt: string | null;
     };
@@ -4588,8 +5202,8 @@ export type CitationVisibilityResponse = {
         query: string;
         providers: Array<{
             provider: string;
-            citationState: 'cited' | 'not-cited';
-            cited: boolean;
+            citationState: 'cited' | 'not-cited' | 'not-measured';
+            cited: boolean | null;
             mentioned: boolean;
             runId: string;
             runCreatedAt: string;
@@ -4597,6 +5211,7 @@ export type CitationVisibilityResponse = {
         citedCount: number;
         mentionedCount: number;
         totalProviders: number;
+        citationNotMeasured: number;
     }>;
     competitorGaps: Array<{
         queryId: string;
@@ -4608,6 +5223,55 @@ export type CitationVisibilityResponse = {
     }>;
     status: 'ready' | 'no-data';
     reason?: 'no-runs-yet' | 'no-queries';
+};
+
+export type CitationUrlsResponse = {
+    filters: {
+        window: '7d' | '30d' | '90d' | 'all';
+        domain: string | null;
+        categories: Array<'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other'>;
+        provider: string | null;
+        queryClass: 'all' | 'branded' | 'non-brand';
+        newInLatest: boolean;
+        sort: 'answers' | 'newest';
+    };
+    latestRun: {
+        id: string;
+        createdAt: string;
+    } | null;
+    runCount: number;
+    answerTotal: number;
+    sweepsWithPages: number;
+    answersPagesNotCaptured: number;
+    answersPagesIncomplete: number;
+    unclassifiedAnswers: number;
+    total: number;
+    returned: number;
+    truncated: boolean;
+    nextCursor: string | null;
+    urls: Array<{
+        url: string;
+        domain: string;
+        category: 'competitor' | 'directory' | 'social' | 'forum' | 'news' | 'reference' | 'blog' | 'ecommerce' | 'video' | 'academic' | 'other';
+        label: string;
+        answers: number;
+        answersMentioned: number;
+        answersMentionUnchecked: number;
+        providers: {
+            [key: string]: number;
+        };
+        queries: Array<{
+            query: string;
+            answers: number;
+        }>;
+        sweeps: number;
+        firstSeenAt: string;
+        firstRunId: string;
+        lastSeenAt: string;
+        lastRunId: string;
+        newInLatest: boolean;
+        citedInLatest: boolean;
+    }>;
 };
 
 export type CompetitorAliasBlockRequest = {
@@ -5618,7 +6282,7 @@ export type DiscoverySessionDetailDto = {
         projectId: string;
         query: string;
         bucket: 'cited' | 'aspirational' | 'wasted-surface' | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         citedDomains: Array<string>;
         answerMentioned: boolean | null;
         createdAt: string;
@@ -5777,7 +6441,7 @@ export type ResearchBatchDto = {
             namedCompetitors: Array<string>;
             citedCompetitorDomains: Array<string>;
             answerMentioned: boolean | null;
-            citationState: 'cited' | 'not-cited' | null;
+            citationState: 'cited' | 'not-cited' | 'not-measured' | null;
             error: string | null;
             startedAt: string | null;
             finishedAt: string | null;
@@ -5982,7 +6646,7 @@ export type ResearchRunDetailDto = {
         namedCompetitors: Array<string>;
         citedCompetitorDomains: Array<string>;
         answerMentioned: boolean | null;
-        citationState: 'cited' | 'not-cited' | null;
+        citationState: 'cited' | 'not-cited' | 'not-measured' | null;
         error: string | null;
         startedAt: string | null;
         finishedAt: string | null;
@@ -6300,9 +6964,9 @@ export type InstanceStatusDto = {
             notifiedAt: string | null;
         } | null;
         integrations: Array<{
-            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
+            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'bing-search' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
             label: string;
-            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
             sourceId: string | null;
             state: 'ok' | 'failing' | 'stale' | 'never-synced';
             lastSuccessAt: string | null;
@@ -6363,6 +7027,41 @@ export type Ga4AiReferralDailyDto = {
             };
         }>;
     };
+    trend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startDate: string;
+        endDate: string;
+    } | null;
+    months?: Array<{
+        month: string;
+        sessions: number | null;
+        complete: boolean;
+        engines: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+    }>;
+    monthlyTrend?: {
+        slope: number;
+        intercept: number;
+        r2: number;
+        start: number;
+        end: number;
+        n: number;
+        startIndex: number;
+        endIndex: number;
+        startMonth: string;
+        endMonth: string;
+        changePct: number | null;
+    } | null;
 };
 
 export type Ga4AiReferralHistoryEntry = {
@@ -6439,7 +7138,7 @@ export type Ga4MeasurementAnalysisDto = {
         }>;
         aiEngines: {
             leadRateAvailable: boolean;
-            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
             organic: {
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -6598,7 +7297,7 @@ export type Ga4SessionHistoryEntry = {
 };
 
 export type GaOverviewResponse = {
-    window: '7d' | '30d' | '90d' | 'all';
+    window: '7d' | '30d' | '90d' | '180d' | 'all';
     current: {
         startDate: string | null;
         endDate: string | null;
@@ -6738,7 +7437,7 @@ export type Ga4SyncResponseDto = {
         searchLandingPages?: {
             status: 'ready' | 'unavailable' | 'error';
             windows: Array<{
-                window: '7d' | '28d' | '90d';
+                window: '7d' | '28d' | '90d' | '180d';
                 rowCount: number;
                 reportRowCount: number;
                 rowsCapped: boolean;
@@ -6859,7 +7558,7 @@ export type GaSearchLandingPagesResponse = {
     error: string | null;
     syncedAt: string | null;
     attemptedAt: string | null;
-    window: '7d' | '28d' | '90d';
+    window: '7d' | '28d' | '90d' | '180d';
     windowStart: string | null;
     windowEnd: string | null;
     windowDays: number | null;
@@ -6978,7 +7677,7 @@ export type GaTrafficResponse = {
         share: number;
     }>;
     socialPlatforms: Array<{
-        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | null;
+        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | 'shopmy' | 'ltk' | null;
         label: string;
         sessions: number;
         organicSessions: number;
@@ -7007,6 +7706,79 @@ export type GaTrafficResponse = {
                 [key: string]: number;
             };
         }>;
+    };
+    socialPlatformPerformance?: {
+        status: 'ready' | 'unavailable';
+        unavailableReason: 'sessions-not-synced' | null;
+        sessions: number;
+        sharePct: number;
+        sharePctDisplay: string;
+        paidSessions: number;
+        paidShare: number;
+        conversions: number | null;
+        conversionRateAvailable: boolean;
+        conversionRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
+        countedEventNames: Array<string>;
+        minSessions: number;
+        site: {
+            conversions: number | null;
+            conversionsPerThousandSessions: number | null;
+            conversionsPerThousandSessionsDisplay: string;
+            sessions: number | null;
+        };
+        platforms: Array<{
+            conversions: number | null;
+            conversionsPerThousandSessions: number | null;
+            conversionsPerThousandSessionsDisplay: string;
+            key: string;
+            platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | 'shopmy' | 'ltk' | null;
+            label: string;
+            sessions: number;
+            organicSessions: number;
+            paidSessions: number;
+            share: number;
+            enoughSessions: boolean;
+            rank: number | null;
+            paid: {
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                sessions: number;
+            };
+            organic: {
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                sessions: number;
+            };
+            channelGroups: Array<string>;
+            sources: Array<{
+                conversions: number | null;
+                conversionsPerThousandSessions: number | null;
+                conversionsPerThousandSessionsDisplay: string;
+                source: string;
+                medium: string;
+                channelGroup: string;
+                trafficClass: 'organic' | 'paid';
+                sessions: number;
+                share: number;
+            }>;
+        }>;
+        daily: {
+            series: Array<{
+                key: string;
+                label: string;
+                sessions: number;
+            }>;
+            otherCount: number;
+            days: Array<{
+                date: string;
+                sessions: number;
+                values: {
+                    [key: string]: number;
+                };
+            }>;
+        };
     };
     socialSessions: number;
     paidSocialSessions: number;
@@ -7218,6 +7990,8 @@ export type GbpLocationDto = {
     openStatus: string | null;
     openingDate: string | null;
     selected: boolean;
+    websiteMatchesProject?: boolean | null;
+    websiteDomain?: string | null;
     syncedAt: string | null;
     createdAt: string;
     updatedAt: string;
@@ -7247,6 +8021,8 @@ export type GbpLocationListResponse = {
         openStatus: string | null;
         openingDate: string | null;
         selected: boolean;
+        websiteMatchesProject?: boolean | null;
+        websiteDomain?: string | null;
         syncedAt: string | null;
         createdAt: string;
         updatedAt: string;
@@ -7971,6 +8747,12 @@ export type GscPerformanceDailyDto = {
         };
         comparable: boolean;
         change: {
+            clicks: number | null;
+            impressions: number | null;
+            ctr: number | null;
+            position: number | null;
+        };
+        difference?: {
             clicks: number | null;
             impressions: number | null;
             ctr: number | null;
@@ -8973,18 +9755,20 @@ export type HealthSnapshotDto = {
     id: string;
     projectId: string;
     runId: string | null;
-    overallCitedRate: number;
+    overallCitedRate: number | null;
     overallMentionRate: number;
     totalPairs: number;
     citedPairs: number;
+    citationNotMeasuredPairs: number;
     mentionedPairs: number;
     providerBreakdown: {
         [key: string]: {
-            citedRate: number;
+            citedRate: number | null;
             mentionRate: number;
             cited: number;
             mentioned: number;
             total: number;
+            citationNotMeasured: number;
         };
     };
     createdAt: string;
@@ -9028,7 +9812,7 @@ export type LatestProjectRunDto = {
         sourceId?: string | null;
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         measurementPlanVersionId?: string | null;
@@ -9100,11 +9884,11 @@ export type LatestProjectRunDto = {
             queryId: string;
             query?: string;
             provider: string;
-            citationState: 'cited' | 'not-cited';
+            citationState: 'cited' | 'not-cited' | 'not-measured';
             answerMentioned?: boolean;
             visibilityState?: 'visible' | 'not-visible';
             mentionState?: 'mentioned' | 'not-mentioned';
-            transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+            transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
             answerText?: string | null;
             citedDomains: Array<string>;
             citedUrls: Array<string> | null;
@@ -9266,7 +10050,31 @@ export type LatestProjectRunDto = {
             totalQueries: number;
             citedQueries: number;
             mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
         } | null;
+        queryCountsByClass?: {
+            nonBrand: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
+            };
+            branded: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
+            };
+            unclassifiedQueries: number;
+        } | null;
+        providerFailures?: {
+            [key: string]: {
+                message: string;
+                failedQueries: number;
+                stopped: boolean;
+            };
+        } | null;
+        plannedAnswers?: number;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -9333,6 +10141,47 @@ export type RunAdmissionDto = {
             retryAfter: string;
         };
     };
+};
+
+export type RunPreviewDto = {
+    mode: 'simple' | 'advanced';
+    revision: number | null;
+    queryCount: number;
+    assignmentCount: number | null;
+    queryClasses: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        queryCount: number;
+        assignmentCount: number | null;
+    }>;
+    requestCount: number;
+    expectedRequestCount: number;
+    engines: Array<{
+        provider: string;
+        models: Array<string>;
+        requestCount: number;
+        expectedRequestCount: number;
+        available: boolean;
+    }>;
+    locations: Array<{
+        location: string | null;
+        requestCount: number;
+    }>;
+    admission: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+    activeRunId: string | null;
+    canStart: boolean;
+    blockedReason: 'unpublished-plan' | 'no-queries' | 'no-provider' | 'providers-failing' | 'run-in-progress' | null;
 };
 
 export type LocationContext = {
@@ -10197,7 +11046,7 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10206,12 +11055,12 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             mentionCoverage: {
                 state: 'available';
@@ -10222,9 +11071,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10233,14 +11083,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             citationCoverage: {
                 state: 'available';
@@ -10251,9 +11102,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10262,14 +11114,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
         };
         metricsByClass?: {
@@ -10283,7 +11136,7 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10292,12 +11145,12 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 mentionCoverage: {
                     state: 'available';
@@ -10308,9 +11161,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10319,14 +11173,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -10337,9 +11192,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10348,14 +11204,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
             };
             nonBrand: {
@@ -10368,7 +11225,7 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10377,12 +11234,12 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 mentionCoverage: {
                     state: 'available';
@@ -10393,9 +11250,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10404,14 +11262,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -10422,9 +11281,10 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     current: {
                         state: 'available';
@@ -10433,14 +11293,15 @@ export type MeasurementChangesResponse = {
                         denominator?: number;
                         unattributed?: number;
                         unchecked?: number;
+                        citationNotMeasured?: number;
                     } | {
                         state: 'unavailable';
-                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                     };
                     delta: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
             };
         };
@@ -10467,9 +11328,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10478,14 +11340,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             citationCoverage: {
                 state: 'available';
@@ -10496,9 +11359,10 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 current: {
                     state: 'available';
@@ -10507,14 +11371,15 @@ export type MeasurementChangesResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 delta: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             flags: number;
             mentionAnswersDelta?: number | null;
@@ -10843,7 +11708,7 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         mentionCoverage: {
             state: 'available';
@@ -10852,9 +11717,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -10863,9 +11729,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         brandPresence: {
             state: 'available';
@@ -10874,9 +11741,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         /**
          * Deprecated alias of brandPresence carrying the identical value. Remove once the browser migrates.
@@ -10888,9 +11756,10 @@ export type MeasurementOverviewResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
     };
     properties: {
@@ -10912,9 +11781,10 @@ export type MeasurementOverviewResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             citationCoverage: {
                 state: 'available';
@@ -10923,9 +11793,10 @@ export type MeasurementOverviewResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
             providers: Array<{
                 provider: string;
@@ -10936,9 +11807,10 @@ export type MeasurementOverviewResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
                 citationCoverage: {
                     state: 'available';
@@ -10947,9 +11819,10 @@ export type MeasurementOverviewResponse = {
                     denominator?: number;
                     unattributed?: number;
                     unchecked?: number;
+                    citationNotMeasured?: number;
                 } | {
                     state: 'unavailable';
-                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                    reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
                 };
             }>;
             flags: number;
@@ -11006,7 +11879,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         propertiesNeverMentioned?: {
             state: 'available';
@@ -11015,7 +11888,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         mentionCoverage: {
             state: 'available';
@@ -11024,9 +11897,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11035,9 +11909,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
     };
     /**
@@ -11060,6 +11935,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -11068,6 +11944,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
         }>;
     };
@@ -11091,9 +11968,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11102,9 +11980,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         flags: number;
         namedInsteadInAnswerText?: Array<{
@@ -11187,6 +12066,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -11195,9 +12075,10 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
         }>;
         weakest: Array<{
@@ -11220,6 +12101,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -11228,15 +12110,16 @@ export type MeasurementPortfolioSummaryResponse = {
                 denominator?: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 state: 'unavailable';
-                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+                reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
             };
         }>;
         excluded: Array<{
             targetKey: string;
             label: string;
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         }>;
         truncated: boolean;
         excludedTotal?: number;
@@ -11254,7 +12137,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         propertiesNeverMentioned?: {
             state: 'available';
@@ -11263,7 +12146,7 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         mentionCoverage: {
             state: 'available';
@@ -11272,9 +12155,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
         citationCoverage: {
             state: 'available';
@@ -11283,9 +12167,10 @@ export type MeasurementPortfolioSummaryResponse = {
             denominator?: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             state: 'unavailable';
-            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
         };
     }>;
     totalMarkets: number;
@@ -12493,7 +13378,7 @@ export type MeasurementPropertyCompetitorsResponse = {
         recommendationOccurrences: number;
     } | {
         state: 'unavailable';
-        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable' | 'citation_not_measured';
     };
     competitors: Array<{
         name: string;
@@ -12562,6 +13447,7 @@ export type MeasurementPropertyEvidenceResponse = {
             mentioned: boolean | null;
             mentionIdentity: 'wrong-subject' | null;
             cited: boolean | null;
+            citationMeasured: boolean;
             sources: Array<{
                 sourceUrl: string;
                 normalizedUrl: string | null;
@@ -12626,6 +13512,7 @@ export type MeasurementPropertyQuestionsResponse = {
         status: 'answered';
         mentioned: boolean | null;
         cited: boolean | null;
+        citationMeasured: boolean;
         recommendedInstead: Array<string>;
         answerExcerpt: string | null;
     } | {
@@ -12671,6 +13558,7 @@ export type MeasurementQuestionResultResponse = {
     };
     mentioned: boolean | null;
     cited: boolean | null;
+    citationMeasured: boolean;
     recommendedInstead: Array<string>;
     answer: string | null;
     sources: Array<{
@@ -12788,6 +13676,7 @@ export type MeasurementReportResponse = {
             complete: boolean;
             sourceComplete: boolean;
             sourceCompleteObservations: number;
+            citationNotMeasuredObservations: number;
             answerComplete: boolean;
         };
         answerCoverage: {
@@ -12796,11 +13685,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         targetCoverage: {
             numerator: number;
@@ -12808,11 +13698,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         sov: {
             domains: Array<{
@@ -12825,7 +13716,7 @@ export type MeasurementReportResponse = {
                 own: boolean;
                 presentIn: null;
                 of: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             }>;
             providers: Array<{
                 provider: string;
@@ -12839,7 +13730,7 @@ export type MeasurementReportResponse = {
                     own: boolean;
                     presentIn: null;
                     of: null;
-                    reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                    reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
                 }>;
             }>;
         };
@@ -12851,6 +13742,7 @@ export type MeasurementReportResponse = {
                 complete: boolean;
                 sourceComplete: boolean;
                 sourceCompleteObservations: number;
+                citationNotMeasuredObservations: number;
                 answerComplete: boolean;
             };
             answerCoverage: {
@@ -12859,11 +13751,12 @@ export type MeasurementReportResponse = {
                 rate: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             };
         }>;
     }>;
@@ -12876,6 +13769,7 @@ export type MeasurementReportResponse = {
             complete: boolean;
             sourceComplete: boolean;
             sourceCompleteObservations: number;
+            citationNotMeasuredObservations: number;
             answerComplete: boolean;
         };
         citationCoverage: {
@@ -12884,11 +13778,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         mentionCoverage: {
             numerator: number;
@@ -12896,11 +13791,12 @@ export type MeasurementReportResponse = {
             rate: number;
             unattributed?: number;
             unchecked?: number;
+            citationNotMeasured?: number;
         } | {
             numerator: null;
             denominator: null;
             rate: null;
-            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+            reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
         };
         providers: Array<{
             provider: string;
@@ -12910,6 +13806,7 @@ export type MeasurementReportResponse = {
                 complete: boolean;
                 sourceComplete: boolean;
                 sourceCompleteObservations: number;
+                citationNotMeasuredObservations: number;
                 answerComplete: boolean;
             };
             citationCoverage: {
@@ -12918,11 +13815,12 @@ export type MeasurementReportResponse = {
                 rate: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             };
             mentionCoverage: {
                 numerator: number;
@@ -12930,11 +13828,12 @@ export type MeasurementReportResponse = {
                 rate: number;
                 unattributed?: number;
                 unchecked?: number;
+                citationNotMeasured?: number;
             } | {
                 numerator: null;
                 denominator: null;
                 rate: null;
-                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases';
+                reason: 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'no-population' | 'aliasless' | 'no-competitors' | 'no-project-aliases' | 'citation-not-measured';
             };
         }>;
     }>;
@@ -12960,6 +13859,7 @@ export type MeasurementReportResponse = {
         bridgedObservationIds: Array<string>;
         historicalObservationIds: Array<string>;
         evidenceIncompleteObservationIds: Array<string>;
+        citationNotMeasuredObservationIds: Array<string>;
         ambiguousObservationIds: Array<string>;
         unmatchedObservationIds: Array<string>;
     };
@@ -12975,6 +13875,7 @@ export type MeasurementSetupResponse = {
     nextAction: 'republish_setup' | 'continue_setup' | 'run_measurement' | 'view_measurement' | 'start_setup';
     mode: 'simple' | 'draft-only' | 'active-v1' | 'active-v2';
     answerVisibilityProviderReady: boolean;
+    requiresPublication?: boolean;
     activeRevision: number | null;
     activeSchemaVersion: 1 | 2 | null;
     draft: {
@@ -12990,12 +13891,19 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
     createdAt: string;
     updatedAt: string;
+};
+
+export type NotificationUpdateRequest = {
+    events?: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
+    addEvents?: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
+    removeEvents?: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
+    enabled?: boolean;
 };
 
 export type OnboardingTelemetryEvent = {
@@ -13042,26 +13950,36 @@ export type OnboardingTelemetryEvent = {
 export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
-    event: 'ui.page_viewed';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.page_time';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    visitId: string;
+    foregroundMs: number;
+    activeMs: number;
+    completed: boolean;
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.page_viewed';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'feedback.submit' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'bing.sync' | 'sitemap.submit' | 'journeys.visitor_open' | 'journeys.visit_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
     filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'seoProfile' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.error';
     kind: 'render' | 'unhandled' | 'api';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
     component?: string;
     errorName?: string;
     route?: string;
@@ -13071,11 +13989,11 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/journeys' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/agent-readiness' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'agent-readiness' | 'technical-aeo' | 'history' | 'settings' | 'other';
 };
 
 export type OrganicEvidenceDto = {
@@ -13174,6 +14092,7 @@ export type OrganicEvidenceDto = {
         answerPairs: number;
         mentionedPairs: number;
         citedPairs: number;
+        citationNotMeasuredPairs: number;
     } | null;
     measurement: {
         window: '30d' | '60d' | '90d';
@@ -13238,7 +14157,7 @@ export type OrganicEvidenceDto = {
             }>;
             aiEngines: {
                 leadRateAvailable: boolean;
-                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | 'sessions-before-leads' | null;
                 organic: {
                     periods: Array<{
                         label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -13460,6 +14379,7 @@ export type ProjectCreateRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -13506,6 +14426,7 @@ export type ProjectDto = {
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
      */
@@ -13557,6 +14478,7 @@ export type ProjectPatchRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -13600,6 +14522,7 @@ export type ProjectUpsertRequest = {
     qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
     siteAuditMaxPages?: number | null;
+    siteAuditDomains?: Array<string>;
     /**
      * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
      */
@@ -13670,7 +14593,7 @@ export type ProjectConfig = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
         }>;
         google?: {
             gsc?: {
@@ -13684,6 +14607,7 @@ export type ProjectConfig = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains?: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -13754,7 +14678,7 @@ export type ProjectConfigExport = {
             id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'mention.lost' | 'mention.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped' | 'traffic.agent.discovered' | 'site-health.issue.new' | 'sentiment.unfavorable'>;
         }>;
         google?: {
             gsc?: {
@@ -13768,6 +14692,7 @@ export type ProjectConfigExport = {
         autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains?: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
          */
@@ -14043,6 +14968,97 @@ export type ProjectOverviewDto = {
             runIds: Array<string>;
         };
     };
+    mentionCoverage?: {
+        selection: {
+            mode: 'simple' | 'advanced';
+            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
+            scope: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            market?: {
+                id: string;
+                label: string;
+                kind: 'project' | 'group' | 'market' | 'property';
+                targetCount: number;
+                parentGroupIds?: Array<string>;
+                marketKeys?: Array<string>;
+            };
+            provider: string | null;
+            model: string | null;
+            location: {
+                kind: 'all';
+            } | {
+                kind: 'none';
+            } | {
+                kind: 'exact';
+                value: string;
+            };
+            time: {
+                from: string | null;
+                to: string | null;
+            };
+            revision: number | null;
+            run: {
+                id: string | null;
+                explicit: boolean;
+            };
+            provenance: {
+                kind: 'frozen-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'legacy-simple';
+                definitionRevision: null;
+            } | {
+                kind: 'frozen-advanced';
+                definitionRevision: number;
+            } | {
+                kind: 'unsupported-advanced-v1';
+                definitionRevision: number;
+            };
+            measurement: {
+                state: 'measured' | 'not-measured' | 'partial';
+                activeRevision: number | null;
+                measuredRevision: number | null;
+                awaitingSweep: boolean;
+                pendingAssignmentCount: number;
+                completedAt: string | null;
+            };
+            availability: {
+                state: 'available';
+            } | {
+                state: 'unsupported';
+                reason: 'advanced-v1';
+            };
+        };
+        populations: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            queryCount: number;
+            answerCount: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                unattributed?: number;
+                unchecked?: number;
+                citationNotMeasured?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable' | 'citation-not-measured';
+                unattributed?: number;
+                unchecked?: number;
+                citationNotMeasured?: number;
+            };
+        }>;
+    };
     project: {
         id: string;
         name: string;
@@ -14081,6 +15097,7 @@ export type ProjectOverviewDto = {
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
         siteAuditMaxPages?: number | null;
+        siteAuditDomains: Array<string>;
         /**
          * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
          */
@@ -14097,7 +15114,7 @@ export type ProjectOverviewDto = {
             sourceId?: string | null;
             id: string;
             projectId: string;
-            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
             measurementPlanVersionId?: string | null;
@@ -14169,11 +15186,11 @@ export type ProjectOverviewDto = {
                 queryId: string;
                 query?: string;
                 provider: string;
-                citationState: 'cited' | 'not-cited';
+                citationState: 'cited' | 'not-cited' | 'not-measured';
                 answerMentioned?: boolean;
                 visibilityState?: 'visible' | 'not-visible';
                 mentionState?: 'mentioned' | 'not-mentioned';
-                transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+                transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
                 answerText?: string | null;
                 citedDomains: Array<string>;
                 citedUrls: Array<string> | null;
@@ -14335,7 +15352,31 @@ export type ProjectOverviewDto = {
                 totalQueries: number;
                 citedQueries: number;
                 mentionedQueries: number;
+                citationNotMeasuredQueries?: number;
             } | null;
+            queryCountsByClass?: {
+                nonBrand: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                };
+                branded: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                };
+                unclassifiedQueries: number;
+            } | null;
+            providerFailures?: {
+                [key: string]: {
+                    message: string;
+                    failedQueries: number;
+                    stopped: boolean;
+                };
+            } | null;
+            plannedAnswers?: number;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -14393,18 +15434,20 @@ export type ProjectOverviewDto = {
         id: string;
         projectId: string;
         runId: string | null;
-        overallCitedRate: number;
+        overallCitedRate: number | null;
         overallMentionRate: number;
         totalPairs: number;
         citedPairs: number;
+        citationNotMeasuredPairs: number;
         mentionedPairs: number;
         providerBreakdown: {
             [key: string]: {
-                citedRate: number;
+                citedRate: number | null;
                 mentionRate: number;
                 cited: number;
                 mentioned: number;
                 total: number;
+                citationNotMeasured: number;
             };
         };
         createdAt: string;
@@ -14442,16 +15485,18 @@ export type ProjectOverviewDto = {
         totalQueries: number;
         citedQueries: number;
         notCitedQueries: number;
-        citedRate: number;
+        citedRate: number | null;
+        citationNotMeasuredQueries: number;
         mentionedQueries: number;
         notMentionedQueries: number;
         mentionRate: number;
     };
     providers: Array<{
         provider: string;
-        citedRate: number;
+        citedRate: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
     }>;
     transitions: {
         since: string | null;
@@ -14638,9 +15683,10 @@ export type ProjectOverviewDto = {
     providerScores: Array<{
         provider: string;
         model: string | null;
-        score: number;
+        score: number | null;
         cited: number;
         total: number;
+        citationNotMeasured: number;
         trend?: Array<number>;
     }>;
     attentionItems: Array<{
@@ -14651,12 +15697,115 @@ export type ProjectOverviewDto = {
         actionLabel: string;
         href: string;
     }>;
+    whatChanged?: {
+        mode: 'simple' | 'advanced';
+        latestCheck: {
+            runIds: Array<string>;
+            createdAt: string;
+        } | null;
+        comparison: {
+            state: 'available';
+            previousRunIds: Array<string>;
+        } | {
+            state: 'unavailable';
+            reason: 'not-measured' | 'no-previous-check' | 'definition-changed' | 'model-changed' | 'partial-run' | 'legacy-plan' | 'unreadable';
+        };
+        lostMentions: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        lostCitations: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        gainedMentions?: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        gainedCitations?: {
+            queryCount: number;
+            queries: Array<{
+                queryId: string | null;
+                query: string;
+                queryClass: 'branded' | 'non-brand' | null;
+                providers: Array<string>;
+                locations: Array<string | null>;
+                properties: Array<{
+                    key: string;
+                    label: string;
+                }>;
+                markets: Array<{
+                    key: string;
+                    label: string;
+                }>;
+            }>;
+            truncated: boolean;
+        };
+        activeRuns: {
+            count: number;
+            runIds: Array<string>;
+        };
+        items: Array<{
+            id: string;
+            tone: 'positive' | 'caution' | 'negative' | 'neutral';
+            title: string;
+            detail: string;
+            actionLabel: string;
+            href: string;
+        }>;
+    };
     runHistory: Array<{
         runId: string;
         createdAt: string;
         citedCount: number;
         totalCount: number;
-        citationRate: number;
+        citationNotMeasuredCount: number;
+        citationRate: number | null;
         mentionedCount: number;
         mentionRate: number;
         status: string;
@@ -14676,12 +15825,106 @@ export type ProjectOverviewDto = {
     contextLabel: string;
 };
 
+export type ProjectSetupDto = {
+    project: {
+        name: string;
+        displayName: string | null;
+        canonicalDomain: string;
+    };
+    complete: boolean;
+    firstResultAt: string | null;
+    nextAction: 'run_agent_readiness' | 'retry_agent_readiness' | 'connect_engine' | 'add_queries' | 'publish_plan' | 'run_ai_visibility' | 'repair_ai_visibility' | 'wait' | 'open_project';
+    tracks: {
+        agentReadiness: {
+            state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            runId: string | null;
+            startedAt: string | null;
+            finishedAt: string | null;
+            progress: {
+                phase: 'queued' | 'discovering' | 'checking' | 'arranging-map' | 'completed' | 'partial' | 'failed' | 'cancelled';
+                pagesFound: number | null;
+                pagesChecked: number;
+                pageLimit: number | null;
+                linksFound: number | null;
+                pagesFailed: number | null;
+            } | null;
+            result: {
+                score: number | null;
+                pagesScored: number;
+            } | null;
+            error: string | null;
+        };
+        aiVisibility: {
+            state: 'not_started' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            runId: string | null;
+            runIds: Array<string>;
+            startedAt: string | null;
+            finishedAt: string | null;
+            baselineRunId: string | null;
+            mode?: 'simple' | 'advanced';
+            blockedBy: 'no_engine' | 'no_queries' | 'plan_unpublished' | 'engines_failing' | null;
+            engines: Array<string>;
+            queries: {
+                total: number;
+                nonBrand: number;
+                branded: number;
+                unclassified: number;
+            };
+            progress: {
+                answersSaved: number;
+                answersPlanned: number | null;
+            } | null;
+            providerFailures: {
+                [key: string]: {
+                    message: string;
+                    failedQueries: number;
+                    stopped: boolean;
+                };
+            } | null;
+            result: {
+                answers: number;
+                engines: number;
+                queryCounts: {
+                    totalQueries: number;
+                    citedQueries: number;
+                    mentionedQueries: number;
+                    citationNotMeasuredQueries?: number;
+                } | null;
+                queryCountsByClass: {
+                    nonBrand: {
+                        totalQueries: number;
+                        citedQueries: number;
+                        mentionedQueries: number;
+                        citationNotMeasuredQueries?: number;
+                    };
+                    branded: {
+                        totalQueries: number;
+                        citedQueries: number;
+                        mentionedQueries: number;
+                        citationNotMeasuredQueries?: number;
+                    };
+                    unclassifiedQueries: number;
+                } | null;
+            } | null;
+            error: string | null;
+            failedEngines: Array<{
+                provider: string;
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN' | null;
+                message: string;
+                skipped: boolean;
+            }> | null;
+        };
+    };
+};
+
 export type TrafficAnalyticsResponse = {
     activity: {
         windowStart: string;
         windowEnd: string;
         coverageStart: string | null;
         priorWindowComplete: boolean;
+        aiReferralCountingChangedAt?: string | null;
+        aiUserFetchCountingChangedAt?: string | null;
         /**
          * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
          */
@@ -14770,7 +16013,7 @@ export type ProjectSearchResponseDto = {
         query: string;
         provider: string;
         model: string | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         matchedField: 'answerText' | 'citedDomains' | 'citedUrls' | 'searchQueries' | 'query';
         snippet: string;
         createdAt: string;
@@ -14788,6 +16031,171 @@ export type ProjectSearchResponseDto = {
         dismissed: boolean;
         createdAt: string;
     }>;
+};
+
+export type ProviderConnectionSettingsDto = {
+    name: string;
+    displayName: string;
+    kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+    mode: 'api' | 'browser';
+    configured: boolean;
+    revision: string;
+    apiKeyConfigured: boolean;
+    /**
+     * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+     */
+    baseUrl: string | null;
+    model: string | null;
+    defaultModel: string | null;
+    effectiveModel: string | null;
+    quota: {
+        defaults: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        overrides: {
+            maxConcurrency?: number;
+            maxRequestsPerMinute?: number;
+            maxRequestsPerDay?: number;
+        };
+        effective: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+    };
+    capabilities: {
+        apiKey: boolean;
+        clearApiKey: boolean;
+        baseUrl: boolean;
+        resetBaseUrl: boolean;
+        model: boolean;
+        quota: boolean;
+        disconnect: boolean;
+        reload: boolean;
+    };
+    hostManaged: {
+        vertex: {
+            project: string;
+            region: string | null;
+            credentialsConfigured: boolean;
+        } | null;
+        batch: {
+            enabled: boolean;
+            maxRequestsPerBatch?: number;
+            deadlineHours?: number;
+        } | null;
+        pricing: {
+            models: {
+                [key: string]: {
+                    inputPerMTok: number;
+                    cachedInputPerMTok?: number;
+                    cacheWritePerMTok?: number;
+                    outputPerMTok: number;
+                    searchPer1k?: number;
+                    searchUnit?: 'query' | 'prompt';
+                    batchTokenDiscount?: number;
+                };
+            };
+        } | null;
+    };
+    hostUses: Array<string>;
+    blockers: Array<{
+        code: string;
+        message: string;
+        runIds: Array<string>;
+        batchIds: Array<string>;
+    }>;
+    /**
+     * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
+     */
+    lastTest?: {
+        status: 'connected' | 'failed' | 'not-verified';
+        /**
+         * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+         */
+        ok: boolean;
+        /**
+         * The provider's own result or refusal, with credentials redacted.
+         */
+        message: string;
+        /**
+         * The model this connection runs, as its check reported it, or null when the check names none.
+         */
+        model: string | null;
+        /**
+         * When the check finished (ISO 8601).
+         */
+        checkedAt: string;
+        durationMs: number;
+    } | null;
+    usage: {
+        projectCount: number;
+        projects: Array<{
+            name: string;
+            displayName: string;
+            providers: Array<string>;
+            sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+        }>;
+        /**
+         * Present only when a project's saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.
+         */
+        unknown?: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+        };
+    };
+    impactRevision: string;
+};
+
+export type ProviderConnectionTestResultDto = {
+    provider: string;
+    displayName: string;
+    status: 'connected' | 'failed' | 'not-verified';
+    /**
+     * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+     */
+    ok: boolean;
+    /**
+     * The provider's own result or refusal, with credentials redacted.
+     */
+    message: string;
+    /**
+     * The model this connection runs, as its check reported it, or null when the check names none.
+     */
+    model: string | null;
+    /**
+     * When the check finished (ISO 8601).
+     */
+    checkedAt: string;
+    durationMs: number;
+};
+
+export type ProviderDisconnectRequest = {
+    expectedImpactRevision?: string;
+};
+
+export type ProviderSettingsUpdateRequest = {
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+    quota?: {
+        maxConcurrency?: number;
+        maxRequestsPerMinute?: number;
+        maxRequestsPerDay?: number;
+    };
+    reset?: {
+        model?: true;
+        baseUrl?: true;
+        apiKey?: true;
+        quota?: Array<'maxConcurrency' | 'maxRequestsPerMinute' | 'maxRequestsPerDay'>;
+    };
+    expectedRevision?: string;
 };
 
 export type ProviderReloadRequest = {
@@ -14966,8 +16374,8 @@ export type ResultsExportDto = {
         provider: string;
         model: string | null;
         location: string | null;
-        citationState: 'cited' | 'not-cited';
-        cited: boolean;
+        citationState: 'cited' | 'not-cited' | 'not-measured';
+        cited: boolean | null;
         answerMentioned: boolean | null;
         mentionState: 'mentioned' | 'not-mentioned' | null;
         citedDomains: Array<string>;
@@ -15118,7 +16526,7 @@ export type RunDetailDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -15190,11 +16598,11 @@ export type RunDetailDto = {
         queryId: string;
         query?: string;
         provider: string;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         answerMentioned?: boolean;
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
-        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
         answerText?: string | null;
         citedDomains: Array<string>;
         citedUrls: Array<string> | null;
@@ -15356,7 +16764,31 @@ export type RunDetailDto = {
         totalQueries: number;
         citedQueries: number;
         mentionedQueries: number;
+        citationNotMeasuredQueries?: number;
     } | null;
+    queryCountsByClass?: {
+        nonBrand: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
+        };
+        branded: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+            citationNotMeasuredQueries?: number;
+        };
+        unclassifiedQueries: number;
+    } | null;
+    providerFailures?: {
+        [key: string]: {
+            message: string;
+            failedQueries: number;
+            stopped: boolean;
+        };
+    } | null;
+    plannedAnswers?: number;
     providerBatches?: Array<{
         id: string;
         provider: string;
@@ -15435,7 +16867,7 @@ export type RunDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -15503,6 +16935,88 @@ export type RunDto = {
     createdAt: string;
 };
 
+export type RunsAttentionDto = {
+    since: string;
+    items: Array<{
+        project: {
+            id: string;
+            name: string;
+            displayName: string;
+        };
+        run: {
+            sourceId?: string | null;
+            id: string;
+            projectId: string;
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
+            status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+            trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
+            measurementPlanVersionId?: string | null;
+            measurementManifest?: {
+                [key: string]: unknown;
+            } | null;
+            measurementScope?: {
+                groups: Array<string>;
+                targets: Array<string>;
+                queries: Array<string>;
+                resolvedTargets: Array<string>;
+            } | null;
+            measurementExecutionIdentity?: {
+                schemaVersion: 1;
+                language?: string;
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                checksum: string;
+            } | null;
+            location?: string | null;
+            queries?: Array<string> | null;
+            startedAt?: string | null;
+            finishedAt?: string | null;
+            error?: {
+                message?: string;
+                providers?: {
+                    [key: string]: {
+                        message: string;
+                        raw?: unknown;
+                        code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                        skipped?: boolean;
+                    };
+                };
+            } | null;
+            queryBasketRevision?: number | null;
+            dispatchModes?: {
+                [key: string]: 'batch';
+            };
+            skippedProviders?: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+            syncSummary?: {
+                type: 'cloudflare-queue';
+                stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+                pulls: number;
+                emptyPulls: number;
+                messagesPulled: number;
+                messagesAcknowledged: number;
+                poisonMessages: number;
+                skippedUnleasedMessages: number;
+                acceptedEvents: number;
+                duplicateEvents: number;
+                backlogAtFirstPull: number | null;
+                backlogAtLastPull: number | null;
+                elapsedMs: number;
+            };
+            createdAt: string;
+        };
+    }>;
+};
+
 export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor' | 'seo-sync';
 
 export type CalendarRecurrence = {
@@ -15526,10 +17040,37 @@ export type ScheduleDto = {
     enabled: boolean;
     providers: Array<string>;
     sourceId?: string | null;
+    siteAudit?: {
+        checkDeadLinks: boolean;
+        includeGeo: boolean;
+        includeAgentSkills: boolean;
+    } | null;
     lastRunAt?: string | null;
     nextRunAt?: string | null;
     createdAt: string;
     updatedAt: string;
+};
+
+export type SchedulePreviewRequest = {
+    preset?: string;
+    cron?: string;
+    recurrence?: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    };
+    timezone: string;
+};
+
+export type SchedulePreviewDto = {
+    cronExpr: string;
+    recurrence: {
+        everyDays: number;
+        startDate: string;
+        time: string;
+    } | null;
+    timezone: string;
+    nextRunAt: string | null;
 };
 
 export type SettingsDto = {
@@ -15601,6 +17142,132 @@ export type SettingsDto = {
         keyUrl?: string;
         vendorDocsUrl?: string;
     }>;
+    providerConnections?: Array<{
+        name: string;
+        displayName: string;
+        kind: 'answer-engine' | 'model-gateway' | 'answer-service';
+        mode: 'api' | 'browser';
+        configured: boolean;
+        revision: string;
+        apiKeyConfigured: boolean;
+        /**
+         * Saved endpoint override, or null when the adapter default is selected or a private endpoint is withheld. Consult capabilities and blockers before editing.
+         */
+        baseUrl: string | null;
+        model: string | null;
+        defaultModel: string | null;
+        effectiveModel: string | null;
+        quota: {
+            defaults: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+            overrides: {
+                maxConcurrency?: number;
+                maxRequestsPerMinute?: number;
+                maxRequestsPerDay?: number;
+            };
+            effective: {
+                maxConcurrency: number;
+                maxRequestsPerMinute: number;
+                maxRequestsPerDay: number;
+            };
+        };
+        capabilities: {
+            apiKey: boolean;
+            clearApiKey: boolean;
+            baseUrl: boolean;
+            resetBaseUrl: boolean;
+            model: boolean;
+            quota: boolean;
+            disconnect: boolean;
+            reload: boolean;
+        };
+        hostManaged: {
+            vertex: {
+                project: string;
+                region: string | null;
+                credentialsConfigured: boolean;
+            } | null;
+            batch: {
+                enabled: boolean;
+                maxRequestsPerBatch?: number;
+                deadlineHours?: number;
+            } | null;
+            pricing: {
+                models: {
+                    [key: string]: {
+                        inputPerMTok: number;
+                        cachedInputPerMTok?: number;
+                        cacheWritePerMTok?: number;
+                        outputPerMTok: number;
+                        searchPer1k?: number;
+                        searchUnit?: 'query' | 'prompt';
+                        batchTokenDiscount?: number;
+                    };
+                };
+            } | null;
+        };
+        hostUses: Array<string>;
+        blockers: Array<{
+            code: string;
+            message: string;
+            runIds: Array<string>;
+            batchIds: Array<string>;
+        }>;
+        /**
+         * The latest connection test of the active settings: null when none has run since they last changed (a new key, endpoint, model, Vertex setting or CDP endpoint, or a disconnect, hides an earlier test). Absent from hosts that keep no test history.
+         */
+        lastTest?: {
+            status: 'connected' | 'failed' | 'not-verified';
+            /**
+             * False only when status is failed. A not-verified connection is ok but unproven, so read status.
+             */
+            ok: boolean;
+            /**
+             * The provider's own result or refusal, with credentials redacted.
+             */
+            message: string;
+            /**
+             * The model this connection runs, as its check reported it, or null when the check names none.
+             */
+            model: string | null;
+            /**
+             * When the check finished (ISO 8601).
+             */
+            checkedAt: string;
+            durationMs: number;
+        } | null;
+        usage: {
+            projectCount: number;
+            projects: Array<{
+                name: string;
+                displayName: string;
+                providers: Array<string>;
+                sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+            }>;
+            /**
+             * Present only when a project's saved measurement plan or draft could not be read. The listed sources of those projects (a schedule follows its unreadable plan) may also reference this connection; they are never counted in projectCount or listed in projects.
+             */
+            unknown?: {
+                projectCount: number;
+                projects: Array<{
+                    name: string;
+                    displayName: string;
+                    sources: Array<'project' | 'schedule' | 'measurement-plan' | 'measurement-draft'>;
+                }>;
+            };
+        };
+        impactRevision: string;
+    }>;
+    /**
+     * Present instead of providerConnections, for the same install administrator, when the host could not build that list. Every other settings field is still returned.
+     */
+    providerConnectionsUnavailable?: {
+        reason: 'config-unreadable' | 'internal-error';
+        message: string;
+    };
     google: {
         configured: boolean;
     };
@@ -15630,6 +17297,7 @@ export type SiteAuditIssuePagesResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
     coverage: {
         pageFindings: 'available' | 'partial' | 'unavailable';
@@ -15674,6 +17342,7 @@ export type SiteAuditIssuesResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
     coverage: {
         pageFindings: 'available' | 'partial' | 'unavailable';
@@ -15807,6 +17476,7 @@ export type SiteAuditScoreDto = {
     trend: 'up' | 'down' | 'flat' | null;
     previousScore: number | null;
     previousAuditedAt: string | null;
+    deltaUnavailableReason?: 'sites-changed';
     runSelection?: {
         reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
         date: string;
@@ -15853,6 +17523,12 @@ export type SiteAuditScoreDto = {
         topRecommendations: Array<string>;
     }>;
     prioritizedFixes: Array<string>;
+    sites?: Array<{
+        host: string;
+        main: boolean;
+        aggregateScore: number | null;
+        pagesAudited: number;
+    }>;
 };
 
 export type SiteAuditTrendResponseDto = {
@@ -15862,6 +17538,44 @@ export type SiteAuditTrendResponseDto = {
         auditedAt: string;
         aggregateScore: number;
         pagesAudited: number;
+    }>;
+};
+
+export type TrendsResponseDto = {
+    project: string;
+    surface: 'index-coverage' | 'site-health' | 'backlinks';
+    window: '7d' | '30d' | '90d' | 'all' | null;
+    startDate: string | null;
+    endDate: string | null;
+    groups: Array<{
+        key: string;
+        label: string;
+        figures: Array<{
+            key: string;
+            label: string;
+            unit: 'count' | 'score' | 'fraction';
+            better: 'higher' | 'lower' | 'neither';
+            value: number | null;
+            asOf: string | null;
+            change: {
+                difference: number;
+                ratio: number | null;
+                tone: 'better' | 'worse' | 'neutral';
+                basis: {
+                    type: 'first-in-window';
+                    date: string;
+                    observedAt: string | null;
+                    label: string | null;
+                };
+            } | null;
+            series: Array<{
+                date: string;
+                observedAt: string | null;
+                label: string | null;
+                value: number;
+            }>;
+            recordedFrom: string | null;
+        }>;
     }>;
 };
 
@@ -16242,6 +17956,13 @@ export type SiteCrawlPageAuditDto = {
         severity: 'critical' | 'warning';
         detail: string;
         recommendation: string;
+        evidence?: Array<{
+            field: string;
+            question?: string;
+            entityKey: string;
+            entityName: string;
+            snippet: string;
+        }>;
     }>;
 } | {
     project: string;
@@ -16288,6 +18009,13 @@ export type SiteCrawlPageAuditDto = {
         severity: 'critical' | 'warning';
         detail: string;
         recommendation: string;
+        evidence?: Array<{
+            field: string;
+            question?: string;
+            entityKey: string;
+            entityName: string;
+            snippet: string;
+        }>;
     }>;
 };
 
@@ -16338,10 +18066,12 @@ export type SiteCrawlPagesResponseDto = {
     total: number;
     nextCursor: string | null;
     healthStateFilter: 'applied' | 'unavailable-legacy-scan' | null;
+    site?: string | null;
     pages: Array<{
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -16385,6 +18115,7 @@ export type SiteCrawlStructureResponseDto = {
         }>;
         candidatesTruncated: boolean;
     };
+    site?: string | null;
     parentPath: string;
     nextCursor: string | null;
     children: Array<{
@@ -16454,6 +18185,7 @@ export type SiteCrawlSummaryDto = {
         pagesFetched: number;
         pagesEligible: number;
         edges: number;
+        internalLinks?: number | null;
         findings: number;
     };
     deadLinks: {
@@ -16471,6 +18203,16 @@ export type SiteCrawlSummaryDto = {
         found: number;
         unverified: number;
     };
+    sites?: Array<{
+        host: string;
+        main: boolean;
+        rootUrl: string | null;
+        pages: number;
+        pagesEligible: number;
+        pagesAudited: number;
+        aggregateScore: number | null;
+        error: string | null;
+    }>;
 };
 
 export type SiteHealthChangesResponseDto = {
@@ -16525,6 +18267,7 @@ export type SiteHealthChangesResponseDto = {
             nodeKey: string;
             url: string;
             finalUrl: string | null;
+            site?: string;
             path: string;
             parentPath: string;
             discoverySource: string;
@@ -16551,6 +18294,7 @@ export type SiteHealthChangesResponseDto = {
             nodeKey: string;
             url: string;
             finalUrl: string | null;
+            site?: string;
             path: string;
             parentPath: string;
             discoverySource: string;
@@ -16660,6 +18404,7 @@ export type SiteHealthPathResponseDto = {
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -16748,6 +18493,7 @@ export type SiteHealthSubgraphResponseDto = {
         nodeKey: string;
         url: string;
         finalUrl: string | null;
+        site?: string;
         path: string;
         parentPath: string;
         discoverySource: string;
@@ -16806,8 +18552,8 @@ export type SnapshotDiffResponse = {
     diff: Array<{
         queryId: string | null;
         query: string | null;
-        run1State: 'cited' | 'not-cited' | null;
-        run2State: 'cited' | 'not-cited' | null;
+        run1State: 'cited' | 'not-cited' | 'not-measured' | null;
+        run2State: 'cited' | 'not-cited' | 'not-measured' | null;
         run1AnswerMentioned: boolean | null;
         run2AnswerMentioned: boolean | null;
         run1VisibilityState: 'visible' | 'not-visible' | null;
@@ -16826,11 +18572,11 @@ export type SnapshotListResponse = {
         queryId: string;
         query?: string;
         provider: string;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | 'not-measured';
         answerMentioned?: boolean;
         visibilityState?: 'visible' | 'not-visible';
         mentionState?: 'mentioned' | 'not-mentioned';
-        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited';
+        transition?: 'new' | 'cited' | 'lost' | 'emerging' | 'not-cited' | 'not-measured';
         answerText?: string | null;
         citedDomains: Array<string>;
         citedUrls: Array<string> | null;
@@ -17227,7 +18973,9 @@ export type SourceBreakdownDto = {
         };
     };
     providersWithoutSources?: Array<string>;
+    providersCitationNotMeasured?: Array<string>;
     answerTotal?: number;
+    citationNotMeasuredAnswers?: number;
     runCount?: number;
     pooledAcrossRuns?: boolean;
     unclassifiedAnswers?: number;
@@ -17382,6 +19130,7 @@ export type CloudflareWorkerIngestResponse = {
     aiUserFetchBucketRows: number;
     aiReferralBucketRows: number;
     sampleRows: number;
+    aiUserFetchBrowserNonPageHits: number;
 };
 
 export type TrafficBackfillResponse = {
@@ -17440,7 +19189,7 @@ export type TrafficEventsResponse = {
     windowStart: string;
     windowEnd: string;
     series: {
-        granularity: 'hour' | 'day';
+        granularity: 'hour' | 'day' | 'month';
         points: Array<{
             bucket: string;
             crawlerHits: number;
@@ -17451,6 +19200,10 @@ export type TrafficEventsResponse = {
             measured: boolean;
         }>;
         coverageStart: string | null;
+        aiReferralCountingChangedAt?: string | null;
+        aiUserFetchCountingChangedAt?: string | null;
+        recordedThrough?: string | null;
+        partialBuckets?: Array<string>;
         trends: {
             crawlerContentHits: {
                 slope: number;
@@ -17503,10 +19256,17 @@ export type TrafficEventsResponse = {
         aiReferralOrganicHits: number;
         aiReferralUnknownHits: number;
     };
+    filters?: {
+        kinds: Array<'crawler' | 'ai-user-fetch' | 'ai-referral'>;
+        sourceId: string | null;
+        path: string | null;
+        agent: string | null;
+    };
     eventRows: {
         total: number;
         returned: number;
         truncated: boolean;
+        nextCursor?: string | null;
     };
     events: Array<{
         kind: 'crawler';
@@ -17564,6 +19324,23 @@ export type TrafficEventsResponse = {
         organicHits: number;
         unknownHits: number;
     }>;
+    groups?: {
+        by: Array<'agent' | 'path' | 'status' | 'source'>;
+        total: number;
+        returned: number;
+        truncated: boolean;
+        entries: Array<{
+            kind: 'crawler' | 'ai-user-fetch' | 'ai-referral';
+            agent?: string;
+            path?: string;
+            status?: number;
+            sourceId?: string;
+            hits: number;
+            rows: number;
+            firstHour: string;
+            lastHour: string;
+        }>;
+    };
 };
 
 export type TrafficSamplesResponse = {
@@ -17623,6 +19400,8 @@ export type TrafficSamplesResponse = {
                 matchedUserAgent?: string | null;
                 trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
                 trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path' | 'scanner-burst'> | null;
+                browser?: boolean | null;
+                requestKind?: 'page' | 'action' | 'resource' | null;
             } | null;
             aiReferral: {
                 operator?: string | null;
@@ -17992,6 +19771,21 @@ export type TrafficSourceDto = {
     updatedAt: string;
 };
 
+export type TrafficConnectCloudRunRequest = {
+    gcpProjectId: string;
+    serviceName?: string;
+    location?: string;
+    displayName?: string;
+    /**
+     * For a new source, collect logs from connection time onward. Existing sources keep their sync position.
+     */
+    startFromNow?: boolean;
+    /**
+     * Omit to reuse this project’s saved service account for the exact GCP project, service and region. Supply a new key only through a secure credential input.
+     */
+    keyJson?: string;
+};
+
 export type TrafficSourceListResponse = {
     sources: Array<{
         id: string;
@@ -18085,6 +19879,7 @@ export type TrafficSyncResponse = {
     crawlerHits: number;
     aiUserFetchHits: number;
     aiUserFetchLikelyFakeHits: number;
+    aiUserFetchBrowserNonPageHits?: number;
     aiReferralHits: number;
     unknownHits: number;
     crawlerBucketRows: number;
@@ -18133,6 +19928,63 @@ export type CreateUserRequest = {
     name: string;
     password: string;
     role: 'admin' | 'viewer';
+};
+
+export type UserInvitationDto = {
+    id: string;
+    email: string;
+    role: 'admin' | 'viewer';
+    status: 'pending' | 'accepted' | 'revoked' | 'expired';
+    createdAt: string;
+    expiresAt: string;
+    acceptedAt: string | null;
+    acceptedUserName: string | null;
+};
+
+export type UserInvitationListDto = {
+    invitations: Array<{
+        id: string;
+        email: string;
+        role: 'admin' | 'viewer';
+        status: 'pending' | 'accepted' | 'revoked' | 'expired';
+        createdAt: string;
+        expiresAt: string;
+        acceptedAt: string | null;
+        acceptedUserName: string | null;
+    }>;
+};
+
+export type CreateUserInvitationRequest = {
+    email: string;
+    role: 'admin' | 'viewer';
+};
+
+export type ChatGptStatusDto = {
+    signInEnabled: boolean;
+    planUsageEnabled: boolean;
+    planRequired: boolean;
+    usageUrl: string;
+    account: {
+        linked: boolean;
+        email: string | null;
+        plan: {
+            status: 'not-connected' | 'connected' | 'reconnect-required';
+            modelId: string | null;
+            connectedAt: string | null;
+        };
+    } | null;
+};
+
+export type ChatGptModelListDto = {
+    models: Array<{
+        id: string;
+        name: string;
+    }>;
+    selected: string | null;
+};
+
+export type ChatGptModelSelectionRequest = {
+    modelId: string;
 };
 
 export type LoginRequest = {
@@ -18222,6 +20074,7 @@ export type VisibilityCompareDto = {
             denominator: number;
             excludedUnknown?: number;
             excludedNoRetrieval?: number;
+            excludedNotMeasured?: number;
         };
         to: {
             availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
@@ -18232,6 +20085,7 @@ export type VisibilityCompareDto = {
             denominator: number;
             excludedUnknown?: number;
             excludedNoRetrieval?: number;
+            excludedNotMeasured?: number;
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;
@@ -18306,14 +20160,45 @@ export type VisibilityStatsDto = {
     };
     totals: {
         total: number;
+        citationNotMeasured: number;
         checked: number;
         mentioned: number;
         cited: number;
         mentionRate: number | null;
         citedRate: number | null;
     };
+    byQueryClass?: {
+        branded: {
+            total: number;
+            citationNotMeasured: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+        };
+        nonBrand: {
+            total: number;
+            citationNotMeasured: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+        };
+        unclassified: {
+            total: number;
+            citationNotMeasured: number;
+            checked: number;
+            mentioned: number;
+            cited: number;
+            mentionRate: number | null;
+            citedRate: number | null;
+        };
+    };
     byProvider?: Array<{
         total: number;
+        citationNotMeasured: number;
         checked: number;
         mentioned: number;
         cited: number;
@@ -18325,6 +20210,7 @@ export type VisibilityStatsDto = {
     }>;
     queries: Array<{
         total: number;
+        citationNotMeasured: number;
         checked: number;
         mentioned: number;
         cited: number;
@@ -18334,8 +20220,10 @@ export type VisibilityStatsDto = {
         query: string;
         firstObserved: string;
         lastObserved: string;
+        queryClass?: 'branded' | 'non-brand' | null;
         providers?: Array<{
             total: number;
+            citationNotMeasured: number;
             checked: number;
             mentioned: number;
             cited: number;
@@ -19054,6 +20942,57 @@ export type GetApiV1ProjectsByNameSeoOverviewResponses = {
 };
 
 export type GetApiV1ProjectsByNameSeoOverviewResponse = GetApiV1ProjectsByNameSeoOverviewResponses[keyof GetApiV1ProjectsByNameSeoOverviewResponses];
+
+export type GetApiV1ProjectsByNameSeoTrendsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact project-scoped SEO profile identifier.
+         */
+        profileId: string;
+        /**
+         * Inclusive window in UTC calendar days, ending on the latest comparable refresh observation.
+         */
+        days?: 30 | 90 | 180;
+        /**
+         * Select a search for a ranked-keywords trend. Omit to use the default saved search.
+         */
+        keyword?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/trends';
+};
+
+export type GetApiV1ProjectsByNameSeoTrendsErrors = {
+    /**
+     * Invalid SEO trend selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected profile not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoTrendsError = GetApiV1ProjectsByNameSeoTrendsErrors[keyof GetApiV1ProjectsByNameSeoTrendsErrors];
+
+export type GetApiV1ProjectsByNameSeoTrendsResponses = {
+    /**
+     * Comparable SEO observations and their changes.
+     */
+    200: SeoTrends;
+};
+
+export type GetApiV1ProjectsByNameSeoTrendsResponse = GetApiV1ProjectsByNameSeoTrendsResponses[keyof GetApiV1ProjectsByNameSeoTrendsResponses];
 
 export type GetApiV1ProjectsByNameSeoKeywordMetricsData = {
     body?: never;
@@ -25047,15 +26986,15 @@ export type GetApiV1ProjectsByNameRunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -25163,6 +27102,74 @@ export type GetApiV1ProjectsByNameRunsLatestResponses = {
 
 export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRunsLatestResponses[keyof GetApiV1ProjectsByNameRunsLatestResponses];
 
+export type GetApiV1ProjectsByNameRunPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/run-preview';
+};
+
+export type GetApiV1ProjectsByNameRunPreviewErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewError = GetApiV1ProjectsByNameRunPreviewErrors[keyof GetApiV1ProjectsByNameRunPreviewErrors];
+
+export type GetApiV1ProjectsByNameRunPreviewResponses = {
+    /**
+     * Full manual sweep workload and admission returned.
+     */
+    200: RunPreviewDto;
+};
+
+export type GetApiV1ProjectsByNameRunPreviewResponse = GetApiV1ProjectsByNameRunPreviewResponses[keyof GetApiV1ProjectsByNameRunPreviewResponses];
+
+export type GetApiV1ProjectsByNameSetupData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/setup';
+};
+
+export type GetApiV1ProjectsByNameSetupErrors = {
+    /**
+     * Published plan or saved location is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSetupError = GetApiV1ProjectsByNameSetupErrors[keyof GetApiV1ProjectsByNameSetupErrors];
+
+export type GetApiV1ProjectsByNameSetupResponses = {
+    /**
+     * Setup status returned.
+     */
+    200: ProjectSetupDto;
+};
+
+export type GetApiV1ProjectsByNameSetupResponse = GetApiV1ProjectsByNameSetupResponses[keyof GetApiV1ProjectsByNameSetupResponses];
+
 export type GetApiV1ProjectsByNameRunAdmissionData = {
     body?: never;
     path: {
@@ -25217,15 +27224,15 @@ export type GetApiV1RunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'bing-sync' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync' | 'social-monitor'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -25280,6 +27287,36 @@ export type PostApiV1RunsResponses = {
 };
 
 export type PostApiV1RunsResponse = PostApiV1RunsResponses[keyof PostApiV1RunsResponses];
+
+export type GetApiV1RunsAttentionData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Read runs created at or after this ISO 8601 timestamp. Defaults to 30 days ago.
+         */
+        since?: string;
+    };
+    url: '/api/v1/runs/attention';
+};
+
+export type GetApiV1RunsAttentionErrors = {
+    /**
+     * `since` is not a valid timestamp.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1RunsAttentionError = GetApiV1RunsAttentionErrors[keyof GetApiV1RunsAttentionErrors];
+
+export type GetApiV1RunsAttentionResponses = {
+    /**
+     * Jobs that need attention returned.
+     */
+    200: RunsAttentionDto;
+};
+
+export type GetApiV1RunsAttentionResponse = GetApiV1RunsAttentionResponses[keyof GetApiV1RunsAttentionResponses];
 
 export type GetApiV1RunsByIdData = {
     body?: never;
@@ -25983,15 +28020,96 @@ export type GetApiV1SettingsResponses = {
 
 export type GetApiV1SettingsResponse = GetApiV1SettingsResponses[keyof GetApiV1SettingsResponses];
 
-export type PutApiV1SettingsProvidersByNameData = {
-    body: {
-        apiKey?: string;
-        baseUrl?: string;
-        model?: string;
-        quota?: {
-            [key: string]: unknown;
-        };
+export type DeleteApiV1SettingsProvidersByNameData = {
+    body?: ProviderDisconnectRequest;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
     };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type DeleteApiV1SettingsProvidersByNameErrors = {
+    /**
+     * Invalid disconnect request.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider configuration, usage, or outstanding work prevents disconnection.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider disconnection is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type DeleteApiV1SettingsProvidersByNameError = DeleteApiV1SettingsProvidersByNameErrors[keyof DeleteApiV1SettingsProvidersByNameErrors];
+
+export type DeleteApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider disconnected; saved references and history retained.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type DeleteApiV1SettingsProvidersByNameResponse = DeleteApiV1SettingsProvidersByNameResponses[keyof DeleteApiV1SettingsProvidersByNameResponses];
+
+export type GetApiV1SettingsProvidersByNameData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}';
+};
+
+export type GetApiV1SettingsProvidersByNameErrors = {
+    /**
+     * The host could not read its saved provider configuration (error.details.reason config-unreadable).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Unknown provider connection.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Provider connection details are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1SettingsProvidersByNameError = GetApiV1SettingsProvidersByNameErrors[keyof GetApiV1SettingsProvidersByNameErrors];
+
+export type GetApiV1SettingsProvidersByNameResponses = {
+    /**
+     * Provider connection settings and usage returned.
+     */
+    200: ProviderConnectionSettingsDto;
+};
+
+export type GetApiV1SettingsProvidersByNameResponse = GetApiV1SettingsProvidersByNameResponses[keyof GetApiV1SettingsProvidersByNameResponses];
+
+export type PutApiV1SettingsProvidersByNameData = {
+    body: ProviderSettingsUpdateRequest;
     path: {
         /**
          * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
@@ -26011,6 +28129,10 @@ export type PutApiV1SettingsProvidersByNameErrors = {
      * The credential lacks settings.write.
      */
     403: ErrorEnvelope;
+    /**
+     * Provider configuration changed or outstanding work prevents this update.
+     */
+    409: ErrorEnvelope;
     /**
      * Provider updates are not supported.
      */
@@ -26064,6 +28186,48 @@ export type PostApiV1SettingsProvidersReloadResponses = {
 };
 
 export type PostApiV1SettingsProvidersReloadResponse = PostApiV1SettingsProvidersReloadResponses[keyof PostApiV1SettingsProvidersReloadResponses];
+
+export type PostApiV1SettingsProvidersByNameTestData = {
+    body?: never;
+    path: {
+        /**
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/settings/providers/{name}/test';
+};
+
+export type PostApiV1SettingsProvidersByNameTestErrors = {
+    /**
+     * Unknown provider connection (error.details.validProviders), or one that is not configured (error.details.reason provider-not-configured).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority and settings.write are required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * A test of this connection is already running (error.details.reason provider-test-in-progress).
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider connection tests are not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PostApiV1SettingsProvidersByNameTestError = PostApiV1SettingsProvidersByNameTestErrors[keyof PostApiV1SettingsProvidersByNameTestErrors];
+
+export type PostApiV1SettingsProvidersByNameTestResponses = {
+    /**
+     * Connection test result, including a failed test.
+     */
+    200: ProviderConnectionTestResultDto;
+};
+
+export type PostApiV1SettingsProvidersByNameTestResponse = PostApiV1SettingsProvidersByNameTestResponses[keyof PostApiV1SettingsProvidersByNameTestResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {
@@ -26424,6 +28588,267 @@ export type DeleteApiV1UsersByNameResponses = {
 
 export type DeleteApiV1UsersByNameResponse = DeleteApiV1UsersByNameResponses[keyof DeleteApiV1UsersByNameResponses];
 
+export type GetApiV1UsersInvitationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type GetApiV1UsersInvitationsErrors = {
+    /**
+     * Not permitted to list invitations.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1UsersInvitationsError = GetApiV1UsersInvitationsErrors[keyof GetApiV1UsersInvitationsErrors];
+
+export type GetApiV1UsersInvitationsResponses = {
+    /**
+     * Invitations returned.
+     */
+    200: UserInvitationListDto;
+};
+
+export type GetApiV1UsersInvitationsResponse = GetApiV1UsersInvitationsResponses[keyof GetApiV1UsersInvitationsResponses];
+
+export type PostApiV1UsersInvitationsData = {
+    body: CreateUserInvitationRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/invitations';
+};
+
+export type PostApiV1UsersInvitationsErrors = {
+    /**
+     * Invalid email or role, or a view-only first account.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not permitted to invite.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1UsersInvitationsError = PostApiV1UsersInvitationsErrors[keyof PostApiV1UsersInvitationsErrors];
+
+export type PostApiV1UsersInvitationsResponses = {
+    /**
+     * Invitation created.
+     */
+    201: UserInvitationDto;
+};
+
+export type PostApiV1UsersInvitationsResponse = PostApiV1UsersInvitationsResponses[keyof PostApiV1UsersInvitationsResponses];
+
+export type DeleteApiV1UsersInvitationsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Invitation ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/users/invitations/{id}';
+};
+
+export type DeleteApiV1UsersInvitationsByIdErrors = {
+    /**
+     * The invitation is no longer pending.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not permitted to revoke invitations.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Invitation not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type DeleteApiV1UsersInvitationsByIdError = DeleteApiV1UsersInvitationsByIdErrors[keyof DeleteApiV1UsersInvitationsByIdErrors];
+
+export type DeleteApiV1UsersInvitationsByIdResponses = {
+    /**
+     * Invitation revoked.
+     */
+    200: UserInvitationDto;
+};
+
+export type DeleteApiV1UsersInvitationsByIdResponse = DeleteApiV1UsersInvitationsByIdResponses[keyof DeleteApiV1UsersInvitationsByIdResponses];
+
+export type GetApiV1AuthChatgptStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/status';
+};
+
+export type GetApiV1AuthChatgptStatusResponses = {
+    /**
+     * Status returned.
+     */
+    200: ChatGptStatusDto;
+};
+
+export type GetApiV1AuthChatgptStatusResponse = GetApiV1AuthChatgptStatusResponses[keyof GetApiV1AuthChatgptStatusResponses];
+
+export type GetApiV1AuthChatgptStartData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * `login` (default) or `connect`.
+         */
+        intent?: string;
+        /**
+         * Dashboard path to return to afterwards. Anything outside the dashboard is ignored.
+         */
+        returnTo?: string;
+    };
+    url: '/api/v1/auth/chatgpt/start';
+};
+
+export type GetApiV1AuthChatgptStartErrors = {
+    /**
+     * Too many sign-ins started from this address.
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptStartError = GetApiV1AuthChatgptStartErrors[keyof GetApiV1AuthChatgptStartErrors];
+
+export type GetApiV1AuthChatgptCallbackData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * OAuth authorization code.
+         */
+        code?: string;
+        /**
+         * OAuth state.
+         */
+        state?: string;
+        /**
+         * OAuth error code.
+         */
+        error?: string;
+    };
+    url: '/api/v1/auth/chatgpt/callback';
+};
+
+export type GetApiV1AuthChatgptCallbackErrors = {
+    /**
+     * Too many sign-in callbacks from this address.
+     */
+    429: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptCallbackError = GetApiV1AuthChatgptCallbackErrors[keyof GetApiV1AuthChatgptCallbackErrors];
+
+export type PostApiV1AuthChatgptDisconnectData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/disconnect';
+};
+
+export type PostApiV1AuthChatgptDisconnectErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * The request did not come from the dashboard.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1AuthChatgptDisconnectError = PostApiV1AuthChatgptDisconnectErrors[keyof PostApiV1AuthChatgptDisconnectErrors];
+
+export type PostApiV1AuthChatgptDisconnectResponses = {
+    /**
+     * Disconnected.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PostApiV1AuthChatgptDisconnectResponse = PostApiV1AuthChatgptDisconnectResponses[keyof PostApiV1AuthChatgptDisconnectResponses];
+
+export type GetApiV1AuthChatgptModelsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/models';
+};
+
+export type GetApiV1AuthChatgptModelsErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * No plan connected, or it needs connecting again.
+     */
+    409: ErrorEnvelope;
+    /**
+     * OpenAI did not answer.
+     */
+    503: ErrorEnvelope;
+};
+
+export type GetApiV1AuthChatgptModelsError = GetApiV1AuthChatgptModelsErrors[keyof GetApiV1AuthChatgptModelsErrors];
+
+export type GetApiV1AuthChatgptModelsResponses = {
+    /**
+     * Models returned.
+     */
+    200: ChatGptModelListDto;
+};
+
+export type GetApiV1AuthChatgptModelsResponse = GetApiV1AuthChatgptModelsResponses[keyof GetApiV1AuthChatgptModelsResponses];
+
+export type PutApiV1AuthChatgptModelData = {
+    body: ChatGptModelSelectionRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/chatgpt/model';
+};
+
+export type PutApiV1AuthChatgptModelErrors = {
+    /**
+     * Not signed in.
+     */
+    401: ErrorEnvelope;
+    /**
+     * Your plan does not offer that model, or the request did not come from the dashboard.
+     */
+    403: ErrorEnvelope;
+    /**
+     * No plan connected, or it needs connecting again.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PutApiV1AuthChatgptModelError = PutApiV1AuthChatgptModelErrors[keyof PutApiV1AuthChatgptModelErrors];
+
+export type PutApiV1AuthChatgptModelResponses = {
+    /**
+     * Model chosen.
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type PutApiV1AuthChatgptModelResponse = PutApiV1AuthChatgptModelResponses[keyof PutApiV1AuthChatgptModelResponses];
+
 export type PostApiV1SnapshotData = {
     body: SnapshotRequest;
     path?: never;
@@ -26520,6 +28945,40 @@ export type PutApiV1SettingsCdpResponses = {
 
 export type PutApiV1SettingsCdpResponse = PutApiV1SettingsCdpResponses[keyof PutApiV1SettingsCdpResponses];
 
+export type PostApiV1ProjectsByNameSchedulePreviewData = {
+    body: SchedulePreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/schedule/preview';
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewErrors = {
+    /**
+     * Invalid schedule timing.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewError = PostApiV1ProjectsByNameSchedulePreviewErrors[keyof PostApiV1ProjectsByNameSchedulePreviewErrors];
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponses = {
+    /**
+     * Next occurrence returned.
+     */
+    200: SchedulePreviewDto;
+};
+
+export type PostApiV1ProjectsByNameSchedulePreviewResponse = PostApiV1ProjectsByNameSchedulePreviewResponses[keyof PostApiV1ProjectsByNameSchedulePreviewResponses];
+
 export type DeleteApiV1ProjectsByNameScheduleData = {
     body?: never;
     path: {
@@ -26609,6 +29068,14 @@ export type PutApiV1ProjectsByNameScheduleData = {
         enabled?: boolean;
         sourceId?: string;
         /**
+         * kind=site-audit only. What each scheduled scan checks; unset fields take the defaults (checkDeadLinks false, includeGeo false, includeAgentSkills true). Omit to keep the current checks; null resets them to the defaults.
+         */
+        siteAudit?: {
+            checkDeadLinks?: boolean;
+            includeGeo?: boolean;
+            includeAgentSkills?: boolean;
+        } | null;
+        /**
          * Update only this exact version; null creates only while absent. Omit for legacy unconditional behavior.
          */
         expectedUpdatedAt?: string | null;
@@ -26630,7 +29097,7 @@ export type PutApiV1ProjectsByNameScheduleData = {
 
 export type PutApiV1ProjectsByNameScheduleErrors = {
     /**
-     * Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).
+     * Invalid payload (e.g. sourceId missing for kind=traffic-sync, providers set for kind=traffic-sync, or siteAudit set for a kind other than site-audit).
      */
     400: ErrorEnvelope;
     /**
@@ -26770,6 +29237,44 @@ export type DeleteApiV1ProjectsByNameNotificationsByIdResponses = {
 };
 
 export type DeleteApiV1ProjectsByNameNotificationsByIdResponse = DeleteApiV1ProjectsByNameNotificationsByIdResponses[keyof DeleteApiV1ProjectsByNameNotificationsByIdResponses];
+
+export type PatchApiV1ProjectsByNameNotificationsByIdData = {
+    body: NotificationUpdateRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Notification ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/notifications/{id}';
+};
+
+export type PatchApiV1ProjectsByNameNotificationsByIdErrors = {
+    /**
+     * Invalid notification update.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Notification not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PatchApiV1ProjectsByNameNotificationsByIdError = PatchApiV1ProjectsByNameNotificationsByIdErrors[keyof PatchApiV1ProjectsByNameNotificationsByIdErrors];
+
+export type PatchApiV1ProjectsByNameNotificationsByIdResponses = {
+    /**
+     * Notification updated.
+     */
+    200: NotificationDto;
+};
+
+export type PatchApiV1ProjectsByNameNotificationsByIdResponse = PatchApiV1ProjectsByNameNotificationsByIdResponses[keyof PatchApiV1ProjectsByNameNotificationsByIdResponses];
 
 export type PostApiV1ProjectsByNameNotificationsByIdTestData = {
     body?: never;
@@ -27000,6 +29505,10 @@ export type PostApiV1TelemetryUiErrors = {
      * Invalid UI telemetry event.
      */
     400: ErrorEnvelope;
+    /**
+     * UI telemetry rate limit reached; try again later.
+     */
+    429: ErrorEnvelope;
 };
 
 export type PostApiV1TelemetryUiError = PostApiV1TelemetryUiErrors[keyof PostApiV1TelemetryUiErrors];
@@ -28422,6 +30931,10 @@ export type PostApiV1ProjectsByNameGoogleConnectErrors = {
      * Invalid Google connection request.
      */
     400: ErrorEnvelope;
+    /**
+     * Selecting a Search Console or GA4 property or authorizing a shared Google connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameGoogleConnectError = PostApiV1ProjectsByNameGoogleConnectErrors[keyof PostApiV1ProjectsByNameGoogleConnectErrors];
@@ -28453,9 +30966,21 @@ export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeData = {
 
 export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors = {
     /**
+     * The connection belongs to another project that tracks the same domain; nothing was removed.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Removing a shared Search Console or GA4 connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Search Console sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameGoogleConnectionsByTypeError = DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors[keyof DeleteApiV1ProjectsByNameGoogleConnectionsByTypeErrors];
@@ -28486,6 +31011,10 @@ export type GetApiV1ProjectsByNameGooglePropertiesErrors = {
      * Google OAuth is not configured.
      */
     400: ErrorEnvelope;
+    /**
+     * Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -28527,9 +31056,17 @@ export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Selecting a Search Console or GA4 property on a shared OAuth connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Search Console sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyError = PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors[keyof PutApiV1ProjectsByNameGoogleConnectionsByTypePropertyErrors];
@@ -29546,6 +32083,10 @@ export type DeleteApiV1ProjectsByNameGbpConnectionData = {
 };
 
 export type DeleteApiV1ProjectsByNameGbpConnectionErrors = {
+    /**
+     * The connection belongs to another project that tracks the same domain; nothing was removed.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -31494,9 +34035,7 @@ export type GetApiV1ProjectsByNameAdsLiveDeliveryResponses = {
 export type GetApiV1ProjectsByNameAdsLiveDeliveryResponse = GetApiV1ProjectsByNameAdsLiveDeliveryResponses[keyof GetApiV1ProjectsByNameAdsLiveDeliveryResponses];
 
 export type PostApiV1ProjectsByNameBingConnectData = {
-    body: {
-        apiKey: string;
-    };
+    body: BingConnectRequest;
     path: {
         /**
          * Project name.
@@ -31513,9 +34052,17 @@ export type PostApiV1ProjectsByNameBingConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Using the saved Bing key or authorizing a shared Bing connection requires an install administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
+    /**
+     * The project changed during credential verification.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameBingConnectError = PostApiV1ProjectsByNameBingConnectErrors[keyof PostApiV1ProjectsByNameBingConnectErrors];
@@ -31543,9 +34090,17 @@ export type DeleteApiV1ProjectsByNameBingDisconnectData = {
 
 export type DeleteApiV1ProjectsByNameBingDisconnectErrors = {
     /**
+     * Removing a shared Bing connection requires an instance administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Bing sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type DeleteApiV1ProjectsByNameBingDisconnectError = DeleteApiV1ProjectsByNameBingDisconnectErrors[keyof DeleteApiV1ProjectsByNameBingDisconnectErrors];
@@ -31607,6 +34162,10 @@ export type GetApiV1ProjectsByNameBingSitesErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Listing account sites requires an install administrator.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -31643,9 +34202,17 @@ export type PostApiV1ProjectsByNameBingSetSiteErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The credential cannot change this connection or select this domain.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or connection not found.
      */
     404: ErrorEnvelope;
+    /**
+     * A Bing sync or inspection is in progress.
+     */
+    409: ErrorEnvelope;
 };
 
 export type PostApiV1ProjectsByNameBingSetSiteError = PostApiV1ProjectsByNameBingSetSiteErrors[keyof PostApiV1ProjectsByNameBingSetSiteErrors];
@@ -31922,6 +34489,878 @@ export type GetApiV1ProjectsByNameBingPerformanceResponses = {
 };
 
 export type GetApiV1ProjectsByNameBingPerformanceResponse = GetApiV1ProjectsByNameBingPerformanceResponses[keyof GetApiV1ProjectsByNameBingPerformanceResponses];
+
+export type PostApiV1ProjectsByNameBingSyncData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sync';
+};
+
+export type PostApiV1ProjectsByNameBingSyncErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameBingSyncError = PostApiV1ProjectsByNameBingSyncErrors[keyof PostApiV1ProjectsByNameBingSyncErrors];
+
+export type PostApiV1ProjectsByNameBingSyncResponses = {
+    /**
+     * Bing sync run queued.
+     */
+    200: RunDto;
+};
+
+export type PostApiV1ProjectsByNameBingSyncResponse = PostApiV1ProjectsByNameBingSyncResponses[keyof PostApiV1ProjectsByNameBingSyncResponses];
+
+export type GetApiV1ProjectsByNameBingSitemapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sitemaps';
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsError = GetApiV1ProjectsByNameBingSitemapsErrors[keyof GetApiV1ProjectsByNameBingSitemapsErrors];
+
+export type GetApiV1ProjectsByNameBingSitemapsResponses = {
+    /**
+     * Stored Bing sitemaps returned.
+     */
+    200: BingSitemapsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingSitemapsResponse = GetApiV1ProjectsByNameBingSitemapsResponses[keyof GetApiV1ProjectsByNameBingSitemapsResponses];
+
+export type PostApiV1ProjectsByNameBingSitemapsData = {
+    body: {
+        sitemapUrl: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/bing/sitemaps';
+};
+
+export type PostApiV1ProjectsByNameBingSitemapsErrors = {
+    /**
+     * Invalid sitemap URL, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling this key.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused the sitemap.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameBingSitemapsError = PostApiV1ProjectsByNameBingSitemapsErrors[keyof PostApiV1ProjectsByNameBingSitemapsErrors];
+
+export type PostApiV1ProjectsByNameBingSitemapsResponses = {
+    /**
+     * Bing accepted the sitemap.
+     */
+    200: BingSubmitSitemapResponseDto;
+};
+
+export type PostApiV1ProjectsByNameBingSitemapsResponse = PostApiV1ProjectsByNameBingSitemapsResponses[keyof PostApiV1ProjectsByNameBingSitemapsResponses];
+
+export type GetApiV1ProjectsByNameSitemapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/sitemaps';
+};
+
+export type GetApiV1ProjectsByNameSitemapsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSitemapsError = GetApiV1ProjectsByNameSitemapsErrors[keyof GetApiV1ProjectsByNameSitemapsErrors];
+
+export type GetApiV1ProjectsByNameSitemapsResponses = {
+    /**
+     * Sitemap coverage returned.
+     */
+    200: SitemapCoverageResponseDto;
+};
+
+export type GetApiV1ProjectsByNameSitemapsResponse = GetApiV1ProjectsByNameSitemapsResponses[keyof GetApiV1ProjectsByNameSitemapsResponses];
+
+export type GetApiV1ProjectsByNameBingTrafficData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+        /**
+         * Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+    };
+    url: '/api/v1/projects/{name}/bing/traffic';
+};
+
+export type GetApiV1ProjectsByNameBingTrafficErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingTrafficError = GetApiV1ProjectsByNameBingTrafficErrors[keyof GetApiV1ProjectsByNameBingTrafficErrors];
+
+export type GetApiV1ProjectsByNameBingTrafficResponses = {
+    /**
+     * Stored Bing traffic returned.
+     */
+    200: BingTrafficResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingTrafficResponse = GetApiV1ProjectsByNameBingTrafficResponses[keyof GetApiV1ProjectsByNameBingTrafficResponses];
+
+export type GetApiV1ProjectsByNameBingQueriesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+        /**
+         * Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Filter on the query: a substring, or the whole query with match=exact.
+         */
+        query?: string;
+        /**
+         * contains (default) or exact.
+         */
+        match?: 'contains' | 'exact';
+        /**
+         * query (default) or week.
+         */
+        groupBy?: string;
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/bing/queries';
+};
+
+export type GetApiV1ProjectsByNameBingQueriesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingQueriesError = GetApiV1ProjectsByNameBingQueriesErrors[keyof GetApiV1ProjectsByNameBingQueriesErrors];
+
+export type GetApiV1ProjectsByNameBingQueriesResponses = {
+    /**
+     * Stored Bing query stats returned.
+     */
+    200: BingQueryTotalsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingQueriesResponse = GetApiV1ProjectsByNameBingQueriesResponses[keyof GetApiV1ProjectsByNameBingQueriesResponses];
+
+export type GetApiV1ProjectsByNameBingPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+        /**
+         * Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Filter on the page URL: a substring, or the whole URL with match=exact.
+         */
+        page?: string;
+        /**
+         * contains (default) or exact.
+         */
+        match?: 'contains' | 'exact';
+        /**
+         * page (default) or week.
+         */
+        groupBy?: string;
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/bing/pages';
+};
+
+export type GetApiV1ProjectsByNameBingPagesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingPagesError = GetApiV1ProjectsByNameBingPagesErrors[keyof GetApiV1ProjectsByNameBingPagesErrors];
+
+export type GetApiV1ProjectsByNameBingPagesResponses = {
+    /**
+     * Stored Bing page stats returned.
+     */
+    200: BingPageTotalsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingPagesResponse = GetApiV1ProjectsByNameBingPagesResponses[keyof GetApiV1ProjectsByNameBingPagesResponses];
+
+export type GetApiV1ProjectsByNameBingCrawlStatsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * First day (YYYY-MM-DD). Wins over days.
+         */
+        startDate?: string;
+        /**
+         * Last day (YYYY-MM-DD).
+         */
+        endDate?: string;
+        /**
+         * Span in days ending at endDate, or at the newest stored day (default 28).
+         */
+        days?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/crawl-stats';
+};
+
+export type GetApiV1ProjectsByNameBingCrawlStatsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingCrawlStatsError = GetApiV1ProjectsByNameBingCrawlStatsErrors[keyof GetApiV1ProjectsByNameBingCrawlStatsErrors];
+
+export type GetApiV1ProjectsByNameBingCrawlStatsResponses = {
+    /**
+     * Stored Bing crawl stats returned.
+     */
+    200: BingCrawlStatsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingCrawlStatsResponse = GetApiV1ProjectsByNameBingCrawlStatsResponses[keyof GetApiV1ProjectsByNameBingCrawlStatsResponses];
+
+export type GetApiV1ProjectsByNameBingSiteData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * One setting kind; all kinds when omitted.
+         */
+        kind?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/site';
+};
+
+export type GetApiV1ProjectsByNameBingSiteErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingSiteError = GetApiV1ProjectsByNameBingSiteErrors[keyof GetApiV1ProjectsByNameBingSiteErrors];
+
+export type GetApiV1ProjectsByNameBingSiteResponses = {
+    /**
+     * Stored Bing site settings returned.
+     */
+    200: BingSiteResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingSiteResponse = GetApiV1ProjectsByNameBingSiteResponses[keyof GetApiV1ProjectsByNameBingSiteResponses];
+
+export type GetApiV1ProjectsByNameBingKeywordDemandData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * A tracked query whose weekly history to include.
+         */
+        query?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/keyword-demand';
+};
+
+export type GetApiV1ProjectsByNameBingKeywordDemandErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordDemandError = GetApiV1ProjectsByNameBingKeywordDemandErrors[keyof GetApiV1ProjectsByNameBingKeywordDemandErrors];
+
+export type GetApiV1ProjectsByNameBingKeywordDemandResponses = {
+    /**
+     * Stored Bing keyword demand returned.
+     */
+    200: BingKeywordDemandResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordDemandResponse = GetApiV1ProjectsByNameBingKeywordDemandResponses[keyof GetApiV1ProjectsByNameBingKeywordDemandResponses];
+
+export type GetApiV1ProjectsByNameBingQueryPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The search query.
+         */
+        query?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/query-pages';
+};
+
+export type GetApiV1ProjectsByNameBingQueryPagesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingQueryPagesError = GetApiV1ProjectsByNameBingQueryPagesErrors[keyof GetApiV1ProjectsByNameBingQueryPagesErrors];
+
+export type GetApiV1ProjectsByNameBingQueryPagesResponses = {
+    /**
+     * Pages for the query returned.
+     */
+    200: BingQueryPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingQueryPagesResponse = GetApiV1ProjectsByNameBingQueryPagesResponses[keyof GetApiV1ProjectsByNameBingQueryPagesResponses];
+
+export type GetApiV1ProjectsByNameBingPageQueriesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The page URL.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/page-queries';
+};
+
+export type GetApiV1ProjectsByNameBingPageQueriesErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingPageQueriesError = GetApiV1ProjectsByNameBingPageQueriesErrors[keyof GetApiV1ProjectsByNameBingPageQueriesErrors];
+
+export type GetApiV1ProjectsByNameBingPageQueriesResponses = {
+    /**
+     * Queries for the page returned.
+     */
+    200: BingPageQueriesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingPageQueriesResponse = GetApiV1ProjectsByNameBingPageQueriesResponses[keyof GetApiV1ProjectsByNameBingPageQueriesResponses];
+
+export type GetApiV1ProjectsByNameBingQueryHistoryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The search query.
+         */
+        query?: string;
+        /**
+         * Optional page URL; switches to weekly rows with position.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/query-history';
+};
+
+export type GetApiV1ProjectsByNameBingQueryHistoryErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingQueryHistoryError = GetApiV1ProjectsByNameBingQueryHistoryErrors[keyof GetApiV1ProjectsByNameBingQueryHistoryErrors];
+
+export type GetApiV1ProjectsByNameBingQueryHistoryResponses = {
+    /**
+     * Query history returned.
+     */
+    200: BingQueryHistoryResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingQueryHistoryResponse = GetApiV1ProjectsByNameBingQueryHistoryResponses[keyof GetApiV1ProjectsByNameBingQueryHistoryResponses];
+
+export type GetApiV1ProjectsByNameBingUrlTrafficData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The URL.
+         */
+        url?: string;
+        /**
+         * true to include the URLs under it.
+         */
+        children?: string;
+        /**
+         * 0-indexed page of children.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/url-traffic';
+};
+
+export type GetApiV1ProjectsByNameBingUrlTrafficErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingUrlTrafficError = GetApiV1ProjectsByNameBingUrlTrafficErrors[keyof GetApiV1ProjectsByNameBingUrlTrafficErrors];
+
+export type GetApiV1ProjectsByNameBingUrlTrafficResponses = {
+    /**
+     * URL traffic returned.
+     */
+    200: BingUrlTrafficResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingUrlTrafficResponse = GetApiV1ProjectsByNameBingUrlTrafficResponses[keyof GetApiV1ProjectsByNameBingUrlTrafficResponses];
+
+export type GetApiV1ProjectsByNameBingUrlChildrenData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The directory URL.
+         */
+        url?: string;
+        /**
+         * 0-indexed page.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/url-children';
+};
+
+export type GetApiV1ProjectsByNameBingUrlChildrenErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingUrlChildrenError = GetApiV1ProjectsByNameBingUrlChildrenErrors[keyof GetApiV1ProjectsByNameBingUrlChildrenErrors];
+
+export type GetApiV1ProjectsByNameBingUrlChildrenResponses = {
+    /**
+     * Child URL details returned.
+     */
+    200: BingUrlChildrenResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingUrlChildrenResponse = GetApiV1ProjectsByNameBingUrlChildrenResponses[keyof GetApiV1ProjectsByNameBingUrlChildrenResponses];
+
+export type GetApiV1ProjectsByNameBingLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Optional page URL; lists the external pages linking to it.
+         */
+        url?: string;
+        /**
+         * 0-indexed page.
+         */
+        page?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/links';
+};
+
+export type GetApiV1ProjectsByNameBingLinksErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingLinksError = GetApiV1ProjectsByNameBingLinksErrors[keyof GetApiV1ProjectsByNameBingLinksErrors];
+
+export type GetApiV1ProjectsByNameBingLinksResponses = {
+    /**
+     * Inbound links returned.
+     */
+    200: BingLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingLinksResponse = GetApiV1ProjectsByNameBingLinksResponses[keyof GetApiV1ProjectsByNameBingLinksResponses];
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Optional URL; returns what Bingbot received for it.
+         */
+        url?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/fetched-urls';
+};
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsError = GetApiV1ProjectsByNameBingFetchedUrlsErrors[keyof GetApiV1ProjectsByNameBingFetchedUrlsErrors];
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsResponses = {
+    /**
+     * Fetch as Bingbot results returned.
+     */
+    200: BingFetchedUrlsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingFetchedUrlsResponse = GetApiV1ProjectsByNameBingFetchedUrlsResponses[keyof GetApiV1ProjectsByNameBingFetchedUrlsResponses];
+
+export type GetApiV1ProjectsByNameBingKeywordsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The keyword to research.
+         */
+        keyword?: string;
+        /**
+         * Market country (default: the project country).
+         */
+        country?: string;
+        /**
+         * Market language tag such as en-US (default: from the project).
+         */
+        language?: string;
+        /**
+         * Volume window start (YYYY-MM-DD).
+         */
+        startDate?: string;
+        /**
+         * Volume window end (YYYY-MM-DD, default today).
+         */
+        endDate?: string;
+    };
+    url: '/api/v1/projects/{name}/bing/keywords';
+};
+
+export type GetApiV1ProjectsByNameBingKeywordsErrors = {
+    /**
+     * Invalid request, or Bing is not connected or has no site selected for this project.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Bing is throttling the account this key belongs to.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Bing refused or failed the read.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordsError = GetApiV1ProjectsByNameBingKeywordsErrors[keyof GetApiV1ProjectsByNameBingKeywordsErrors];
+
+export type GetApiV1ProjectsByNameBingKeywordsResponses = {
+    /**
+     * Keyword research returned.
+     */
+    200: BingKeywordResearchResponseDto;
+};
+
+export type GetApiV1ProjectsByNameBingKeywordsResponse = GetApiV1ProjectsByNameBingKeywordsResponses[keyof GetApiV1ProjectsByNameBingKeywordsResponses];
 
 export type PostApiV1ProjectsByNameWordpressConnectData = {
     body: {
@@ -32723,7 +36162,7 @@ export type PostApiV1ProjectsByNameGaConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
-     * Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.
+     * Selecting a property on the saved OAuth grant requires an instance administrator. If Google refused the property, details.reason is ga4-permission-missing and details.nextCheckAt gives the next check time.
      */
     403: ErrorEnvelope;
     /**
@@ -32822,6 +36261,10 @@ export type GetApiV1ProjectsByNameGaPropertiesErrors = {
      * No OAuth GA4 connection for this project.
      */
     400: ErrorEnvelope;
+    /**
+     * Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -32983,9 +36426,9 @@ export type GetApiV1ProjectsByNameGaSearchLandingPagesData = {
     };
     query?: {
         /**
-         * Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
+         * Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
          */
-        window?: '7d' | '28d' | '90d';
+        window?: '7d' | '28d' | '90d' | '180d';
         /**
          * Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.
          */
@@ -33079,7 +36522,7 @@ export type GetApiV1ProjectsByNameGaTrafficData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -33126,7 +36569,7 @@ export type GetApiV1ProjectsByNameGaAiReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -33173,7 +36616,7 @@ export type GetApiV1ProjectsByNameGaAiReferralDailyData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -33220,7 +36663,7 @@ export type GetApiV1ProjectsByNameGaSocialReferralHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -33335,14 +36778,14 @@ export type GetApiV1ProjectsByNameGaOverviewData = {
         /**
          * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
          */
-        window?: '7d' | '30d' | '90d';
+        window?: '7d' | '30d' | '90d' | '180d';
     };
     url: '/api/v1/projects/{name}/ga/overview';
 };
 
 export type GetApiV1ProjectsByNameGaOverviewErrors = {
     /**
-     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     * GA4 is not connected, or the window is not 7d, 30d, 90d or 180d.
      */
     400: ErrorEnvelope;
     /**
@@ -33374,7 +36817,7 @@ export type GetApiV1ProjectsByNameGaSessionHistoryData = {
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
-        window?: '7d' | '30d' | '90d' | 'all';
+        window?: '7d' | '30d' | '90d' | '180d' | 'all';
         /**
          * Inclusive lower bound as a calendar date (YYYY-MM-DD). Takes precedence over "window", which is rolling from now and cannot name a calendar month.
          */
@@ -33742,6 +37185,77 @@ export type GetApiV1ProjectsByNameCitationsVisibilityResponses = {
 };
 
 export type GetApiV1ProjectsByNameCitationsVisibilityResponse = GetApiV1ProjectsByNameCitationsVisibilityResponses[keyof GetApiV1ProjectsByNameCitationsVisibilityResponses];
+
+export type GetApiV1ProjectsByNameCitationsUrlsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Sweeps in scope: 7d, 30d, 90d or all (default).
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Only pages on this host or its subdomains, e.g. reddit.com.
+         */
+        domain?: string;
+        /**
+         * Comma-separated source categories, e.g. forum,social,video.
+         */
+        category?: string;
+        /**
+         * Only answers from this engine, e.g. gemini or openai.
+         */
+        provider?: string;
+        /**
+         * all (default), branded or non-brand, classified as the sources read does.
+         */
+        queryClass?: 'all' | 'branded' | 'non-brand';
+        /**
+         * true keeps only pages the latest sweep cited and no earlier sweep in scope did.
+         */
+        newInLatest?: 'true' | 'false';
+        /**
+         * answers (default): most citing answers first. newest: most recent first citation first.
+         */
+        sort?: 'answers' | 'newest';
+        /**
+         * Pages per response, 1 to 1000 (default 100).
+         */
+        limit?: string;
+        /**
+         * The previous response's nextCursor; repeat the same filters.
+         */
+        cursor?: string;
+    };
+    url: '/api/v1/projects/{name}/citations/urls';
+};
+
+export type GetApiV1ProjectsByNameCitationsUrlsErrors = {
+    /**
+     * Invalid query parameters.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCitationsUrlsError = GetApiV1ProjectsByNameCitationsUrlsErrors[keyof GetApiV1ProjectsByNameCitationsUrlsErrors];
+
+export type GetApiV1ProjectsByNameCitationsUrlsResponses = {
+    /**
+     * Cited pages returned.
+     */
+    200: CitationUrlsResponse;
+};
+
+export type GetApiV1ProjectsByNameCitationsUrlsResponse = GetApiV1ProjectsByNameCitationsUrlsResponses[keyof GetApiV1ProjectsByNameCitationsUrlsResponses];
 
 export type GetApiV1ProjectsByNameContentTargetsData = {
     body?: never;
@@ -34758,16 +38272,7 @@ export type GetApiV1ProjectsByNameBacklinksSourcesResponses = {
 export type GetApiV1ProjectsByNameBacklinksSourcesResponse = GetApiV1ProjectsByNameBacklinksSourcesResponses[keyof GetApiV1ProjectsByNameBacklinksSourcesResponses];
 
 export type PostApiV1ProjectsByNameTrafficConnectCloudRunData = {
-    body: {
-        gcpProjectId: string;
-        serviceName?: string;
-        location?: string;
-        displayName?: string;
-        /**
-         * Service-account JSON content.
-         */
-        keyJson: string;
-    };
+    body: TrafficConnectCloudRunRequest;
     path: {
         /**
          * Project name.
@@ -34977,7 +38482,7 @@ export type PostApiV1ProjectsByNameTrafficCloudflareIngestError = PostApiV1Proje
 
 export type PostApiV1ProjectsByNameTrafficCloudflareIngestResponses = {
     /**
-     * Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates.
+     * Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates. aiUserFetchBrowserNonPageHits counts browser-agent requests other than page loads, which no bucket holds.
      */
     200: CloudflareWorkerIngestResponse;
 };
@@ -35806,7 +39311,7 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         until?: string;
         /**
-         * Filter to "crawler", "ai-user-fetch", "ai-referral", or "all" (default).
+         * Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.
          */
         kind?: string;
         /**
@@ -35818,9 +39323,25 @@ export type GetApiV1ProjectsByNameTrafficEventsData = {
          */
         sourceId?: string;
         /**
-         * Full-window series bucket size: "hour" (default) or "day".
+         * Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).
          */
-        granularity?: 'hour' | 'day';
+        granularity?: 'hour' | 'day' | 'month';
+        /**
+         * A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.
+         */
+        path?: string;
+        /**
+         * Exact bot ID (for example openai-searchbot), or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.
+         */
+        agent?: string;
+        /**
+         * The previous page's `eventRows.nextCursor`. Repeat the first page's kind, sourceId, path and agent; the cursor keeps the first page's window.
+         */
+        cursor?: string;
+        /**
+         * Comma-separated totals over the whole filtered window: agent, path, status, source. Groups are always split by kind, sorted most hits first and capped by `limit`.
+         */
+        groupBy?: string;
     };
     url: '/api/v1/projects/{name}/traffic/events';
 };
@@ -36014,6 +39535,10 @@ export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestData = {
 
 export type GetApiV1ProjectsByNameDiscoverSessionsByIdHarvestErrors = {
     /**
+     * Administrator access or wildcard API key scope is required.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project or session not found.
      */
     404: ErrorEnvelope;
@@ -36115,6 +39640,41 @@ export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses = {
 
 export type PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponse = PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses[keyof PostApiV1ProjectsByNameDiscoverSessionsByIdPromoteResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessErrors = {
+    /**
+     * Project or site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessError = GetApiV1ProjectsByNameAgentReadinessErrors[keyof GetApiV1ProjectsByNameAgentReadinessErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessResponses = {
+    /**
+     * Agent Readiness scorecard returned.
+     */
+    200: SiteAuditScoreDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessResponse = GetApiV1ProjectsByNameAgentReadinessResponses[keyof GetApiV1ProjectsByNameAgentReadinessResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoData = {
     body?: never;
     path: {
@@ -36143,12 +39703,63 @@ export type GetApiV1ProjectsByNameTechnicalAeoError = GetApiV1ProjectsByNameTech
 
 export type GetApiV1ProjectsByNameTechnicalAeoResponses = {
     /**
-     * Technical AEO scorecard returned.
+     * Agent Readiness scorecard returned.
      */
     200: SiteAuditScoreDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoResponse = GetApiV1ProjectsByNameTechnicalAeoResponses[keyof GetApiV1ProjectsByNameTechnicalAeoResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest audit.
+         */
+        runId?: string;
+        /**
+         * Filter by page audit status: `success` or `error`.
+         */
+        status?: 'success' | 'error';
+        /**
+         * Sort order: `score-asc` (default), `score-desc`, or `url`.
+         */
+        sort?: 'score-asc' | 'score-desc' | 'url';
+        /**
+         * Maximum number of records to return.
+         */
+        limit?: number;
+        /**
+         * Number of records to skip.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesErrors = {
+    /**
+     * Project or site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesError = GetApiV1ProjectsByNameAgentReadinessPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesResponses = {
+    /**
+     * Audited pages returned.
+     */
+    200: SiteAuditPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPagesResponse = GetApiV1ProjectsByNameAgentReadinessPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessPagesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesData = {
     body?: never;
@@ -36201,6 +39812,41 @@ export type GetApiV1ProjectsByNameTechnicalAeoPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPagesResponse = GetApiV1ProjectsByNameTechnicalAeoPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessTrendData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max data points returned (most recent runs). Default 30.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/trend';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendError = GetApiV1ProjectsByNameAgentReadinessTrendErrors[keyof GetApiV1ProjectsByNameAgentReadinessTrendErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendResponses = {
+    /**
+     * Agent Readiness trend returned.
+     */
+    200: SiteAuditTrendResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessTrendResponse = GetApiV1ProjectsByNameAgentReadinessTrendResponses[keyof GetApiV1ProjectsByNameAgentReadinessTrendResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoTrendData = {
     body?: never;
     path: {
@@ -36229,12 +39875,106 @@ export type GetApiV1ProjectsByNameTechnicalAeoTrendError = GetApiV1ProjectsByNam
 
 export type GetApiV1ProjectsByNameTechnicalAeoTrendResponses = {
     /**
-     * Technical AEO trend returned.
+     * Agent Readiness trend returned.
      */
     200: SiteAuditTrendResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoTrendResponse = GetApiV1ProjectsByNameTechnicalAeoTrendResponses[keyof GetApiV1ProjectsByNameTechnicalAeoTrendResponses];
+
+export type GetApiV1ProjectsByNameTrendsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Which card to read.
+         */
+        surface: 'index-coverage' | 'site-health' | 'backlinks';
+        /**
+         * Window ending on the latest reading. Defaults to 90d for index-coverage and all for site-health and backlinks. Any other value is rejected with 400. Not allowed with startDate or endDate.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * First calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range starts at the earliest reading.
+         */
+        startDate?: string;
+        /**
+         * Last calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range ends at the latest reading.
+         */
+        endDate?: string;
+    };
+    url: '/api/v1/projects/{name}/trends';
+};
+
+export type GetApiV1ProjectsByNameTrendsErrors = {
+    /**
+     * Missing or unknown surface, an unknown window, an invalid date, a start after the end, or a window and a date range together.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrendsError = GetApiV1ProjectsByNameTrendsErrors[keyof GetApiV1ProjectsByNameTrendsErrors];
+
+export type GetApiV1ProjectsByNameTrendsResponses = {
+    /**
+     * Trend card returned. `window` is null for a date range.
+     */
+    200: TrendsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTrendsResponse = GetApiV1ProjectsByNameTrendsResponses[keyof GetApiV1ProjectsByNameTrendsResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlErrors = {
+    /**
+     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlError = GetApiV1ProjectsByNameAgentReadinessCrawlErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlResponses = {
+    /**
+     * Persisted crawl summary returned.
+     */
+    200: SiteCrawlSummaryDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlResponse = GetApiV1ProjectsByNameAgentReadinessCrawlResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlData = {
     body?: never;
@@ -36279,6 +40019,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessGraphData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Maximum graph nodes. Defaults to and is capped at 20,000.
+         */
+        maxNodes?: number;
+        /**
+         * Maximum graph edges. Defaults to and is capped at 50,000.
+         */
+        maxEdges?: number;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/graph';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphError = GetApiV1ProjectsByNameAgentReadinessGraphErrors[keyof GetApiV1ProjectsByNameAgentReadinessGraphErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphResponses = {
+    /**
+     * Bounded Agent Readiness graph projection returned.
+     */
+    200: SiteCrawlGraphResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessGraphResponse = GetApiV1ProjectsByNameAgentReadinessGraphResponses[keyof GetApiV1ProjectsByNameAgentReadinessGraphResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoGraphData = {
     body?: never;
     path: {
@@ -36319,12 +40106,67 @@ export type GetApiV1ProjectsByNameTechnicalAeoGraphError = GetApiV1ProjectsByNam
 
 export type GetApiV1ProjectsByNameTechnicalAeoGraphResponses = {
     /**
-     * Bounded Site Health graph projection returned.
+     * Bounded Agent Readiness graph projection returned.
      */
     200: SiteCrawlGraphResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoGraphResponse = GetApiV1ProjectsByNameTechnicalAeoGraphResponses[keyof GetApiV1ProjectsByNameTechnicalAeoGraphResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Focus page canonical node key. Omit nodeKey and url to use the crawl root.
+         */
+        nodeKey?: string;
+        /**
+         * Focus page canonical URL. Omit nodeKey and url to use the crawl root.
+         */
+        url?: string;
+        /**
+         * Undirected neighborhood radius. Defaults to 1; maximum 3.
+         */
+        hops?: number;
+        /**
+         * Maximum canonical nodes. Defaults to 25; maximum 200.
+         */
+        maxNodes?: number;
+        /**
+         * Maximum canonical edges. Defaults to 50; maximum 500.
+         */
+        maxEdges?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/subgraph';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphErrors = {
+    /**
+     * Project, crawl-bearing run, or focus page not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphError = GetApiV1ProjectsByNameAgentReadinessSubgraphErrors[keyof GetApiV1ProjectsByNameAgentReadinessSubgraphErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphResponses = {
+    /**
+     * Bounded canonical Agent Readiness neighborhood returned.
+     */
+    200: SiteHealthSubgraphResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessSubgraphResponse = GetApiV1ProjectsByNameAgentReadinessSubgraphResponses[keyof GetApiV1ProjectsByNameAgentReadinessSubgraphResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphData = {
     body?: never;
@@ -36374,12 +40216,71 @@ export type GetApiV1ProjectsByNameTechnicalAeoSubgraphError = GetApiV1ProjectsBy
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses = {
     /**
-     * Bounded canonical Site Health neighborhood returned.
+     * Bounded canonical Agent Readiness neighborhood returned.
      */
     200: SiteHealthSubgraphResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoSubgraphResponse = GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses[keyof GetApiV1ProjectsByNameTechnicalAeoSubgraphResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessPathData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Source canonical node key. Omit both source selectors to start at the crawl root.
+         */
+        fromNodeKey?: string;
+        /**
+         * Source canonical URL. Omit both source selectors to start at the crawl root.
+         */
+        fromUrl?: string;
+        /**
+         * Target canonical node key. Required when toUrl is omitted.
+         */
+        toNodeKey?: string;
+        /**
+         * Target canonical URL. Required when toNodeKey is omitted.
+         */
+        toUrl?: string;
+        /**
+         * Maximum directed link depth. Defaults to 12; maximum 24.
+         */
+        maxDepth?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/path';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathErrors = {
+    /**
+     * A target selector is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, crawl-bearing run, source page, or target page not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathError = GetApiV1ProjectsByNameAgentReadinessPathErrors[keyof GetApiV1ProjectsByNameAgentReadinessPathErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessPathResponses = {
+    /**
+     * Directed internal-link path result returned.
+     */
+    200: SiteHealthPathResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessPathResponse = GetApiV1ProjectsByNameAgentReadinessPathResponses[keyof GetApiV1ProjectsByNameAgentReadinessPathResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoPathData = {
     body?: never;
@@ -36440,6 +40341,65 @@ export type GetApiV1ProjectsByNameTechnicalAeoPathResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoPathResponse = GetApiV1ProjectsByNameTechnicalAeoPathResponses[keyof GetApiV1ProjectsByNameTechnicalAeoPathResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessChangesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Baseline complete crawl. Omit for the complete crawl immediately before the target.
+         */
+        fromRunId?: string;
+        /**
+         * Target complete crawl. Omit for the latest complete crawl.
+         */
+        toRunId?: string;
+        /**
+         * Restrict records and first-page summary counts to pages, links, or both.
+         */
+        scope?: 'all' | 'pages' | 'links';
+        /**
+         * Restrict records and first-page summary counts to one change kind.
+         */
+        change?: 'all' | 'added' | 'removed' | 'changed';
+        /**
+         * Opaque keyset cursor bound to both run IDs and the selected filters.
+         */
+        cursor?: string;
+        /**
+         * Maximum change records. Defaults to 25; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/changes';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesErrors = {
+    /**
+     * Invalid filters, run direction, or cursor context.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or selected crawl-bearing run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesError = GetApiV1ProjectsByNameAgentReadinessChangesErrors[keyof GetApiV1ProjectsByNameAgentReadinessChangesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesResponses = {
+    /**
+     * Canonical Agent Readiness snapshot comparison returned.
+     */
+    200: SiteHealthChangesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessChangesResponse = GetApiV1ProjectsByNameAgentReadinessChangesResponses[keyof GetApiV1ProjectsByNameAgentReadinessChangesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoChangesData = {
     body?: never;
     path: {
@@ -36492,12 +40452,63 @@ export type GetApiV1ProjectsByNameTechnicalAeoChangesError = GetApiV1ProjectsByN
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponses = {
     /**
-     * Canonical Site Health snapshot comparison returned.
+     * Canonical Agent Readiness snapshot comparison returned.
      */
     200: SiteHealthChangesResponseDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponse = GetApiV1ProjectsByNameTechnicalAeoChangesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoChangesResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/issues';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected non-probe audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesError = GetApiV1ProjectsByNameAgentReadinessIssuesErrors[keyof GetApiV1ProjectsByNameAgentReadinessIssuesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesResponses = {
+    /**
+     * Stored issue groups and coverage returned.
+     */
+    200: SiteAuditIssuesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesResponse = GetApiV1ProjectsByNameAgentReadinessIssuesResponses[keyof GetApiV1ProjectsByNameAgentReadinessIssuesResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
     body?: never;
@@ -36520,6 +40531,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/issues';
 };
@@ -36546,6 +40561,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact issue ID from the stored issue list.
+         */
+        issueId: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, selected non-probe audit run, or issue not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesError = GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses = {
+    /**
+     * Stored affected page evidence and coverage returned.
+     */
+    200: SiteAuditIssuePagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessIssuesByIssueIdPagesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
     body?: never;
     path: {
@@ -36571,6 +40641,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
          * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
          */
         limit?: number;
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages';
 };
@@ -36596,6 +40670,53 @@ export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Exact canonical crawl node key. Required when url is omitted.
+         */
+        nodeKey?: string;
+        /**
+         * Exact persisted crawl URL. Required when nodeKey is omitted.
+         */
+        url?: string;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl/pages/audit';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors = {
+    /**
+     * Exactly one page selector is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected crawl-bearing run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditError = GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses = {
+    /**
+     * Page audit evidence state returned.
+     */
+    200: SiteCrawlPageAuditDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponse = GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesAuditResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     body?: never;
@@ -36644,6 +40765,93 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+        /**
+         * Filter Canonry technical inventory eligibility (`true` or `false`).
+         */
+        inventoryEligible?: boolean;
+        /**
+         * Filter by persisted fetch state.
+         */
+        fetchState?: string;
+        /**
+         * Filter by crawler-derived indexability state; this is not Google index coverage.
+         */
+        indexabilityState?: string;
+        /**
+         * Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.
+         */
+        nodeKey?: string;
+        /**
+         * Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
+         */
+        healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        /**
+         * Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.
+         */
+        auditState?: string;
+        /**
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
+         */
+        urlVersions?: 'include' | 'exclude' | 'only';
+        /**
+         * Sort order. Defaults to `url`.
+         */
+        sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
+        /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/crawl/pages';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors = {
+    /**
+     * Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesError = GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses = {
+    /**
+     * Crawl pages returned.
+     */
+    200: SiteCrawlPagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponse = GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses[keyof GetApiV1ProjectsByNameAgentReadinessCrawlPagesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
     body?: never;
     path: {
@@ -36678,7 +40886,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         nodeKey?: string;
         /**
-         * Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
+         * Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.
          */
         healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         /**
@@ -36694,6 +40902,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         sort?: 'url' | 'path' | 'score-asc' | 'score-desc';
         /**
+         * Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.
+         */
+        site?: string;
+        /**
          * Opaque cursor from the previous bounded crawl response.
          */
         cursor?: string;
@@ -36707,7 +40919,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
     /**
-     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
+     * Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.
      */
     400: ErrorEnvelope;
     /**
@@ -36727,6 +40939,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponse = GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoCrawlPagesResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessStructureData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.
+         */
+        site?: string;
+        /**
+         * Parent URL path. Defaults to `/`.
+         */
+        parentPath?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Maximum immediate children. Defaults to 50; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/structure';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureErrors = {
+    /**
+     * A site the scan did not cover.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureError = GetApiV1ProjectsByNameAgentReadinessStructureErrors[keyof GetApiV1ProjectsByNameAgentReadinessStructureErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureResponses = {
+    /**
+     * Immediate crawl children returned.
+     */
+    200: SiteCrawlStructureResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessStructureResponse = GetApiV1ProjectsByNameAgentReadinessStructureResponses[keyof GetApiV1ProjectsByNameAgentReadinessStructureResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
     body?: never;
     path: {
@@ -36740,6 +41007,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
          * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
+        /**
+         * The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.
+         */
+        site?: string;
         /**
          * Parent URL path. Defaults to `/`.
          */
@@ -36758,6 +41029,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoStructureErrors = {
     /**
+     * A site the scan did not cover.
+     */
+    400: ErrorEnvelope;
+    /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
     404: ErrorEnvelope;
@@ -36773,6 +41048,65 @@ export type GetApiV1ProjectsByNameTechnicalAeoStructureResponses = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoStructureResponse = GetApiV1ProjectsByNameTechnicalAeoStructureResponses[keyof GetApiV1ProjectsByNameTechnicalAeoStructureResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Restrict to a source URL.
+         */
+        sourceUrl?: string;
+        /**
+         * Restrict to a target URL.
+         */
+        targetUrl?: string;
+        /**
+         * Restrict to followable or nofollow link observations.
+         */
+        followable?: boolean;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/internal-links';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksError = GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses = {
+    /**
+     * Internal crawl links returned.
+     */
+    200: SiteCrawlInternalLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksResponse = GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksData = {
     body?: never;
@@ -36833,6 +41167,61 @@ export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponse = GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses[keyof GetApiV1ProjectsByNameTechnicalAeoInternalLinksResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Canonical crawl node key.
+         */
+        nodeKey?: string;
+        /**
+         * Canonical crawl URL.
+         */
+        url?: string;
+        /**
+         * Restrict links to `content` (excludes nav, header, and footer links) or `template` (only those). Defaults to `all`. A link neither rule could classify matches neither filter, which is why every link response also carries `templateDetection` and every edge carries `templateSource`: an empty `content` list means "could not tell" under an `unavailable-*` detection, and `templateSource` says whether a link that IS classified was decided by where it sits in the page (`placement`) or by how many pages repeat it (`ubiquity`).
+         */
+        linkKind?: 'all' | 'content' | 'template';
+        /**
+         * Maximum inbound and outbound edges independently. Defaults to 50; maximum 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/internal-links/neighbors';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors = {
+    /**
+     * A nodeKey or URL is required.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsError = GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses = {
+    /**
+     * Bounded internal-link neighborhood returned.
+     */
+    200: SiteCrawlNeighborsResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponse = GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses[keyof GetApiV1ProjectsByNameAgentReadinessInternalLinksNeighborsResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsData = {
     body?: never;
     path: {
@@ -36888,6 +41277,49 @@ export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses = 
 
 export type GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponse = GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses[keyof GetApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Historical site-audit run ID. Omit for the latest crawl.
+         */
+        runId?: string;
+        /**
+         * Opaque cursor from the previous bounded crawl response.
+         */
+        cursor?: string;
+        /**
+         * Page size. Defaults to 100 (50 for structure/neighbors); maximum 200 (100 for structure/neighbors).
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/dead-links';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors = {
+    /**
+     * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksError = GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors[keyof GetApiV1ProjectsByNameAgentReadinessDeadLinksErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses = {
+    /**
+     * Dead-link status and findings returned.
+     */
+    200: SiteCrawlDeadLinksResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessDeadLinksResponse = GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses[keyof GetApiV1ProjectsByNameAgentReadinessDeadLinksResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksData = {
     body?: never;
     path: {
@@ -36931,6 +41363,120 @@ export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponse = GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses[keyof GetApiV1ProjectsByNameTechnicalAeoDeadLinksResponses];
 
+export type GetApiV1ProjectsByNameAgentReadinessRunsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Max scans returned (most recent first). Defaults to 20; max 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/agent-readiness/runs';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsError = GetApiV1ProjectsByNameAgentReadinessRunsErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsResponses = {
+    /**
+     * Agent Readiness audit scan history returned.
+     */
+    200: SiteHealthScansResponseDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsResponse = GetApiV1ProjectsByNameAgentReadinessRunsResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsResponses];
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsData = {
+    body?: {
+        /**
+         * Deprecated compatibility alias for the sitemap override.
+         */
+        sitemapUrl?: string;
+        /**
+         * Deprecated compatibility alias for maxPages. Max 2000.
+         */
+        limit?: number;
+        /**
+         * Crawl page budget. When omitted, the project's saved budget (siteAuditMaxPages) applies, else the full site; max 50000.
+         */
+        maxPages?: number;
+        /**
+         * Internal-link observation budget. When omitted the crawl engine derives it from the page count; max 1000000.
+         */
+        maxEdges?: number;
+        /**
+         * Maximum crawl depth from the root. Max 100.
+         */
+        maxDepth?: number;
+        /**
+         * Enable dead-link checking. Defaults to false.
+         */
+        checkDeadLinks?: boolean;
+        /**
+         * Opt in to geographic signals for location and service-area businesses. Part of scan identity.
+         */
+        includeGeo?: boolean;
+        /**
+         * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
+         */
+        includeAgentSkills?: boolean;
+        /**
+         * Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project's owned domains; naming the main domain changes nothing. When omitted, the project's saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.
+         */
+        sites?: Array<string>;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs';
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsErrors = {
+    /**
+     * Invalid site-audit request, or a site that is not one of the project's owned domains.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * A crawl with different effective options is already queued or running.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The site-audit executor is unavailable on this deployment.
+     */
+    422: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsError = PostApiV1ProjectsByNameAgentReadinessRunsErrors[keyof PostApiV1ProjectsByNameAgentReadinessRunsErrors];
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsResponses = {
+    /**
+     * Site-audit run queued (or the in-flight run returned).
+     */
+    200: SiteAuditRunResponseDto;
+};
+
+export type PostApiV1ProjectsByNameAgentReadinessRunsResponse = PostApiV1ProjectsByNameAgentReadinessRunsResponses[keyof PostApiV1ProjectsByNameAgentReadinessRunsResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoRunsData = {
     body?: never;
     path: {
@@ -36959,7 +41505,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsError = GetApiV1ProjectsByName
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsResponses = {
     /**
-     * Site Health scan history returned.
+     * Agent Readiness audit scan history returned.
      */
     200: SiteHealthScansResponseDto;
 };
@@ -37000,6 +41546,10 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
          */
         includeAgentSkills?: boolean;
+        /**
+         * Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project's owned domains; naming the main domain changes nothing. When omitted, the project's saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.
+         */
+        sites?: Array<string>;
     };
     path: {
         /**
@@ -37013,7 +41563,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
 
 export type PostApiV1ProjectsByNameTechnicalAeoRunsErrors = {
     /**
-     * Invalid site-audit request.
+     * Invalid site-audit request, or a site that is not one of the project's owned domains.
      */
     400: ErrorEnvelope;
     /**
@@ -37040,6 +41590,40 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsResponses = {
 };
 
 export type PostApiV1ProjectsByNameTechnicalAeoRunsResponse = PostApiV1ProjectsByNameTechnicalAeoRunsResponses[keyof PostApiV1ProjectsByNameTechnicalAeoRunsResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact site-audit run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors = {
+    /**
+     * Project or non-probe site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressError = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses = {
+    /**
+     * Exact stored Agent Readiness audit scan progress returned.
+     */
+    200: SiteAuditRunProgressDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponse = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdProgressResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressData = {
     body?: never;
@@ -37068,12 +41652,46 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressError = GetApiV
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses = {
     /**
-     * Exact stored Site Health progress returned.
+     * Exact stored Agent Readiness audit scan progress returned.
      */
     200: SiteAuditRunProgressDto;
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponse = GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses[keyof GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressResponses];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact site-audit run ID.
+         */
+        runId: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview';
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors = {
+    /**
+     * Project or non-probe site-audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewError = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewErrors];
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses = {
+    /**
+     * Bounded provisional Agent Readiness score preview returned.
+     */
+    200: SiteAuditLivePageHealthDto;
+};
+
+export type GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponse = GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses[keyof GetApiV1ProjectsByNameAgentReadinessRunsByRunIdPageHealthPreviewResponses];
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewData = {
     body?: never;
@@ -37102,7 +41720,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewError 
 
 export type GetApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewResponses = {
     /**
-     * Bounded provisional Page Health preview returned.
+     * Bounded provisional Agent Readiness score preview returned.
      */
     200: SiteAuditLivePageHealthDto;
 };

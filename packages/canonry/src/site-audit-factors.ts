@@ -7,7 +7,7 @@ import {
 } from '@canonry/canonry-contracts'
 
 /**
- * The factor fields the site rollup reads: a `@canonry/aeo-audit` scored factor
+ * The factor fields the site rollup reads: a `@canonry/agent-readiness` scored factor
  * as the crawl reports it, or a page factor canonry already stored.
  */
 export interface SiteAuditFactorScore {

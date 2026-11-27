@@ -25,10 +25,14 @@ describe('gaOverviewComparisonRanges', () => {
       current: { startDate: '2026-07-25', endDate: '2026-10-22' },
       previous: { startDate: '2026-04-26', endDate: '2026-07-24' },
     })
+    expect(gaOverviewComparisonRanges('180d', now)).toEqual({
+      current: { startDate: '2026-04-26', endDate: '2026-10-22' },
+      previous: { startDate: '2025-10-28', endDate: '2026-04-25' },
+    })
   })
 
   it('keeps the two periods the same length, back to back, inside the stored history', () => {
-    for (const window of ['7d', '30d', '90d'] as const) {
+    for (const window of ['7d', '30d', '90d', '180d'] as const) {
       const { current, previous } = gaOverviewComparisonRanges(window, now)
       const days = (start: string, end: string) => (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000 + 1
       expect(days(current.startDate, current.endDate)).toBe(Number.parseInt(window, 10))
@@ -64,7 +68,7 @@ describe('gaOverviewComparisonRanges', () => {
 
 describe('isGaOverviewWindow', () => {
   it('accepts only the overview windows', () => {
-    expect(['7d', '30d', '90d'].every(isGaOverviewWindow)).toBe(true)
+    expect(['7d', '30d', '90d', '180d'].every(isGaOverviewWindow)).toBe(true)
     for (const value of ['all', '60d', '', undefined, 30]) expect(isGaOverviewWindow(value)).toBe(false)
   })
 })

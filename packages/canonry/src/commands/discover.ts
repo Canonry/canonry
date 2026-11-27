@@ -1,6 +1,6 @@
 import { createApiClient } from '../client.js'
 import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
-import { CitationStates, describeError, DiscoveryPromoteCompetitorSkipReasons } from '@canonry/canonry-contracts'
+import { describeError, DiscoveryPromoteCompetitorSkipReasons } from '@canonry/canonry-contracts'
 import type {
   DiscoveryBucket,
   DiscoveryCompetitorType,
@@ -13,6 +13,7 @@ import type {
 } from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
+import { SNAPSHOT_CELL_LEGEND, citationGlyph, mentionGlyph } from '../snapshot-cell.js'
 
 const TERMINAL_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>([
   'completed',
@@ -456,14 +457,10 @@ function printSessionDetail(session: DiscoverySessionDetailDto): void {
     const sorted = [...session.probes].sort((a, b) => (a.bucket ?? '').localeCompare(b.bucket ?? ''))
     // Render BOTH signals per the vocabulary rule: [citation][mention]. They are
     // independent, so a single-glyph cell would hide which one the reader sees.
-    console.log(`\n  Probes (${session.probes.length}):  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
+    console.log(`\n  Probes (${session.probes.length}):  ${SNAPSHOT_CELL_LEGEND}`)
     for (const p of sorted) {
       const bucket = (p.bucket ?? '–').padEnd(15)
-      const citationGlyph = p.citationState === CitationStates.cited ? 'C' : 'c'
-      const mentionGlyph = typeof p.answerMentioned === 'boolean'
-        ? (p.answerMentioned ? 'M' : 'm')
-        : '–'
-      console.log(`    [${citationGlyph}${mentionGlyph}]  ${bucket}  ${p.query}`)
+      console.log(`    [${citationGlyph(p.citationState)}${mentionGlyph(p.answerMentioned)}]  ${bucket}  ${p.query}`)
     }
   }
 }

@@ -1,4 +1,4 @@
-import { CitationStates, percentOf, type RunHistoryPointDto } from '@canonry/canonry-contracts'
+import { CitationStates, isCitationStateMeasured, percentOf, type CitationState, type RunHistoryPointDto } from '@canonry/canonry-contracts'
 
 export interface RunHistoryRun {
   id: string
@@ -8,7 +8,8 @@ export interface RunHistoryRun {
 
 export interface RunHistorySnapshot {
   queryId: string
-  citationState: string
+  /** As read through `readCitationState`. */
+  citationState: CitationState
   /** True when the project's brand or domain appeared in the AI answer text.
    *  Optional so legacy callers that only track citations still compile; a
    *  missing value counts as not-mentioned. */
@@ -28,6 +29,10 @@ export const DEFAULT_RUN_HISTORY_LIMIT = 12
  * answerMentioned===true. The two are never derived from each other. Rates
  * are 0..100 at wire precision (2 of 3 is 66.666667). Runs without any snapshots
  * produce a zero-rate point.
+ *
+ * The citation rate is over the queries with at least one answer whose
+ * sources were checked; `citationNotMeasuredCount` counts the rest, and a run
+ * with none has a null citation rate. Mention stays over every query.
  */
 export function buildRunHistory(
   runs: readonly RunHistoryRun[],
@@ -46,14 +51,17 @@ export function buildRunHistory(
     const queryCited = new Map<string, boolean>()
     const queryMentioned = new Map<string, boolean>()
     for (const snap of snapshots) {
-      if (!queryCited.has(snap.queryId)) queryCited.set(snap.queryId, false)
-      if (snap.citationState === CitationStates.cited) queryCited.set(snap.queryId, true)
+      if (isCitationStateMeasured(snap.citationState)) {
+        if (!queryCited.has(snap.queryId)) queryCited.set(snap.queryId, false)
+        if (snap.citationState === CitationStates.cited) queryCited.set(snap.queryId, true)
+      }
       if (!queryMentioned.has(snap.queryId)) queryMentioned.set(snap.queryId, false)
       if (snap.answerMentioned === true) queryMentioned.set(snap.queryId, true)
     }
-    const totalCount = queryCited.size
+    const totalCount = queryMentioned.size
+    const citationNotMeasuredCount = totalCount - queryCited.size
     const citedCount = [...queryCited.values()].filter(Boolean).length
-    const citationRate = percentOf(citedCount, totalCount) ?? 0
+    const citationRate = totalCount === 0 ? 0 : percentOf(citedCount, queryCited.size)
     const mentionedCount = [...queryMentioned.values()].filter(Boolean).length
     const mentionRate = percentOf(mentionedCount, totalCount) ?? 0
     return {
@@ -61,6 +69,7 @@ export function buildRunHistory(
       createdAt: run.createdAt,
       citedCount,
       totalCount,
+      citationNotMeasuredCount,
       citationRate,
       mentionedCount,
       mentionRate,

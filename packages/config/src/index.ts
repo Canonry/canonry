@@ -54,7 +54,6 @@ export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {
 const envSchema = z.object({
   DATABASE_URL: z.string().default('postgresql://aeo:aeo@postgres:5432/aeo_platform'),
   API_PORT: z.coerce.number().int().positive().default(3000),
-  WORKER_PORT: z.coerce.number().int().positive().default(3001),
   WEB_PORT: z.coerce.number().int().positive().default(4173),
   BOOTSTRAP_SECRET: z.string().default('change-me'),
   CANONRY_BASE_PATH: z.string().default('/'),
@@ -188,10 +187,10 @@ export const BOOTSTRAP_PROVIDER_DEFAULT_QUOTA: Readonly<ProviderQuotaPolicy> = {
  * YAML) model or quota. Any value already present, from the environment or
  * from a saved entry, is kept.
  */
-export function withBootstrapProviderDefaults<T extends { model?: string | null; quota?: ProviderQuotaPolicy | null }>(
+export function withBootstrapProviderDefaults<T extends { model?: string | null; quota?: Partial<ProviderQuotaPolicy> | null }>(
   name: BootstrapProviderName,
   entry: T,
-): T & { model: string; quota: ProviderQuotaPolicy } {
+): T & { model: string; quota: Partial<ProviderQuotaPolicy> } {
   return {
     ...entry,
     model: entry.model ?? BOOTSTRAP_PROVIDER_DEFAULT_MODELS[name],
@@ -202,7 +201,6 @@ export function withBootstrapProviderDefaults<T extends { model?: string | null;
 export interface PlatformEnv {
   databaseUrl: string
   apiPort: number
-  workerPort: number
   webPort: number
   basePath: string
   bootstrapSecret: string
@@ -338,7 +336,6 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   return {
     databaseUrl: parsed.DATABASE_URL,
     apiPort: parsed.API_PORT,
-    workerPort: parsed.WORKER_PORT,
     webPort: parsed.WEB_PORT,
     basePath: parsed.CANONRY_BASE_PATH,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,

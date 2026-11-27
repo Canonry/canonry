@@ -116,6 +116,22 @@ describe('universal MCP operations guidance', () => {
     expect(after.structuredContent).not.toHaveProperty('loadToolkits')
   })
 
+  it('discovers project connection actions on progressive stdio and respects hosted catalog limits', async () => {
+    const intent = 'connect Search Console, GA4, Bing and Cloud Run logs to a project'
+    const help = { name: 'canonry_help', arguments: { intent } }
+    const progressive = await connect()
+    const before = await progressive.client.callTool(help)
+    expect(before.structuredContent).toMatchObject({ workflow: 'connections', loadToolkits: ['gsc', 'bing', 'ga', 'traffic'] })
+    expect(before.structuredContent).not.toHaveProperty('actions')
+    await progressive.client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'traffic' } })
+    expect((await progressive.client.callTool(help)).structuredContent?.actions).toEqual(['canonry_traffic_connect_cloud_run'])
+
+    const specialist = await connect({ tiers: ['core', 'ga'] })
+    expect((await specialist.client.callTool(help)).structuredContent?.actions).toEqual(['canonry_ga_oauth_start', 'canonry_ga_connect'])
+    const restricted = await connect({ tiers: CANONRY_MCP_TIERS, scope: 'stored-only' })
+    expect((await restricted.client.callTool(help)).structuredContent).not.toHaveProperty('actions')
+  })
+
   it.each(['prospect', 'prospecting', 'snapshot', 'generate a prospect snapshot', 'prospect report with manual queries'])('discovers snapshot execution from "%s" without starting provider work', async intent => {
     const { client, listProjects, getSettings, createSnapshot } = await connect()
     expect((await client.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_snapshot')
@@ -180,6 +196,40 @@ describe('universal MCP operations guidance', () => {
       approvalBoundary: ['provider reads', 'sweeps', 'writes'],
     })
     expect(result.structuredContent?.next).not.toContain('canonry_research_run_start')
+  })
+
+  it('routes a new user to first-run setup and the getting-started playbook without stealing other intents', async () => {
+    // Progressive stdio: the setup toolkit is not loaded yet, so help offers it.
+    const progressive = await connect({ scope: 'read-only' })
+    const offered = await progressive.client.callTool({ name: 'canonry_help', arguments: { intent: 'start' } })
+    expect(offered.structuredContent).toMatchObject({ workflow: 'start', loadToolkits: expect.arrayContaining(['setup']) })
+
+    const { client } = await connect({ scope: 'read-only', eager: true })
+    for (const intent of ['start', 'getting started', 'where do I start?', 'onboarding', 'what should I ask?', 'I just installed this', 'what should I do next']) {
+      const result = await client.callTool({ name: 'canonry_help', arguments: { intent } })
+      expect(result.structuredContent, intent).toMatchObject({
+        workflow: 'start',
+        next: expect.arrayContaining(['canonry_projects_list', 'canonry_project_setup']),
+        playbooks: ['getting-started'],
+      })
+    }
+    // Earlier routes keep their keywords: start is matched only when nothing else is.
+    const routes: Array<[string, string]> = [
+      ['setup gsc', 'integrations'],
+      ['measurement setup', 'measurement'],
+      ['start a report', 'reports'],
+      ['diagnose where to start', 'diagnose'],
+      ['unknown', 'status'],
+    ]
+    for (const [intent, workflow] of routes) {
+      const result = await client.callTool({ name: 'canonry_help', arguments: { intent } })
+      expect(result.structuredContent?.workflow, intent).toBe(workflow)
+    }
+    const playbook = await client.callTool({ name: 'canonry_help', arguments: { playbook: 'getting-started' } })
+    expect(playbook.isError).not.toBe(true)
+    const text = (playbook.content as Array<{ text: string }>)[0]!.text
+    expect(text.startsWith('Playbook: getting-started\n')).toBe(true)
+    expect(text).toContain('canonry_project_setup')
   })
 
   it('keeps eager stdio distinct from hosted mode and validates intents', async () => {

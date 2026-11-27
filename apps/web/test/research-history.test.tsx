@@ -51,7 +51,7 @@ test('older history pages can be retried without losing the selected answer or l
   fireEvent.click(screen.getByRole('button', { name: RESEARCH_COPY.historyMore }))
   await waitFor(() => expect(screen.queryByRole('button', { name: RESEARCH_COPY.historyMore })).toBeNull())
   expect(screen.getByText(newest.queries[0]!.answerText!)).toBeTruthy()
-  const row = screen.getAllByRole('row').find(item => item.textContent?.includes(older.resolvedModel))!
+  const row = screen.getByTitle(older.resolvedModel).closest('tr')!
   fireEvent.click(row.querySelector('button')!)
   await screen.findByText(older.queries[0]!.answerText!)
   expect(cursors).toEqual([null, 'older-page', 'older-page'])

@@ -178,7 +178,8 @@ const analysisAiEngineLeadPeriodSchema = analysisPeriodSchema.extend({
 })
 
 /**
- * Why `leads.aiEngines` withholds every lead rate:
+ * Why `leads.aiEngines` withholds every lead rate (and why `/ga/traffic`
+ * `socialPlatformPerformance` withholds its conversion rates):
  * - `no-data`: no lead sync has run, or no stored GA row falls inside the
  *   filters, and the block is empty.
  * - `sync-not-ready`: the latest acquisition or lead sync did not succeed, so
@@ -197,6 +198,10 @@ const analysisAiEngineLeadPeriodSchema = analysisPeriodSchema.extend({
  * - `sessions-missing-on-lead-days`: a day inside the window has stored lead
  *   events but no stored acquisition rows at all (a gap in the acquisition
  *   sync), so that bucket holds leads with no sessions to divide by.
+ * - `sessions-before-leads`: the window holds stored sessions from days
+ *   before the lead history starts (the first day a lead sync recorded as
+ *   covered, or the first stored lead event when that is earlier), so those
+ *   sessions have no conversions counted against them.
  */
 export const aiEngineLeadRateUnavailableReasonSchema = z.enum([
   'no-data',
@@ -205,6 +210,7 @@ export const aiEngineLeadRateUnavailableReasonSchema = z.enum([
   'paid-split-needs-landing-page',
   'sessions-behind-leads',
   'sessions-missing-on-lead-days',
+  'sessions-before-leads',
 ])
 export type AiEngineLeadRateUnavailableReason = z.infer<typeof aiEngineLeadRateUnavailableReasonSchema>
 export const AiEngineLeadRateUnavailableReasons = aiEngineLeadRateUnavailableReasonSchema.enum

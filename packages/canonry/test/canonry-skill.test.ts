@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS } from '@canonry/canonry-integration-traffic'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
@@ -20,7 +21,7 @@ describe('canonry skill metadata', () => {
     expect(frontmatter.description).toContain('without installing a local runtime or skill')
   })
 
-  it('keeps agent site-readiness guidance score-first and uses overview only for crawl metadata', () => {
+  it('keeps Agent Readiness guidance score-first and uses overview only for crawl metadata', () => {
     const canonrySkillPath = fileURLToPath(new URL('../../../skills/canonry/SKILL.md', import.meta.url))
     const canonryReferencePath = fileURLToPath(new URL('../../../skills/canonry/references/canonry-cli.md', import.meta.url))
     const aeroReferencePath = fileURLToPath(new URL('../../../skills/aero/references/orchestration.md', import.meta.url))
@@ -30,9 +31,9 @@ describe('canonry skill metadata', () => {
 
     expect(canonrySkill).toContain('[CLI commands and JSON return shapes](references/canonry-cli.md)')
     expect(canonrySkill).toContain('[Server-side traffic setup and diagnosis](references/server-side-traffic.md)')
-    expect(canonryReference).toContain('begin with `cnry technical-aeo score <project> --format json`')
+    expect(canonryReference).toContain('begin with `cnry agent-readiness score <project> --format json`')
     expect(canonryReference).toContain('only to add crawl metadata')
-    expect(aeroReference).toContain('then `cnry technical-aeo score <project> --format json` for site readiness')
+    expect(aeroReference).toContain('then `cnry agent-readiness score <project> --format json` for the Agent Readiness score')
     expect(aeroReference).toContain('only to add crawl metadata')
   })
 
@@ -57,5 +58,33 @@ describe('canonry skill metadata', () => {
     expect(trafficReference).toContain('Workers Free, where retention is fixed at one')
     expect(trafficReference).toContain('wrangler queues delete')
     expect(trafficReference).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+  })
+
+  it('keeps the WordPress page-cache bypass lists in step with the traffic classifier', () => {
+    const trafficReferencePath = fileURLToPath(new URL('../../../skills/canonry/references/server-side-traffic.md', import.meta.url))
+    const trafficReference = fs.readFileSync(trafficReferencePath, 'utf-8')
+    const fence = '```'
+    const codeBlockAfter = (label: string, lang: string): string[] => {
+      const start = trafficReference.indexOf(label)
+      expect(start, label).toBeGreaterThanOrEqual(0)
+      // The block must open right after the label's paragraph, so a missing block can't borrow a later one.
+      const block = new RegExp(`^(?:(?!\\n\\n)[\\s\\S])*\\n\\n${fence}${lang}\\n([\\s\\S]*?)\\n${fence}`).exec(trafficReference.slice(start))
+      expect(block, label).not.toBeNull()
+      return block![1]!.split('\n')
+    }
+    // A cache plugin bypasses every user agent that contains one of its entries.
+    const bypasses = (token: string, entry: string) => token.toLowerCase().includes(entry.toLowerCase())
+    // Classic search crawlers stay cached on purpose; the reference says why.
+    const cachedSearchCrawlers = ['Googlebot', 'bingbot/', 'DuckDuckBot', 'YandexBot/', 'Baiduspider']
+    const aiAgents = DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS.filter((token) => !cachedSearchCrawlers.includes(token))
+    const entries = codeBlockAfter('**Which user-agents to exclude from the cache**', 'text')
+
+    expect(aiAgents.filter((token) => !entries.some((entry) => bypasses(token, entry)))).toEqual([])
+    expect(entries.filter((entry) => !aiAgents.some((token) => bypasses(token, entry)))).toEqual([])
+    expect(cachedSearchCrawlers.filter((token) => entries.some((entry) => bypasses(token, entry)))).toEqual([])
+    // WP Rocket's .htaccess rule matches only from the start of the user agent.
+    expect(codeBlockAfter('**WP Rocket list:**', 'text')).toEqual(entries.map((entry) => `(.*)${entry}`))
+    const wpSuperCachePattern = /preg_match\( '\/([^']+)\/i'/.exec(codeBlockAfter('**WP Super Cache snippet**', 'php').join('\n'))
+    expect(wpSuperCachePattern?.[1]?.split('|')).toEqual(entries)
   })
 })

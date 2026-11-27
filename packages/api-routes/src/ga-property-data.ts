@@ -4,6 +4,7 @@ import {
   gaAcquisitionDaily,
   gaAiReferrals,
   gaDailyTotals,
+  gaSyncCoverage,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
   gaSearchLandingPages,
@@ -49,8 +50,8 @@ export function resolveCurrentGa4PropertyId(
 }
 
 /**
- * Every table a GA4 sync fills from the project's property. Only the Search
- * Console landing-page windows record which property they were read from, so
+ * Every table a GA4 sync fills from the project's property. Only coverage and
+ * Search Console landing-page windows record their property, so
  * once two properties' rows are stored, nothing tells them apart. The sync
  * state is cleared with them: its timestamps would turn the next sync's full
  * backfill into an incremental refresh.
@@ -61,6 +62,7 @@ const GA_PROPERTY_TABLES = [
   gaTrafficWindowSummaries,
   gaWindowMetrics,
   gaDailyTotals,
+  gaSyncCoverage,
   gaAiReferrals,
   gaSocialReferrals,
   gaAcquisitionDaily,
@@ -85,12 +87,10 @@ export function clearGaPropertyData(tx: Transaction, projectId: string): number 
 }
 
 /**
- * The projects that resolve their GA4 property through `canonicalDomain`'s
- * OAuth `ga4` connection, unless their own service account names one. The
- * store keys that connection by the exact domain, so a write to it reaches
- * every project with this canonical domain.
+ * Google OAuth connections use the exact canonical domain as their store key.
+ * A change can affect every project on that domain.
  */
-export function projectsSharingGa4Connection(db: Database, canonicalDomain: string): Ga4Project[] {
+export function projectsSharingGoogleConnection(db: Database, canonicalDomain: string): Ga4Project[] {
   return db.select({ id: projects.id, name: projects.name, canonicalDomain: projects.canonicalDomain })
     .from(projects)
     .where(eq(projects.canonicalDomain, canonicalDomain))

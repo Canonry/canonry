@@ -91,7 +91,7 @@ describe('seedDemoSignals', () => {
       // Every daily total a sync keeps, so each overview window has its previous period.
       expect(db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).all()).toHaveLength(GA_OVERVIEW_HISTORY_DAYS)
       // Both periods of each overview window.
-      expect(db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).all()).toHaveLength(6)
+      expect(db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).all()).toHaveLength(8)
       expect(db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).all().length).toBeGreaterThan(1)
       expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, project.id)).get()?.complete).toBe(true)
       expect(db.select().from(siteCrawlGraphNodes).where(eq(siteCrawlGraphNodes.projectId, project.id)).all().length).toBeGreaterThan(2)
@@ -136,6 +136,15 @@ describe('seedDemoSignals', () => {
       expect(searchLandingBody.total.organicGoogleSearchClicks).toBe(560)
       expect(searchLandingBody.rows.map((row: { landingPage: string }) => row.landingPage)).toEqual(['/', '/services/'])
       expect(searchLandingBody.rows.reduce((sum: number, row: { organicGoogleSearchClicks: number }) => sum + row.organicGoogleSearchClicks, 0)).toBe(426)
+
+      for (const [project, clicks] of [[context.simple, 3360], [context.portfolio, 3960]] as const) {
+        const history = await app.inject({ method: 'GET', url: `/api/v1/projects/${project.name}/ga/search-landing-pages?window=180d` })
+        expect(history.statusCode).toBe(200)
+        expect(JSON.parse(history.payload)).toMatchObject({
+          status: 'ready', window: '180d', windowStart: '2026-03-13', windowEnd: '2026-09-08', windowDays: 180,
+          total: { organicGoogleSearchClicks: clicks }, totalRows: 2, reportRowCount: 24, rowsCapped: true,
+        })
+      }
 
       const crawl = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/technical-aeo/crawl` })
       expect(crawl.statusCode).toBe(200)

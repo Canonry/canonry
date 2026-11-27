@@ -66,13 +66,10 @@ export function AdvancedMeasurementSetupWizard({
       <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:justify-between">
         <div className="min-w-0 w-full sm:flex-1">
           <h2>Advanced measurement setup</h2>
-          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">
-            Choose the Properties and queries you want to measure.
-          </p>
         </div>
         {hasDraft ? (
           <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
-            <ToneBadge tone="caution">Unpublished changes</ToneBadge>
+            <ToneBadge tone="neutral">Draft</ToneBadge>
             {canEdit && onDiscard ? discardArmed ? (
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm discard">
                 <span className="text-label-14 text-secondary">Discard all unpublished changes?</span>

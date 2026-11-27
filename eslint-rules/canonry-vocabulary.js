@@ -97,10 +97,54 @@ const noQuestionUiCopyRule = {
   },
 }
 
+// Vocabulary ratchet: the site crawl and audit is "Agent Readiness". Earlier
+// releases showed it as Site Health, Technical AEO, the technical audit and
+// Page health; those names are retired from UI copy so the product shows one
+// name. One run is an "Agent Readiness audit scan", so the bare "Agent Readiness
+// scan", "site scan" and the "Map site" action are retired too. Machine tokens (`technical-aeo`, `site-health`, `site-audit`) carry no
+// space and stay legal, as do identifiers and comments. Audit factor names
+// from @canonry/agent-readiness ("Technical SEO") are not retired names.
+const RETIRED_FEATURE_NAME_RE = /\b(?:site\s+health|technical\s+aeo|technical\s+audits?|page\s+health|agent\s+readiness\s+scans?|site\s+scans?|map\s+site)\b/i
+
+export function isRetiredFeatureNameCopy(text) {
+  return typeof text === 'string' && RETIRED_FEATURE_NAME_RE.test(text)
+}
+
+const noRetiredFeatureNameRule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Disallow the retired Site Health / Technical AEO names, the bare "Agent Readiness scan", "site scan" and "Map site" in web UI copy — the feature is Agent Readiness and one run is an Agent Readiness audit scan.' },
+    schema: [],
+    messages: {
+      retiredFeatureName:
+        'The site crawl and audit is "Agent Readiness" in UI copy (labels, headings, buttons, tooltips, ' +
+        'aria-labels, toasts): "Agent Readiness audit scan" for one run, "Agent Readiness score", and the ' +
+        'Score view. Site Health, Technical AEO, technical audit, Page health, a bare "Agent Readiness ' +
+        'scan", "site scan" and "Map site" are retired. Machine tokens ' +
+        '(technical-aeo, site-health, site-audit) stay as they are.',
+    },
+  },
+  create(context) {
+    const report = node => context.report({ node, messageId: 'retiredFeatureName' })
+    return {
+      Literal(node) {
+        if (isRetiredFeatureNameCopy(node.value) && !isExemptJsxAttributeValue(node)) report(node)
+      },
+      JSXText(node) {
+        if (isRetiredFeatureNameCopy(node.value)) report(node)
+      },
+      TemplateElement(node) {
+        if (isRetiredFeatureNameCopy(node.value.raw)) report(node)
+      },
+    }
+  },
+}
+
 export default {
   meta: { name: 'canonry-vocabulary' },
   rules: {
     'no-banned-metric-literal': bannedMetricLiteralRule,
     'no-question-ui-copy': noQuestionUiCopyRule,
+    'no-retired-feature-name': noRetiredFeatureNameRule,
   },
 }

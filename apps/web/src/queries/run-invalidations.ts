@@ -45,8 +45,10 @@ export function invalidateQueriesForRunKind(
       // trigger its single active read. Poll-driven completions and embeds use
       // that same revision path without requiring a notification observer.
       void invalidateCompetitorLandscapes(queryClient, projectName, 'none')
-      void invalidateProjectQueryDomain(queryClient, 'visibilityReport')
-      void invalidateProjectQueryDomain(queryClient, 'queryTracking')
+      // The headline, query evidence and By engine card share this report.
+      void invalidateProjectQueryDomain(queryClient, 'visibilityReport', { projectName })
+      void invalidateProjectQueryDomain(queryClient, 'queryTracking', { projectName })
+      void invalidateProjectQueryDomain(queryClient, 'runPreview', { projectName })
       // No explicit `['analytics-metrics', project]` invalidation here. That
       // key's last segment is `analyticsRevision` (`VisibilityTrendSection`,
       // fed by `latestVisibilityRevision` in `use-project-dashboard.ts`).
@@ -76,15 +78,26 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['backlink-extract']:
       return
+    case RunKinds['social-monitor']:
+      // The dashboard has no social reads yet; the runs refresh above covers it.
+      return
     case RunKinds['seo-sync']:
       void invalidateProjectQueryDomain(queryClient, 'seo', { projectName })
       return
     case RunKinds['site-audit']:
       void invalidateProjectQueryDomain(queryClient, 'technicalAeo')
+      // The Agent Readiness trend card reads its scans through the trends read.
+      void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
+      // The site's own sitemaps come from the latest scan.
+      void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })
       return
     case RunKinds['gsc-sync']:
     case RunKinds['inspect-sitemap']:
       void invalidateProjectQueryDomain(queryClient, 'gsc')
+      // Indexed pages on the Search Engines card come from the trends read.
+      void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
+      // gsc-sync stores Google's sitemap list.
+      void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })
       return
     case RunKinds['ga-sync']:
       void invalidateProjectQueryDomain(queryClient, 'ga')
@@ -95,7 +108,11 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['bing-inspect']:
     case RunKinds['bing-inspect-sitemap']:
+    case RunKinds['bing-sync']:
       void invalidateProjectQueryDomain(queryClient, 'bing')
+      void invalidateProjectQueryDomain(queryClient, 'trends', { projectName })
+      // bing-sync stores Bing's sitemap list.
+      void invalidateProjectQueryDomain(queryClient, 'sitemaps', { projectName })
       return
     case RunKinds['aeo-discover-seed']:
     case RunKinds['aeo-discover-probe']:

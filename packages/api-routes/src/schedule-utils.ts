@@ -5,7 +5,7 @@
  */
 
 import { CronExpressionParser } from 'cron-parser'
-import type { CalendarRecurrence } from '@canonry/canonry-contracts'
+import { describeError, validationError, type CalendarRecurrence, type SchedulePreviewRequest, type SchedulePreviewDto } from '@canonry/canonry-contracts'
 
 const DAY_MAP: Record<string, string> = {
   sun: '0', mon: '1', tue: '2', wed: '3', thu: '4', fri: '5', sat: '6',
@@ -255,4 +255,23 @@ export function nextRunFromSchedule(schedule: ScheduleTiming, from: Date = new D
   return schedule.recurrence
     ? nextRunFromRecurrence(schedule.recurrence, schedule.timezone, from)
     : nextRunFromCron(schedule.cronExpr, schedule.timezone, from)
+}
+
+
+/** One timing resolver for both review and persistence; no scheduling or provider side effects. */
+export function previewScheduleTiming(input: SchedulePreviewRequest, { requireFuture = true }: { requireFuture?: boolean } = {}): SchedulePreviewDto {
+  if (!isValidTimezone(input.timezone)) throw validationError(`Invalid timezone: ${input.timezone}`)
+  let cronExpr = ''
+  if (!input.recurrence) {
+    if (input.preset) {
+      try { cronExpr = resolvePreset(input.preset) }
+      catch (error) { throw validationError(describeError(error)) }
+    } else {
+      cronExpr = input.cron ?? ''
+      if (!validateCron(cronExpr)) throw validationError(`Invalid cron expression: ${cronExpr}`)
+    }
+  }
+  const nextRunAt = nextRunFromSchedule({ cronExpr, timezone: input.timezone, recurrence: input.recurrence })
+  if (requireFuture && input.recurrence && !nextRunAt) throw validationError('Calendar recurrence has no valid future occurrence')
+  return { cronExpr, recurrence: input.recurrence ?? null, timezone: input.timezone, nextRunAt }
 }

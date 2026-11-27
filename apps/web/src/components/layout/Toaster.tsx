@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { dismissToast, getToasts, subscribe, type Toast } from '../../lib/toast-store.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
+import { seoRefreshSearch } from '../../lib/project-route.js'
 
 const toneStyles: Record<Toast['tone'], string> = {
   negative: 'toast-card-negative',
@@ -30,6 +31,9 @@ export function Toaster() {
 
     if (toast.cta.intent === 'open-run-drawer') {
       void openRun(toast.cta.runId)
+    } else if (toast.cta.intent === 'view-seo-refresh') {
+      const { projectName, runId } = toast.cta
+      void navigate({ to: '/projects/$projectName/seo-data', params: { projectName }, search: previous => seoRefreshSearch(previous, runId) })
     } else {
       void navigate({ to: '/runs' })
     }

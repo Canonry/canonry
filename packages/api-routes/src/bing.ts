@@ -1,9 +1,10 @@
 import crypto from 'node:crypto'
-import { eq, and, desc } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
-import { bingUrlInspections, bingCoverageSnapshots, runs } from '@canonry/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
-import { assertNotProjectScoped } from './auth.js'
+import { eq, and, desc, ne } from 'drizzle-orm'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, projects, runs } from '@canonry/canonry-db'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomeOperationKinds, OutcomePhases, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
+import { bingConnectRequestSchema, bingProjectSiteUrl, bingSiteUrlSchema, forbidden, operationInProgress } from '@canonry/canonry-contracts'
+import { isInstanceAdministrator, requireInstanceAdministrator } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute } from './connection-telemetry.js'
@@ -16,25 +17,14 @@ import {
   getCrawlIssues,
   submitUrl,
   submitUrlBatch,
-  getKeywordStats,
+  getUrlSubmissionQuota,
+  isBlockingCrawlIssue,
+  parseBingDate,
   BING_SUBMIT_URL_BATCH_LIMIT,
   BING_SUBMIT_URL_DAILY_LIMIT,
 } from '@canonry/canonry-integration-bing'
-
-/**
- * Convert Bing's /Date(epoch-offset)/ format to an ISO 8601 string.
- * Returns null if the value is absent or represents the epoch-zero sentinel
- * (-62135568000000) that Bing uses for "never".
- */
-function parseBingDate(value: string | undefined | null): string | null {
-  if (!value) return null
-  const match = /\/Date\((-?\d+)(?:[-+]\d+)?\)\//.exec(value)
-  if (!match) return null
-  const ms = parseInt(match[1], 10)
-  // Bing uses -62135568000000 as a sentinel for "unknown / never"
-  if (ms <= 0) return null
-  return new Date(ms).toISOString()
-}
+import { bingDataRoutes } from './bing-data.js'
+import { changeSearchSite } from './search-site-change.js'
 
 function bingLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'BingRoutes', action, ...ctx }
@@ -52,16 +42,6 @@ export function __resetBingCrawlIssuesCacheForTest(): void {
   crawlIssuesCache.clear()
 }
 
-// Bing's `IssueType` is a space-separated list of `CrawlIssueCategory` flag
-// names. Anything other than None / SeoIssues prevents the URL from being
-// served in search — downgrade those, but keep SEO-only warnings indexed.
-function isBlockingIssueType(issueType: string | null | undefined): boolean {
-  if (!issueType) return true
-  const trimmed = issueType.trim()
-  if (!trimmed) return true
-  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
-}
-
 async function loadBlockingCrawlIssues(
   apiKey: string,
   siteUrl: string,
@@ -75,7 +55,7 @@ async function loadBlockingCrawlIssues(
   const issues = await getCrawlIssues(apiKey, siteUrl)
   const blockedUrls = new Set<string>()
   for (const issue of issues) {
-    if (issue.Url && isBlockingIssueType(issue.IssueType ?? null)) {
+    if (issue.Url && isBlockingCrawlIssue(issue.IssueType ?? null)) {
       blockedUrls.add(issue.Url)
     }
   }
@@ -99,6 +79,7 @@ export interface BingConnectionRecord {
 }
 
 export interface BingConnectionStore {
+  getSavedApiKey?: () => string | undefined
   getConnection: (domain: string) => BingConnectionRecord | undefined
   upsertConnection: (connection: BingConnectionRecord) => BingConnectionRecord
   updateConnection: (
@@ -116,12 +97,21 @@ export interface BingRoutesOptions {
     projectId: string,
     opts?: { sitemapUrl?: string },
   ) => void
+  /** Runs the full Bing data sync (`bing-sync`) for a queued run. */
+  onSyncRequested?: (runId: string, projectId: string) => void
 }
 
 export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) {
   // Sites a key listed recently. An API client re-sending the same connect
   // gets them without another call to Bing; the CLI and dashboard always ask.
   const keyChecks = createVerifyCache<Awaited<ReturnType<typeof getSites>>>()
+
+  function requireSharedConnectionAuthority(request: FastifyRequest, project: { id: string; canonicalDomain: string }) {
+    if (isInstanceAdministrator(request)) return
+    const sibling = app.db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.canonicalDomain, project.canonicalDomain), ne(projects.id, project.id))).get()
+    if (sibling) requireInstanceAdministrator(request)
+  }
 
   function requireConnectionStore(): BingConnectionStore {
     if (opts.bingConnectionStore) return opts.bingConnectionStore
@@ -136,21 +126,38 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     return conn
   }
 
+  const NO_SITE_MESSAGE = 'No Bing site configured. Run "canonry bing set-site <project> <url>" first.'
+
+  /** The project's Bing key and selected site; every route that calls Bing for a site goes through here. */
+  function requireSite(domain: string): { apiKey: string; siteUrl: string } {
+    const conn = requireConnection(requireConnectionStore(), domain)
+    if (!conn.siteUrl) throw validationError(NO_SITE_MESSAGE)
+    return { apiKey: conn.apiKey, siteUrl: conn.siteUrl }
+  }
+
+  await bingDataRoutes(app, {
+    claimScheduledSync: opts.claimScheduledSync,
+    onSyncRequested: opts.onSyncRequested,
+    requireApiKey: (domain) => requireConnection(requireConnectionStore(), domain).apiKey,
+    requireSite,
+  })
+
   // POST /projects/:name/bing/connect
   app.post<{
     Params: { name: string }
-    Body: { apiKey: string }
+    Body: unknown
   }>('/projects/:name/bing/connect', connectionRoute(app, () => ({ integration: 'bing', action: 'connect' }), async (request, _reply, attempt) => {
+    const input = bingConnectRequestSchema.safeParse(request.body)
+    if (!input.success) throw validationError('Supply either apiKey or useSavedKey: true.')
+    if ('useSavedKey' in input.data) requireInstanceAdministrator(request)
     const store = requireConnectionStore()
-
-    const { apiKey } = request.body ?? {}
-    if (!apiKey || typeof apiKey !== 'string') {
-      throw validationError('apiKey is required')
-    }
+    const apiKey = 'apiKey' in input.data ? input.data.apiKey : store.getSavedApiKey?.()
+    if (!apiKey) throw validationError('Save a Bing Webmaster Tools API key in Canonry Settings before connecting this project.')
 
     const project = resolveProject(app.db, request.params.name)
 
     // Verify the API key by listing sites
+    requireSharedConnectionAuthority(request, project)
     const keyCheck = verifyCacheKey('bing-key', apiKey)
     let sites = isInteractiveCaller() ? undefined : keyChecks.get(keyCheck)
     if (!sites) {
@@ -159,7 +166,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         keyChecks.set(keyCheck, sites)
         bingLog('info', 'connect.verify-key', { domain: project.canonicalDomain, siteCount: sites.length })
       } catch (e) {
-        const msg = describeError(e)
+        const msg = 'useSavedKey' in input.data
+          ? 'Check the Bing key saved in Canonry Settings and its access in Bing Webmaster Tools.'
+          : describeError(e)
         bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
         attempt.failed(e)
         throw validationError(`Failed to verify Bing API key: ${msg}`)
@@ -167,6 +176,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     }
     const availableSites = sites.map((s) => ({ url: s.Url, verified: s.IsVerified ?? false }))
 
+    // Verification yields to the provider. Bind the write to the same project
+    // and recheck for a sibling that began sharing this connection meanwhile.
+    const current = resolveProject(app.db, request.params.name)
+    if (current.id !== project.id || current.canonicalDomain !== project.canonicalDomain) {
+      throw operationInProgress('The project changed during Bing verification. Retry the connection.')
+    }
+    requireSharedConnectionAuthority(request, current)
     const now = new Date().toISOString()
     const existing = store.getConnection(project.canonicalDomain)
     if (existing) attempt.update({ action: 'reauth' })
@@ -229,20 +245,21 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         `This Bing connection is owned by a different project. Disconnect from the owning project instead.`,
       )
     }
-
-    const deleted = store.deleteConnection(project.canonicalDomain)
-    if (!deleted) {
-      attempt.failed(undefined, 'NOT_CONNECTED')
-      throw notFound('Bing connection', project.canonicalDomain)
-    }
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'bing.disconnected',
-      entityType: 'bing_connection',
-      entityId: project.canonicalDomain,
+    requireSharedConnectionAuthority(request, project)
+    changeSearchSite(app.db, 'bing', project.canonicalDomain, existing.siteUrl, null, (tx) => {
+      if (!store.deleteConnection(project.canonicalDomain)) {
+        attempt.failed(undefined, 'NOT_CONNECTED')
+        throw notFound('Bing connection', project.canonicalDomain)
+      }
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'bing.disconnected',
+        entityType: 'bing_connection',
+        entityId: project.canonicalDomain,
+      })
     })
+    crawlIssuesCache.delete(project.canonicalDomain)
 
     return reply.status(204).send()
   }))
@@ -264,10 +281,10 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   })
 
   // GET /projects/:name/bing/sites
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/sites', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/sites', { config: { paidRead: true } }, async (request) => {
     // The Bing Webmaster key is ACCOUNT-scoped, so this lists every verified
     // site in the operator's account, not just this project's.
-    assertNotProjectScoped(request, 'listing Bing Webmaster sites')
+    requireInstanceAdministrator(request)
 
     const store = requireConnectionStore()
 
@@ -283,25 +300,44 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     Params: { name: string }
     Body: { siteUrl: string }
   }>('/projects/:name/bing/set-site', connectionRoute(app, () => ({ integration: 'bing', action: 'select' }), async (request, _reply, attempt) => {
+    if (!request.principal?.projectId) requireInstanceAdministrator(request)
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
+    let connection: BingConnectionRecord
     try {
-      requireConnection(store, project.canonicalDomain)
+      connection = requireConnection(store, project.canonicalDomain)
     } catch (err) {
       attempt.failed(err, 'NOT_CONNECTED')
       throw err
     }
-
-    const { siteUrl } = request.body ?? {}
-    if (!siteUrl || typeof siteUrl !== 'string') {
-      throw validationError('siteUrl is required')
+    if (connection.createdByProjectId && connection.createdByProjectId !== project.id) {
+      throw validationError('This Bing connection is owned by another project. Select the site from the owning project.')
     }
 
-    store.updateConnection(project.canonicalDomain, {
-      siteUrl,
-      updatedAt: new Date().toISOString(),
+    const selected = bingSiteUrlSchema.safeParse(request.body?.siteUrl)
+    if (!selected.success) throw validationError('siteUrl must be an HTTP or HTTPS site URL.')
+    const siteUrl = selected.data
+    if (request.principal?.projectId) {
+      const projectSite = bingProjectSiteUrl(project.canonicalDomain)
+      if (connection.createdByProjectId !== request.principal.projectId || projectSite !== new URL(siteUrl).href) {
+        throw forbidden('A project key can select only its own exact Bing site property. An administrator can select another verified site.')
+      }
+      const shared = app.db.select({ domain: projects.canonicalDomain }).from(projects)
+        .where(ne(projects.id, project.id)).all().some(other => bingProjectSiteUrl(other.domain) === projectSite)
+      if (shared) {
+        throw forbidden('A project key cannot select a Bing property shared with another project.')
+      }
+    }
+
+    if (connection.siteUrl === siteUrl) return { siteUrl }
+    changeSearchSite(app.db, 'bing', project.canonicalDomain, connection.siteUrl, siteUrl, () => {
+      store.updateConnection(project.canonicalDomain, {
+        siteUrl,
+        updatedAt: new Date().toISOString(),
+      })
     })
+    crawlIssuesCache.delete(project.canonicalDomain)
 
     return { siteUrl }
   }))
@@ -488,14 +524,11 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const outcome = startRouteOutcome(app, FeatureNames.bing, 'inspect')
+    const outcome = startRouteOutcome(app, FeatureNames.bing, 'inspect', { operationKind: OutcomeOperationKinds['url-inspection'], projectId: project.id })
     const conn = outcome.guard(OutcomeReasonCodes.NOT_CONNECTED, () => requireConnection(store, project.canonicalDomain))
 
     if (!conn.siteUrl) {
-      throw outcome.refuse(
-        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
-        validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.'),
-      )
+      throw outcome.refuse(OutcomeReasonCodes.PROPERTY_NOT_FOUND, validationError(NO_SITE_MESSAGE))
     }
 
     const { url } = request.body ?? {}
@@ -515,6 +548,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       createdAt: startedAt,
     }).run()
 
+    let phase: OutcomePhase = OutcomePhases['provider-request']
     try {
       const result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
       bingLog('info', 'inspect-url.result', {
@@ -569,6 +603,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         }
       }
 
+      phase = OutcomePhases.persistence
       app.db.insert(bingUrlInspections).values({
         id,
         projectId: project.id,
@@ -589,7 +624,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         .set({ status: RunStatuses.completed, finishedAt: now })
         .where(eq(runs.id, runId))
         .run()
-      outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 } })
+      outcome.report({ status: OutcomeStatuses.succeeded, counts: { urls: 1 }, diagnostics: { phase, remainingWork: 0 } })
 
       return {
         id,
@@ -615,6 +650,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       outcome.report({
         status: OutcomeStatuses.failed,
         ...failure,
+        diagnostics: buildOutcomeDiagnostics(e, { phase, remainingWork: 1 }),
         ...(e instanceof BingApiError && e.isThrottle ? { reasonCode: OutcomeReasonCodes.RATE_LIMITED } : {}),
       })
       throw e
@@ -626,14 +662,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     Params: { name: string }
     Body: { sitemapUrl?: string }
   }>('/projects/:name/bing/inspect-sitemap', async (request) => {
-    const store = requireConnectionStore()
-
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
-
-    if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-    }
+    requireSite(project.canonicalDomain)
 
     const now = new Date().toISOString()
     const runId = crypto.randomUUID()
@@ -662,14 +692,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     Params: { name: string }
     Body: { urls?: string[]; allUnindexed?: boolean }
   }>('/projects/:name/bing/request-indexing', async (request) => {
-    const store = requireConnectionStore()
-
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
-
-    if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-    }
+    const conn = requireSite(project.canonicalDomain)
 
     let urlsToSubmit: string[] = request.body?.urls ?? []
 
@@ -717,10 +741,39 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       error?: string
     }> = []
 
+    // Bing's real allowance is per site and usually far below the 10,000 the
+    // API documents (100 a day is common). Ask first and submit only what
+    // Bing will take, so an over-quota request fails per URL with the reason
+    // instead of the whole batch failing on Bing's side. A failed quota read
+    // does not block the submission.
+    let quota: { dailyQuota: number; monthlyQuota: number } | null = null
+    try {
+      const read = await getUrlSubmissionQuota(conn.apiKey, conn.siteUrl)
+      if (read && typeof read.DailyQuota === 'number' && typeof read.MonthlyQuota === 'number') {
+        quota = { dailyQuota: Math.max(0, read.DailyQuota), monthlyQuota: Math.max(0, read.MonthlyQuota) }
+      }
+    } catch (e) {
+      bingLog('warn', 'index-submit.quota-read-failed', { domain: project.canonicalDomain, error: describeError(e) })
+    }
+    if (quota) {
+      const allowance = Math.min(quota.dailyQuota, quota.monthlyQuota)
+      if (urlsToSubmit.length > allowance) {
+        const refusedAt = new Date().toISOString()
+        const message = `Bing will accept ${allowance} more URL submission(s) for this site today (${quota.dailyQuota} left today, ${quota.monthlyQuota} this month). Submit the rest after the quota resets.`
+        for (const url of urlsToSubmit.slice(allowance)) {
+          results.push({ url, status: 'error', submittedAt: refusedAt, error: message })
+        }
+        urlsToSubmit = urlsToSubmit.slice(0, allowance)
+        bingLog('warn', 'index-submit.over-quota', { domain: project.canonicalDomain, allowance, refused: results.length })
+      }
+    }
+
     bingLog('info', 'index-submit.start', { domain: project.canonicalDomain, siteUrl: conn.siteUrl, urlCount: urlsToSubmit.length, allUnindexed: !!request.body?.allUnindexed })
 
     // Use batch submission for multiple URLs
-    if (urlsToSubmit.length > 1) {
+    if (urlsToSubmit.length === 0) {
+      // Everything was over quota; nothing to send.
+    } else if (urlsToSubmit.length > 1) {
       for (let i = 0; i < urlsToSubmit.length; i += BING_SUBMIT_URL_BATCH_LIMIT) {
         const batch = urlsToSubmit.slice(i, i + BING_SUBMIT_URL_BATCH_LIMIT)
         try {
@@ -761,35 +814,37 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     return {
       summary: { total: results.length, succeeded, failed },
       results,
+      quota,
     }
   })
 
   // GET /projects/:name/bing/performance
+  //
+  // Bing's weekly query rows, one per query per week, from the `bing-sync`
+  // store. It used to call `GetQueryStats` live on every request, which
+  // duplicated `/bing/queries` and made every dashboard load a Bing call.
+  // The response shape is unchanged; `/bing/queries` is the windowed total.
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
   }>('/projects/:name/bing/performance', async (request) => {
-    const store = requireConnectionStore()
-
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain)
-
-    if (!conn.siteUrl) {
-      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-    }
-
-    const stats = await getKeywordStats(conn.apiKey, conn.siteUrl)
-
-    return stats.map((s) => ({
-      query: s.Query,
-      impressions: s.Impressions,
-      clicks: s.Clicks,
-      ctr: s.Impressions > 0 ? s.Clicks / s.Impressions : 0,
-      averagePosition: s.AvgClickPosition > 0
-        ? s.AvgClickPosition
-        : s.AvgImpressionPosition > 0
-          ? s.AvgImpressionPosition
-          : 0,
+    const parsed = Number.parseInt(request.query.limit ?? '', 10)
+    const limit = Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 5000) : 5000
+    const rows = app.db
+      .select()
+      .from(bingQueryStats)
+      .where(eq(bingQueryStats.projectId, project.id))
+      .orderBy(desc(bingQueryStats.date), desc(bingQueryStats.clicks), bingQueryStats.query)
+      .limit(limit)
+      .all()
+    return rows.map((row) => ({
+      query: row.query,
+      date: row.date,
+      impressions: row.impressions,
+      clicks: row.clicks,
+      ctr: row.impressions > 0 ? row.clicks / row.impressions : 0,
+      averagePosition: row.avgClickPosition ?? row.avgImpressionPosition ?? 0,
     }))
   })
 }

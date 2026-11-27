@@ -229,6 +229,8 @@ function metricReason(reason: MeasurementMetricReason): MeasurementMetricUnavail
     case 'no-competitors':
     case 'no-project-aliases':
       return 'not_applicable'
+    case 'citation-not-measured':
+      return 'citation_not_measured'
   }
 }
 
@@ -245,6 +247,8 @@ function coverageMetric(rate: MeasurementRate): MetricValue {
     ...(rate.unattributed === undefined ? {} : { unattributed: rate.unattributed }),
     // Saved answers the citation rate left out because their source capture was incomplete.
     ...(rate.unchecked === undefined ? {} : { unchecked: rate.unchecked }),
+    // Answers the citation rate left out because their engine returns no sources.
+    ...(rate.citationNotMeasured === undefined ? {} : { citationNotMeasured: rate.citationNotMeasured }),
   }
 }
 
@@ -460,6 +464,12 @@ function validatedCursor(query: MeasurementOverviewQuery, activePlanVersionId: s
  * rate does not count a link an unchecked answer did capture, so a Property
  * cited ONLY there reads `notMeasured` here while the visibility report, which
  * sees the answer itself, counts it as cited.
+ *
+ * `citationNotMeasured` answers are different: their engine returns no
+ * sources, so they cannot hold a citation anyone missed. A Property whose
+ * checked answers cite nothing is not cited whatever such answers say beside
+ * them; only when every answer is one of them is the citation rate unavailable
+ * and the Property `notMeasured`.
  */
 export function measurementOutcomeCounts(
   rows: readonly MeasurementPropertyRow[],

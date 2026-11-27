@@ -71,7 +71,11 @@ describe('PastSweeps', () => {
     render(<PastSweeps runs={runs} collapsed />)
     const history = card().querySelector<HTMLDetailsElement>('details.av-history')!
     expect(history.open).toBe(false)
-    const summary = screen.getByRole('heading', { name: 'Past checks' }).closest('summary')!
+    const heading = screen.getByRole('heading', { name: 'Past checks' })
+    const summary = heading.closest('summary')!
+    // The toggle is named by its heading alone; the count describes it.
+    expect(summary.getAttribute('aria-labelledby')).toBe(heading.id)
+    expect(document.getElementById(summary.getAttribute('aria-describedby')!)?.textContent).toBe(`${runs.length} recent`)
     fireEvent.click(summary)
     expect(history.open).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: `View the ${runs[0]!.startedAt} check` }))

@@ -18,6 +18,7 @@ import {
   siteCrawlSnapshots,
 } from '@canonry/canonry-db'
 import {
+  AGENT_READINESS_PATH_SEGMENTS,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -27,6 +28,9 @@ import {
   siteHealthStateSchema,
   factorStatusFromScore,
   factorStatusFromDistribution,
+  hostOf,
+  requireSiteAuditDomains,
+  resolveSiteAuditDomains,
   SiteAuditTrendDirections,
   SiteCrawlFetchedStates,
   SiteCrawlIndexabilityReasons,
@@ -120,7 +124,24 @@ export interface TechnicalAeoRoutesOptions {
 /** Run statuses that count as a real, surfaceable site audit. */
 const SURFACEABLE_STATUSES = [RunStatuses.completed, RunStatuses.partial]
 
-function siteAuditRunPhase(
+/**
+ * The site-audit scorecards the dashboard surfaces for a project: completed or
+ * partial scans, never a probe. Join `runs` on `siteAuditSnapshots.runId`. The
+ * score trend and the trends read both use this, so they always chart the same
+ * scans.
+ */
+export function surfaceableSiteAuditFilters(projectId: string): SQL[] {
+  return [
+    eq(siteAuditSnapshots.projectId, projectId),
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['site-audit']),
+    inArray(runs.status, SURFACEABLE_STATUSES),
+    notProbeRun(),
+  ]
+}
+
+/** The stored lifecycle stage of one scan, as its progress read and the setup read report it. */
+export function siteAuditRunPhase(
   status: RunStatus,
   attempt: typeof siteCrawlAttempts.$inferSelect | undefined,
   layoutState: 'pending' | 'ready' | 'unavailable',
@@ -278,11 +299,57 @@ function structureChildPath(parentPath: string, path: string): string | null {
   return parentPath === '/' ? `/${segment}` : `${parentPath}/${segment}`
 }
 
+/** A site a scan covered, as the `site` filters name it. */
+interface ScanSite {
+  host: string
+  main: boolean
+}
+
+/**
+ * The sites a scan covered, main domain first: as the scan recorded them, or
+ * the main domain alone for a scan made before scans recorded their sites.
+ */
+function scanSitesOf(snapshot: Pick<typeof siteCrawlSnapshots.$inferSelect, 'sites' | 'rootUrl'>): ScanSite[] {
+  if (snapshot.sites?.length) return snapshot.sites.map(({ host, main }) => ({ host, main }))
+  return [{ host: hostOf(snapshot.rootUrl) ?? snapshot.rootUrl, main: true }]
+}
+
+/**
+ * The site a `site` filter names in this scan, or undefined when none was
+ * asked for. Any form of the domain works (`www.`, a scheme or a path are
+ * ignored). A site the scan did not cover is a 400 naming the ones it did, so
+ * an empty list never passes for "this site has no pages".
+ */
+function resolveSiteFilter(
+  snapshot: Pick<typeof siteCrawlSnapshots.$inferSelect, 'sites' | 'rootUrl'>,
+  value: unknown,
+): ScanSite | undefined {
+  if (value === undefined || value === '') return undefined
+  if (typeof value !== 'string') throw validationError('site must be provided once')
+  const host = hostOf(value)
+  const sites = scanSitesOf(snapshot)
+  const match = host ? sites.find((site) => site.host === host) : undefined
+  if (!match) {
+    throw validationError(`This scan did not cover ${value.trim()}. It covered ${sites.map((site) => site.host).join(', ')}.`, {
+      site: value,
+      scanSites: sites.map((site) => site.host),
+    })
+  }
+  return match
+}
+
+/** The page rows of one site. Main-domain rows carry no site, which is also every row of an older scan. */
+function siteCondition(site: ScanSite): SQL {
+  return site.main ? isNull(siteCrawlPages.site) : eq(siteCrawlPages.site, site.host)
+}
+
 function mapCrawlPage(row: typeof siteCrawlPages.$inferSelect): SiteCrawlPageDto {
+  const site = row.site ?? hostOf(row.url)
   return {
     nodeKey: row.nodeKey,
     url: row.url,
     finalUrl: row.finalUrl,
+    ...(site ? { site } : {}),
     path: row.path,
     parentPath: row.parentPath,
     discoverySource: row.discoverySource,
@@ -549,7 +616,7 @@ function decodeSiteHealthChangesCursor(
   context: Pick<SiteHealthChangesCursor, 'fromRunId' | 'toRunId' | 'scope' | 'change'>,
 ): SiteHealthChangesCursor | null {
   if (value == null || value === '') return null
-  if (typeof value !== 'string' || value.length > 2_048) throw validationError('Invalid Site Health changes cursor')
+  if (typeof value !== 'string' || value.length > 2_048) throw validationError('Invalid Agent Readiness changes cursor')
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<SiteHealthChangesCursor>
     const valid = parsed.v === 1
@@ -564,7 +631,7 @@ function decodeSiteHealthChangesCursor(
     if (!valid) throw new Error('context mismatch')
     return parsed as SiteHealthChangesCursor
   } catch {
-    throw validationError('Site Health changes cursor does not match this snapshot comparison and filter')
+    throw validationError('Agent Readiness changes cursor does not match this snapshot comparison and filter')
   }
 }
 
@@ -607,6 +674,13 @@ function changedFields<T extends Record<string, unknown>>(
 }
 
 export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAeoRoutesOptions) {
+  /**
+   * Every Agent Readiness route answers at its canonical `agent-readiness` path
+   * and at the deprecated `technical-aeo` alias, with one handler.
+   */
+  const agentReadinessRoutes = (suffix = ''): string[] =>
+    AGENT_READINESS_PATH_SEGMENTS.map(segment => `/projects/:name/${segment}${suffix}`)
+
   const visibleCrawlFilters = (projectId: string) => [
     eq(siteCrawlSnapshots.projectId, projectId),
     eq(runs.projectId, projectId),
@@ -632,8 +706,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   }
 
   /**
-   * Latest UTC scan date, then complete scans, then the largest observed page
-   * sample. `recordedBefore` replays that choice as it stood before an instant;
+   * Latest UTC scan date, then complete scans, newest first; among incomplete
+   * scans the largest observed page sample. Every complete scan covered the
+   * whole site, so the newest is the current state: a rescan after a fix can
+   * fetch fewer pages (a removed dead link was a fetched 404) and must still
+   * replace the scan it corrects. `recordedBefore` replays that choice as it stood before an instant;
    * `scoredOnly` applies it to the crawls that also stored a scorecard, while
    * `runSelection` still counts and lists every crawl on the selected date.
    */
@@ -645,6 +722,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   ) => {
     const filters = visibleCrawlFilters(projectId)
     if (scope.recordedBefore) filters.push(lt(siteCrawlSnapshots.createdAt, scope.recordedBefore))
+    // Null for an incomplete scan, so page count decides among those.
+    const newestIfComplete = sql`case when ${siteCrawlSnapshots.complete} then ${siteCrawlSnapshots.createdAt} end`
     if (requestedDate) {
       const nextDate = new Date(`${requestedDate}T00:00:00.000Z`)
       nextDate.setUTCDate(nextDate.getUTCDate() + 1)
@@ -661,6 +740,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       .orderBy(
         desc(sql`substr(${siteCrawlSnapshots.createdAt}, 1, 10)`),
         desc(siteCrawlSnapshots.complete),
+        desc(newestIfComplete),
         desc(siteCrawlSnapshots.pagesFetched),
         desc(siteCrawlSnapshots.createdAt),
         desc(siteCrawlSnapshots.runId),
@@ -681,7 +761,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       runId: siteCrawlSnapshots.runId, createdAt: siteCrawlSnapshots.createdAt,
       complete: siteCrawlSnapshots.complete, pages: siteCrawlSnapshots.pagesFetched,
     }).from(siteCrawlSnapshots).innerJoin(runs, eq(siteCrawlSnapshots.runId, runs.id))
-      .where(sameDate).orderBy(desc(siteCrawlSnapshots.complete), desc(siteCrawlSnapshots.pagesFetched),
+      .where(sameDate).orderBy(desc(siteCrawlSnapshots.complete), desc(newestIfComplete), desc(siteCrawlSnapshots.pagesFetched),
         desc(siteCrawlSnapshots.createdAt), desc(siteCrawlSnapshots.runId)).limit(10).all()
     const runSelection: SiteAuditRunSelectionDto = {
       reason: runId ? 'explicit-run'
@@ -705,18 +785,16 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
    */
   const resolveAudit = (projectId: string, runId?: string, recordedBefore?: string) => {
     const filters = [
-      eq(siteAuditSnapshots.projectId, projectId),
-      eq(runs.projectId, projectId),
-      eq(runs.kind, RunKinds['site-audit']),
-      inArray(runs.status, SURFACEABLE_STATUSES),
-      notProbeRun(),
+      ...surfaceableSiteAuditFilters(projectId),
       ...(recordedBefore ? [lt(siteAuditSnapshots.createdAt, recordedBefore)] : []),
     ]
     const complete = sql<boolean>`case when ${runs.status} = ${RunStatuses.completed} then 1 else 0 end`
+    // Same policy as resolveCrawl: the newest completed audit, else the most pages audited.
+    const newestIfComplete = sql`case when ${runs.status} = ${RunStatuses.completed} then ${siteAuditSnapshots.createdAt} end`
     const selectAudit = (pinnedRunId?: string) => app.db.select({ snap: siteAuditSnapshots, runStatus: runs.status })
       .from(siteAuditSnapshots).innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
       .where(and(...filters, pinnedRunId ? eq(siteAuditSnapshots.runId, pinnedRunId) : undefined))
-      .orderBy(desc(sql`substr(${siteAuditSnapshots.createdAt}, 1, 10)`), desc(complete),
+      .orderBy(desc(sql`substr(${siteAuditSnapshots.createdAt}, 1, 10)`), desc(complete), desc(newestIfComplete),
         desc(siteAuditSnapshots.pagesAudited), desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId))
       .limit(1).get()
     const auditOfCrawl = (target: ReturnType<typeof resolveCrawl>) => {
@@ -745,7 +823,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       runId: siteAuditSnapshots.runId, createdAt: siteAuditSnapshots.createdAt,
       complete, pages: siteAuditSnapshots.pagesAudited,
     }).from(siteAuditSnapshots).innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(sameDate).orderBy(desc(complete), desc(siteAuditSnapshots.pagesAudited),
+      .where(sameDate).orderBy(desc(complete), desc(newestIfComplete), desc(siteAuditSnapshots.pagesAudited),
         desc(siteAuditSnapshots.createdAt), desc(siteAuditSnapshots.runId)).limit(10).all()
       .map(candidate => ({ ...candidate, complete: Boolean(candidate.complete) }))
     const runSelection: SiteAuditRunSelectionDto = {
@@ -928,11 +1006,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     deadLinks: { state: 'unavailable' },
   })
 
-  // GET /projects/:name/technical-aeo — latest scorecard, or one historical run, + delta vs prior run.
-  app.get<{
+  // GET /projects/:name/agent-readiness — latest scorecard, or one historical run, + delta vs prior run.
+  for (const path of agentReadinessRoutes()) app.get<{
     Params: { name: string }
     Querystring: { runId?: string }
-  }>('/projects/:name/technical-aeo', async (request): Promise<SiteAuditScoreDto> => {
+  }>(path, async (request): Promise<SiteAuditScoreDto> => {
     const project = resolveProject(app.db, request.params.name)
     const latest = resolveAudit(project.id, request.query.runId)
 
@@ -957,7 +1035,21 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       && replayed.runStatus !== RunStatuses.completed && replayed.snap.createdAt.startsWith(date)
       ? resolveAudit(project.id, undefined, `${date}T00:00:00.000Z`)?.snap ?? null
       : replayed?.snap ?? null
-    const deltaScore = previous ? snap.aggregateScore - previous.aggregateScore : null
+    // The sites a scorecard scored: its crawl's sites with a scored page, or
+    // the main domain alone for a scan that recorded none (or had no crawl).
+    const crawlSitesOf = (runId: string) => app.db
+      .select({ sites: siteCrawlSnapshots.sites, rootUrl: siteCrawlSnapshots.rootUrl }).from(siteCrawlSnapshots)
+      .where(and(eq(siteCrawlSnapshots.projectId, project.id), eq(siteCrawlSnapshots.runId, runId)))
+      .get()
+    const scoredSitesOf = (crawl: ReturnType<typeof crawlSitesOf>): string[] => crawl?.sites?.length
+      ? crawl.sites.filter((site) => site.pagesAudited > 0).map((site) => site.host).sort()
+      : [hostOf(crawl?.rootUrl ?? project.canonicalDomain) ?? project.canonicalDomain]
+    const currentCrawl = crawlSitesOf(snap.runId)
+    // A score over other sites is not the same measurement: no change is
+    // claimed between them. A site added, removed or not reached counts.
+    const sitesChanged = previous !== null
+      && scoredSitesOf(currentCrawl).join('\n') !== scoredSitesOf(crawlSitesOf(previous.runId)).join('\n')
+    const deltaScore = previous && !sitesChanged ? snap.aggregateScore - previous.aggregateScore : null
     const trend = deltaScore == null
       ? null
       : deltaScore > 0
@@ -983,6 +1075,8 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
     affectedPageRanking.items.sort((a, b) => b.pagesBelowPass - a.pagesBelowPass || a.factorId.localeCompare(b.factorId))
     affectedPageRanking.unavailableFactorIds.sort()
+    // Each site's score comes from the crawl that stored this scorecard.
+    const scannedSites = currentCrawl?.sites ?? null
 
     return {
       project: project.name,
@@ -1000,6 +1094,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       trend,
       previousScore: previous?.aggregateScore ?? null,
       previousAuditedAt: previous?.auditedAt ?? null,
+      ...(sitesChanged ? { deltaUnavailableReason: 'sites-changed' as const } : {}),
       runSelection: latest.runSelection,
       factors: snap.factorAverages.map(factor => ({
         ...withRecordedShare(factor),
@@ -1008,14 +1103,17 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       affectedPageRanking,
       crossCuttingIssues: snap.crossCuttingIssues,
       prioritizedFixes: snap.prioritizedFixes,
+      ...(scannedSites ? {
+        sites: scannedSites.map(({ host, main, aggregateScore, pagesAudited }) => ({ host, main, aggregateScore, pagesAudited })),
+      } : {}),
     }
   })
 
-  // GET /projects/:name/technical-aeo/pages — per-page breakdown of the latest or selected run.
-  app.get<{
+  // GET /projects/:name/agent-readiness/pages — per-page breakdown of the latest or selected run.
+  for (const path of agentReadinessRoutes('/pages')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; status?: string; sort?: string; limit?: string; offset?: string }
-  }>('/projects/:name/technical-aeo/pages', async (request): Promise<SiteAuditPagesResponseDto> => {
+  }>(path, async (request): Promise<SiteAuditPagesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
 
     const latest = resolveAudit(project.id, request.query.runId)
@@ -1066,11 +1164,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     return { project: project.name, runId: latest.snap.runId, auditedAt: latest.snap.auditedAt, runSelection: latest.runSelection, total, pages }
   })
 
-  // GET /projects/:name/technical-aeo/trend — aggregate score over time (oldest-first).
-  app.get<{
+  // GET /projects/:name/agent-readiness/trend — aggregate score over time (oldest-first).
+  for (const path of agentReadinessRoutes('/trend')) app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/technical-aeo/trend', async (request): Promise<SiteAuditTrendResponseDto> => {
+  }>(path, async (request): Promise<SiteAuditTrendResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const limit = parsePositiveInt(request.query.limit, 30, 365)
 
@@ -1083,13 +1181,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       })
       .from(siteAuditSnapshots)
       .innerJoin(runs, eq(siteAuditSnapshots.runId, runs.id))
-      .where(and(
-        eq(siteAuditSnapshots.projectId, project.id),
-        eq(runs.projectId, project.id),
-        eq(runs.kind, RunKinds['site-audit']),
-        inArray(runs.status, SURFACEABLE_STATUSES),
-        notProbeRun(),
-      ))
+      .where(and(...surfaceableSiteAuditFilters(project.id)))
       .orderBy(desc(siteAuditSnapshots.createdAt))
       .limit(limit)
       .all()
@@ -1097,12 +1189,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     return { project: project.name, points: rows.reverse() }
   })
 
-  // GET /projects/:name/technical-aeo/crawl — persisted crawl metadata only;
+  // GET /projects/:name/agent-readiness/crawl — persisted crawl metadata only;
   // legacy scorecard rows never fabricate a graph-shaped response.
-  app.get<{
+  for (const path of agentReadinessRoutes('/crawl')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; date?: string }
-  }>('/projects/:name/technical-aeo/crawl', async (request): Promise<SiteCrawlSummaryDto> => {
+  }>(path, async (request): Promise<SiteCrawlSummaryDto> => {
     const project = resolveProject(app.db, request.params.name)
     const requestedDate = parseCrawlDate(request.query.date, request.query.runId)
     const target = resolveCrawl(project.id, request.query.runId, requestedDate)
@@ -1145,19 +1237,35 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         pagesFetched: snapshot.pagesFetched,
         pagesEligible: snapshot.pagesEligible,
         edges: snapshot.edgesDiscovered,
+        internalLinks: mapLinkTotal(project.id, snapshot),
         findings: snapshot.findingsCount,
       },
       deadLinks,
+      ...(snapshot.sites ? { sites: snapshot.sites } : {}),
     }
   })
 
-  // GET /projects/:name/technical-aeo/graph — the persisted Site Health
+  /** The links between mapped pages once the site map is built, the same total the graph read reports. */
+  function mapLinkTotal(projectId: string, snapshot: { runId: string; attemptId: string | null }): number | null {
+    if (!snapshot.attemptId) return null
+    const layout = app.db.select({ state: siteCrawlGraphLayouts.state, layoutVersion: siteCrawlGraphLayouts.layoutVersion, totalEdges: siteCrawlGraphLayouts.totalEdges })
+      .from(siteCrawlGraphLayouts)
+      .where(and(
+        eq(siteCrawlGraphLayouts.projectId, projectId),
+        eq(siteCrawlGraphLayouts.runId, snapshot.runId),
+        eq(siteCrawlGraphLayouts.attemptId, snapshot.attemptId),
+      ))
+      .limit(1).get()
+    return layout?.state === 'ready' && layout.layoutVersion ? layout.totalEdges : null
+  }
+
+  // GET /projects/:name/agent-readiness/graph — the persisted Agent Readiness
   // projection. Sampling and ForceAtlas2 run exactly once at snapshot publish;
   // reads only scan the bounded 20k/50k derived tables.
-  app.get<{
+  for (const path of agentReadinessRoutes('/graph')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; maxNodes?: string; maxEdges?: string; linkKind?: string }
-  }>('/projects/:name/technical-aeo/graph', async (request): Promise<SiteCrawlGraphResponseDto> => {
+  }>(path, async (request): Promise<SiteCrawlGraphResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const linkKind = parseLinkKind(request.query.linkKind)
     const target = resolveCrawl(project.id, request.query.runId)
@@ -1331,9 +1439,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/subgraph — a bounded canonical
+  // GET /projects/:name/agent-readiness/subgraph — a bounded canonical
   // neighborhood for agents. It deliberately excludes visualization layout.
-  app.get<{
+  for (const path of agentReadinessRoutes('/subgraph')) app.get<{
     Params: { name: string }
     Querystring: {
       runId?: string
@@ -1343,7 +1451,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       maxNodes?: string
       maxEdges?: string
     }
-  }>('/projects/:name/technical-aeo/subgraph', async (request): Promise<SiteHealthSubgraphResponseDto> => {
+  }>(path, async (request): Promise<SiteHealthSubgraphResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const hops = Math.min(3, parsePositiveInt(request.query.hops, 1, 3))
     const maxNodes = parseBoundedLimit(
@@ -1521,9 +1629,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/path — directed shortest path over
+  // GET /projects/:name/agent-readiness/path — directed shortest path over
   // followable internal anchor links, with a hard exploration budget.
-  app.get<{
+  for (const path of agentReadinessRoutes('/path')) app.get<{
     Params: { name: string }
     Querystring: {
       runId?: string
@@ -1533,7 +1641,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       toUrl?: string
       maxDepth?: string
     }
-  }>('/projects/:name/technical-aeo/path', async (request): Promise<SiteHealthPathResponseDto> => {
+  }>(path, async (request): Promise<SiteHealthPathResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const maxDepth = parseBoundedLimit(
       request.query.maxDepth,
@@ -1670,10 +1778,10 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/changes — exact canonical page/link
+  // GET /projects/:name/agent-readiness/changes — exact canonical page/link
   // changes between two immutable complete snapshots. ForceAtlas2 x/y are not
   // part of identity and never create a change.
-  app.get<{
+  for (const path of agentReadinessRoutes('/changes')) app.get<{
     Params: { name: string }
     Querystring: {
       fromRunId?: string
@@ -1683,7 +1791,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       cursor?: string
       limit?: string
     }
-  }>('/projects/:name/technical-aeo/changes', async (request): Promise<SiteHealthChangesResponseDto> => {
+  }>(path, async (request): Promise<SiteHealthChangesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const scopeFilter = request.query.scope ?? 'all'
     if (scopeFilter !== 'all' && scopeFilter !== 'pages' && scopeFilter !== 'links') {
@@ -2062,32 +2170,34 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   })
 
   // Stored issue groups use the same published attempt and non-probe run selection as page evidence.
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/technical-aeo/issues', async (request) => {
+  for (const path of agentReadinessRoutes('/issues')) app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
+    path, async (request) => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseSiteAuditIssueQuery(request.query)
       const target = resolveCrawl(project.id, query.runId)
       if (!target) assertKnownAuditRun(project.id, query.runId)
-      return readSiteAuditIssues({ db: app.db, project, target, query })
+      const site = target ? resolveSiteFilter(target.snapshot, query.site) : undefined
+      return readSiteAuditIssues({ db: app.db, project, target, query, site })
     },
   )
-  app.get<{ Params: { name: string; issueId: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/technical-aeo/issues/:issueId/pages', async (request) => {
+  for (const path of agentReadinessRoutes('/issues/:issueId/pages')) app.get<{ Params: { name: string; issueId: string }; Querystring: Record<string, unknown> }>(
+    path, async (request) => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseSiteAuditIssueQuery(request.query)
       const target = resolveCrawl(project.id, query.runId)
       if (!target) assertKnownAuditRun(project.id, query.runId)
-      return readSiteAuditIssues({ db: app.db, project, target, query, issueId: request.params.issueId })
+      const site = target ? resolveSiteFilter(target.snapshot, query.site) : undefined
+      return readSiteAuditIssues({ db: app.db, project, target, query, site, issueId: request.params.issueId })
     },
   )
 
-  // GET /projects/:name/technical-aeo/crawl/pages/audit — one page's exact
+  // GET /projects/:name/agent-readiness/crawl/pages/audit — one page's exact
   // weighted factors and independent critical defects. Evidence is loaded on
   // selection so the 20k-node visualization DTO stays compact.
-  app.get<{
+  for (const path of agentReadinessRoutes('/crawl/pages/audit')) app.get<{
     Params: { name: string }
     Querystring: { runId?: unknown; nodeKey?: unknown; url?: unknown }
-  }>('/projects/:name/technical-aeo/crawl/pages/audit', async (request): Promise<SiteCrawlPageAuditDto> => {
+  }>(path, async (request): Promise<SiteCrawlPageAuditDto> => {
     const project = resolveProject(app.db, request.params.name)
     const scalarQueryString = (value: unknown, name: string): string | undefined => {
       if (value === undefined) return undefined
@@ -2142,9 +2252,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/crawl/pages — filterable, cursor-paged
+  // GET /projects/:name/agent-readiness/crawl/pages — filterable, cursor-paged
   // crawl nodes. A crawl summary may exist before detail persistence finishes.
-  app.get<{
+  for (const path of agentReadinessRoutes('/crawl/pages')) app.get<{
     Params: { name: string }
     Querystring: {
       runId?: string
@@ -2159,8 +2269,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       urlVersions?: string
       nodeKey?: string
       sort?: string
+      site?: string
     }
-  }>('/projects/:name/technical-aeo/crawl/pages', async (request): Promise<SiteCrawlPagesResponseDto> => {
+  }>(path, async (request): Promise<SiteCrawlPagesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const requestedDate = parseCrawlDate(request.query.date, request.query.runId)
     const target = resolveCrawl(project.id, request.query.runId, requestedDate)
@@ -2172,10 +2283,13 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         ...NO_CRAWL_COMPLETENESS, total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
     }
     const snapshot = target.snapshot
+    // Checked before anything else, so a site this scan did not cover is
+    // refused even when its page rows are unavailable.
+    const site = resolveSiteFilter(snapshot, request.query.site)
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
       decodeCrawlPageCursor(request.query.cursor, null)
       return { project: project.name, hasCrawlData: true, runId: snapshot.runId, requestedDate, inventorySummary: null, healthReasonCounts: null,
-        ...completenessOf(target), total: 0, nextCursor: null, healthStateFilter: null, pages: [] }
+        ...completenessOf(target), total: 0, nextCursor: null, healthStateFilter: null, site: site?.host ?? null, pages: [] }
     }
 
     const inventorySummary = inventorySummaryFor(detailScopeFor(project.id, snapshot))
@@ -2185,6 +2299,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       eq(siteCrawlPages.runId, snapshot.runId),
       eq(siteCrawlPages.attemptId, snapshot.attemptId),
     ]
+    if (site) filters.push(siteCondition(site))
     // Addressing one page by key is the same bounded read as the list, so a
     // client that already holds a node key never has to page to find its row.
     if (request.query.nodeKey) filters.push(eq(siteCrawlPages.nodeKey, request.query.nodeKey))
@@ -2207,6 +2322,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       indexabilityState: request.query.indexabilityState || null, auditState: request.query.auditState || null,
       // Absent for the default, so a cursor issued before this filter existed still matches.
       ...(urlVersions === SiteCrawlUrlVersionFilters.include ? {} : { urlVersions }),
+      ...(site ? { site: site.host } : {}),
       healthState, sort,
     })).digest('base64url')
     const offset = decodeCrawlPageCursor(request.query.cursor, selectionKey)
@@ -2253,6 +2369,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         total: 0,
         nextCursor: null,
         healthStateFilter,
+        site: site?.host ?? null,
         pages: [],
       }
     }
@@ -2272,16 +2389,17 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       total,
       nextCursor: nextOffset < total ? Buffer.from(JSON.stringify({ offset: nextOffset, selectionKey })).toString('base64url') : null,
       healthStateFilter,
+      site: site?.host ?? null,
       pages: rows.map(mapCrawlPage),
     }
   })
 
-  // GET /projects/:name/technical-aeo/structure — one path level only. This
+  // GET /projects/:name/agent-readiness/structure — one path level only. This
   // deliberately cannot materialize an unbounded site tree.
-  app.get<{
+  for (const path of agentReadinessRoutes('/structure')) app.get<{
     Params: { name: string }
-    Querystring: { runId?: string; parentPath?: string; cursor?: string; limit?: string }
-  }>('/projects/:name/technical-aeo/structure', async (request): Promise<SiteCrawlStructureResponseDto> => {
+    Querystring: { runId?: string; parentPath?: string; cursor?: string; limit?: string; site?: string }
+  }>(path, async (request): Promise<SiteCrawlStructureResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const parentPath = normalizeParentPath(request.query.parentPath)
     const target = resolveCrawl(project.id, request.query.runId)
@@ -2290,8 +2408,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       return { project: project.name, hasCrawlData: false, runId: null, ...NO_CRAWL_COMPLETENESS, parentPath, nextCursor: null, children: [] }
     }
     const snapshot = target.snapshot
+    // Folder paths never carry a host, so two sites' folders are never mixed:
+    // the main domain unless `site` names another site the scan covered.
+    const site = resolveSiteFilter(snapshot, request.query.site) ?? scanSitesOf(snapshot)[0]!
     if (!snapshot.detailsAvailable || !snapshot.attemptId) {
-      return { project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(target), parentPath, nextCursor: null, children: [] }
+      return { project: project.name, hasCrawlData: true, runId: snapshot.runId, ...completenessOf(target), site: site.host, parentPath, nextCursor: null, children: [] }
     }
 
     // A crawl cannot persist more than MAX_STRUCTURE_SOURCE_ROWS pages. Read
@@ -2310,6 +2431,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         eq(siteCrawlPages.projectId, project.id),
         eq(siteCrawlPages.runId, snapshot.runId),
         eq(siteCrawlPages.attemptId, snapshot.attemptId),
+        siteCondition(site),
       ))
       .limit(MAX_STRUCTURE_SOURCE_ROWS + 1)
       .all()
@@ -2358,6 +2480,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       hasCrawlData: true,
       runId: snapshot.runId,
       ...completenessOf(target),
+      site: site.host,
       parentPath,
       nextCursor: hasMore ? encodeCursor(offset + visible.length) : null,
       children: visible.map(([path, child]) => ({
@@ -2371,9 +2494,9 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/internal-links — cursor-paged internal
+  // GET /projects/:name/agent-readiness/internal-links — cursor-paged internal
   // edges, never the full graph in one response.
-  app.get<{
+  for (const path of agentReadinessRoutes('/internal-links')) app.get<{
     Params: { name: string }
     Querystring: {
       runId?: string
@@ -2384,7 +2507,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       followable?: string
       linkKind?: string
     }
-  }>('/projects/:name/technical-aeo/internal-links', async (request): Promise<SiteCrawlInternalLinksResponseDto> => {
+  }>(path, async (request): Promise<SiteCrawlInternalLinksResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const linkKind = parseLinkKind(request.query.linkKind)
     const target = resolveCrawl(project.id, request.query.runId)
@@ -2441,12 +2564,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/internal-links/neighbors — a bounded
+  // GET /projects/:name/agent-readiness/internal-links/neighbors — a bounded
   // local graph neighborhood for one canonical node/URL.
-  app.get<{
+  for (const path of agentReadinessRoutes('/internal-links/neighbors')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; nodeKey?: string; url?: string; limit?: string; linkKind?: string }
-  }>('/projects/:name/technical-aeo/internal-links/neighbors', async (request): Promise<SiteCrawlNeighborsResponseDto> => {
+  }>(path, async (request): Promise<SiteCrawlNeighborsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const linkKind = parseLinkKind(request.query.linkKind)
     if (!request.query.nodeKey && !request.query.url) {
@@ -2506,12 +2629,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/dead-links — no crawl opt-in is a
+  // GET /projects/:name/agent-readiness/dead-links — no crawl opt-in is a
   // distinct state, never a deceptive empty list.
-  app.get<{
+  for (const path of agentReadinessRoutes('/dead-links')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; cursor?: string; limit?: string }
-  }>('/projects/:name/technical-aeo/dead-links', async (request): Promise<SiteCrawlDeadLinksResponseDto> => {
+  }>(path, async (request): Promise<SiteCrawlDeadLinksResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const target = resolveCrawl(project.id, request.query.runId)
     const legacyAuditAvailable = hasLegacyAudit(project.id)
@@ -2575,13 +2698,13 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/runs — Site Health scan history. Every
+  // GET /projects/:name/agent-readiness/runs — Agent Readiness audit scan history. Every
   // non-probe site-audit run is listed, including the legacy score-only ones,
   // so selecting a scan never depends on guessing which runs kept a crawl.
-  app.get<{
+  for (const path of agentReadinessRoutes('/runs')) app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/technical-aeo/runs', async (request): Promise<SiteHealthScansResponseDto> => {
+  }>(path, async (request): Promise<SiteHealthScansResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const limit = parseBoundedLimit(request.query.limit, SITE_HEALTH_SCANS_DEFAULT_LIMIT, SITE_HEALTH_SCANS_MAX_LIMIT)
     const rows = app.db
@@ -2631,13 +2754,13 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/runs/:runId/progress — exact stored
+  // GET /projects/:name/agent-readiness/runs/:runId/progress — exact stored
   // progress only. It never polls an executor, fetches a page, or invokes a
   // provider: onboarding can safely resume after a reload without inventing a
   // progress percentage for an unknown final corpus.
-  app.get<{
+  for (const path of agentReadinessRoutes('/runs/:runId/progress')) app.get<{
     Params: { name: string; runId: string }
-  }>('/projects/:name/technical-aeo/runs/:runId/progress', async (request): Promise<SiteAuditRunProgressDto> => {
+  }>(path, async (request): Promise<SiteAuditRunProgressDto> => {
     const project = resolveProject(app.db, request.params.name)
     const run = app.db.select().from(runs).where(and(
       eq(runs.id, request.params.runId),
@@ -2694,13 +2817,13 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     }
   })
 
-  // GET /projects/:name/technical-aeo/runs/:runId/page-health-preview — a
+  // GET /projects/:name/agent-readiness/runs/:runId/page-health-preview — a
   // small, durable preview for the active onboarding scan. This deliberately
   // exposes neither final scorecards nor finding prose: terminal reads hand
-  // the caller back to the immutable Page Health snapshot instead.
-  app.get<{
+  // the caller back to the immutable Agent Readiness snapshot instead.
+  for (const path of agentReadinessRoutes('/runs/:runId/page-health-preview')) app.get<{
     Params: { name: string; runId: string }
-  }>('/projects/:name/technical-aeo/runs/:runId/page-health-preview', async (request): Promise<SiteAuditLivePageHealthDto> => (
+  }>(path, async (request): Promise<SiteAuditLivePageHealthDto> => (
     app.db.transaction((tx) => {
       const project = tx.select().from(projects).where(eq(projects.name, request.params.name)).get()
       if (!project) throw notFound('Project', request.params.name)
@@ -2774,11 +2897,11 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     })
   ))
 
-  // POST /projects/:name/technical-aeo/runs — exact-identity consolidation.
-  app.post<{
+  // POST /projects/:name/agent-readiness/runs — exact-identity consolidation.
+  for (const path of agentReadinessRoutes('/runs')) app.post<{
     Params: { name: string }
     Body: Partial<SiteAuditRunRequest>
-  }>('/projects/:name/technical-aeo/runs', async (request) => {
+  }>(path, async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
     const parsed = siteAuditRunRequestSchema.safeParse(request.body ?? {})
@@ -2786,13 +2909,23 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       throw validationError(parsed.error.issues[0]?.message ?? 'Invalid site-audit request')
     }
     if (!opts.onSiteAuditRequested) {
-      throw missingDependency('Site Health execution is not available on this deployment.', {
+      throw missingDependency('Agent Readiness audit scans are not available on this deployment.', {
         reason: 'no-site-audit-handler',
       })
     }
 
+    // The request's own sites must be owned domains; with none named, the
+    // saved list applies, less any domain the project no longer owns.
+    const requestedSites = parsed.data.sites === undefined
+      ? undefined
+      : requireSiteAuditDomains(project, parsed.data.sites, 'sites')
+    const savedSites = resolveSiteAuditDomains(project, project.siteAuditDomains).domains
     // The project's saved budget applies when the request sets none, before identity is computed.
-    const effectiveRequest = normalizeSiteAuditRunRequest(parsed.data, project.siteAuditMaxPages)
+    const effectiveRequest = normalizeSiteAuditRunRequest(
+      { ...parsed.data, sites: requestedSites },
+      project.siteAuditMaxPages,
+      savedSites,
+    )
     const identityKey = siteAuditRequestIdentity(effectiveRequest)
     const result = app.db.transaction((tx) => {
       const existing = tx
@@ -2818,7 +2951,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
           return { runId: existing.id, status: existing.status as RunStatus, created: false }
         }
         throw operationInProgress(
-          `A Technical AEO crawl is already ${existing.status} with different request options.`,
+          `An Agent Readiness audit scan is already ${existing.status} with different request options.`,
           {
             activeRunId: existing.id,
             activeStatus: existing.status,
@@ -2860,6 +2993,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
         checkDeadLinks: effectiveRequest.checkDeadLinks,
         includeGeo: effectiveRequest.includeGeo,
         includeAgentSkills: effectiveRequest.includeAgentSkills,
+        sites: effectiveRequest.sites,
       })
     }
 

@@ -15,16 +15,17 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
-import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
+import type { CloudRunTrafficSetup, MeasurementOverviewSort, RunPreviewDto } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { CitationBadge } from '../components/shared/CitationBadge.js'
 import { useDrawer } from '../hooks/use-drawer.js'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet.js'
+import * as Dialog from '@radix-ui/react-dialog'
 import { WriteButton } from '../components/shared/AccessControls.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
+import { WorkspaceTabs } from '../components/shared/WorkspaceTabs.js'
 import { MentionShare } from '../components/project/MentionShare.js'
 import {
   CompetitorLandscape,
@@ -36,8 +37,9 @@ import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { SentimentScopeProvider } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
 import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
-import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
+import { BingSection } from '../components/project/BingSection.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
+import { ServerTrafficSection } from '../components/project/ServerTrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
@@ -65,15 +67,16 @@ import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
+import { formatTimestamp, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
+import { CITATION_NOT_MEASURED } from '../lib/citation-not-measured-copy.js'
 import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
 import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
-import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/RunAdmissionNotice.js'
+import { RunAdmissionNoticeView, RunPreviewSummary, useRunAdmission, useRunPreview } from '../components/project/RunAdmissionNotice.js'
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
@@ -85,12 +88,8 @@ import {
   appendCompetitors as apiAppendCompetitors,
   removeCompetitorById as apiRemoveCompetitorById,
   updateProject as apiUpdateProject,
-  bingConnect as apiBingConnect,
-  bingDisconnect as apiBingDisconnect,
-  bingSetSite as apiBingSetSite,
-  inspectBingUrl,
   inspectBingSitemap,
-  bingRequestIndexing,
+  triggerBingSync,
   triggerGscSync,
   fetchRunDetail,
   apiErrorDetails,
@@ -101,20 +100,12 @@ import {
   isDashboardManagedSweeps,
   isPublicDemo,
   type ApiBingConnection,
-  type ApiBingSite,
-  type ApiBingInspection,
-  type ApiBingCoverageSummary,
-  type ApiBingKeywordStats,
   type ApiGoogleConnection,
   type ApiProject,
 } from '../api.js'
 import { effectiveEmbedProjectTabs, embedQueryLimit, isEmbedProjectTabAllowed, resolveProjectPageTab } from '../embed.js'
 import {
   getApiV1CdpStatusOptions,
-  getApiV1ProjectsByNameBingCoverageOptions,
-  getApiV1ProjectsByNameBingInspectionsOptions,
-  getApiV1ProjectsByNameBingPerformanceOptions,
-  getApiV1ProjectsByNameBingSitesOptions,
   getApiV1ProjectsByNameBingStatusOptions,
   getApiV1ProjectsByNameAnalyticsCompetitorsOptions,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorMutation,
@@ -122,7 +113,7 @@ import {
   getApiV1ProjectsByNameMeasurementOverviewInfiniteOptions,
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameSchedulesOptions,
-  getApiV1ProjectsByNameTechnicalAeoRunsOptions,
+  getApiV1ProjectsByNameAgentReadinessRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
   getApiV1ProjectsByNameQueriesOptions,
@@ -135,7 +126,6 @@ import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
 import { useProjectDashboard } from '../queries/use-project-dashboard.js'
-import { STATIC_VISIBILITY_STALE_MS } from '../queries/query-client.js'
 import { useCompetitorLandscapeRefresh } from '../queries/competitor-landscape-refresh.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
@@ -146,9 +136,9 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'traffic' | 'backlinks' | 'agent-readiness' | 'history' | 'settings'
 
-export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [], preview, previewPending = false, previewFailed = false, onRetryPreview = () => {} }: {
   open: boolean
   projectLabel: string
   onOpenChange: (open: boolean) => void
@@ -157,25 +147,32 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
   disabled: boolean
   /** Providers this sweep will not call because each keeps failing on its account. */
   leftOut?: readonly string[]
+  preview?: RunPreviewDto
+  previewPending?: boolean
+  previewFailed?: boolean
+  onRetryPreview?: () => void
 }) {
   if (isEmbed() || isDashboardManagedSweeps()) return null
-  return <Sheet open={open} onOpenChange={onOpenChange}>
-    <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
-      <SheetHeader>
-        <SheetTitle>Run AI Visibility check for the whole project?</SheetTitle>
-        <SheetDescription>
-          Runs all tracked queries for {projectLabel}. View filters do not limit the check. Provider charges apply.
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal>
+    <Dialog.Overlay className="fixed inset-0 z-50 bg-overlay-scrim/70 backdrop-blur-sm" />
+    <Dialog.Content className="material-modal fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-5" onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
+      <div className="space-y-2">
+        <Dialog.Title className="text-heading-20 text-heading">Review AI Visibility check</Dialog.Title>
+        <Dialog.Description className="text-copy-14 text-secondary">
+          Checks {projectLabel} using the scope below. View filters do not limit the check. Provider charges apply.
           {leftOut.length > 0
             ? ` ${leftOut.map(name => providerDisplayName(name)).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
             : null}
-        </SheetDescription>
-      </SheetHeader>
+        </Dialog.Description>
+      </div>
+      <div className="mt-5"><RunPreviewSummary preview={preview} pending={previewPending} failed={previewFailed} onRetry={onRetryPreview} /></div>
+      <p className="mt-4 text-copy-13 text-secondary">Runs once. Your schedule stays unchanged.</p>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide check</WriteButton>
+        <WriteButton disabled={disabled || previewPending || previewFailed || preview?.canStart !== true} onClick={onConfirm}>Run project-wide check</WriteButton>
       </div>
-    </SheetContent>
-  </Sheet>
+    </Dialog.Content>
+  </Dialog.Portal></Dialog.Root>
 }
 
 type SearchConsoleWorkspace = 'google' | 'bing'
@@ -221,632 +218,12 @@ export function patchProjectDashboardCache(
   })
 }
 
-function BingSection({
-  projectName,
-  refreshNonce,
-}: {
-  projectName: string
-  refreshNonce: number
-}) {
-  const queryClient = useQueryClient()
-  const [connection, setConnection] = useState<ApiBingConnection | null>(null)
-  const [sites, setSites] = useState<ApiBingSite[]>([])
-  const [coverage, setCoverage] = useState<ApiBingCoverageSummary | null>(null)
-  const [inspections, setInspections] = useState<ApiBingInspection[]>([])
-  const [performance, setPerformance] = useState<ApiBingKeywordStats[]>([])
-  const [inspectionResult, setInspectionResult] = useState<ApiBingInspection | null>(null)
-  const [inspectionUrl, setInspectionUrl] = useState('')
-  const [apiKeyInput, setApiKeyInput] = useState('')
-  const [selectedSite, setSelectedSite] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [requestingIndexing, setRequestingIndexing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Performance is the default — it's the highest-signal view (per-query
-  // impressions, clicks, position) and mirrors how the GSC tab leads.
-  const [activeTab, setActiveTab] = useState<'performance' | 'coverage' | 'inspections'>('performance')
-
-  useEffect(() => {
-    void loadData()
-  }, [projectName, refreshNonce])
-
-  async function loadData() {
-    setLoading(true)
-    setError(null)
-    try {
-      const status = await queryClient.fetchQuery({
-        ...getApiV1ProjectsByNameBingStatusOptions({ client: heyClient, path: { name: projectName } }),
-        staleTime: GSC_STALE_MS,
-      })
-      setConnection(status)
-
-      if (status.connected) {
-        const [coverageData, inspectionData, perfData, sitesData] = await Promise.all([
-          queryClient.fetchQuery({
-            ...getApiV1ProjectsByNameBingCoverageOptions({ client: heyClient, path: { name: projectName } }),
-            staleTime: GSC_STALE_MS,
-          }).catch(() => null),
-          queryClient.fetchQuery({
-            ...getApiV1ProjectsByNameBingInspectionsOptions({ client: heyClient, path: { name: projectName } }),
-            staleTime: GSC_STALE_MS,
-          }).catch(() => [] as ApiBingInspection[]),
-          queryClient.fetchQuery({
-            ...getApiV1ProjectsByNameBingPerformanceOptions({ client: heyClient, path: { name: projectName } }),
-            staleTime: GSC_STALE_MS,
-          }).catch(() => [] as ApiBingKeywordStats[]),
-          !status.siteUrl
-            ? queryClient.fetchQuery({
-                ...getApiV1ProjectsByNameBingSitesOptions({ client: heyClient, path: { name: projectName } }),
-                staleTime: GSC_STALE_MS,
-              }).then((result) => result.sites).catch(() => [] as ApiBingSite[])
-            : Promise.resolve([] as ApiBingSite[]),
-        ])
-        setCoverage(coverageData)
-        setInspections(inspectionData)
-        setPerformance(perfData)
-        setSites(sitesData)
-      } else {
-        setCoverage(null)
-        setInspections([])
-        setPerformance([])
-        setSites([])
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load Bing data')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleConnect() {
-    if (!apiKeyInput.trim()) return
-    setError(null)
-    try {
-      const result = await apiBingConnect(projectName, apiKeyInput.trim())
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      setApiKeyInput('')
-      if (result.availableSites.length > 0) {
-        setSites(result.availableSites)
-      }
-      await loadData()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect')
-    }
-  }
-
-  async function handleDisconnect() {
-    try {
-      await apiBingDisconnect(projectName)
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      setConnection(null)
-      setSites([])
-      setCoverage(null)
-      setInspections([])
-      setPerformance([])
-      setInspectionResult(null)
-      setSelectedSite('')
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to disconnect')
-    }
-  }
-
-  async function handleSetSite() {
-    if (!selectedSite) return
-    try {
-      await apiBingSetSite(projectName, selectedSite)
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      await loadData()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to set site')
-    }
-  }
-
-  async function handleInspect() {
-    if (!inspectionUrl.trim()) return
-    try {
-      const result = await inspectBingUrl(projectName, inspectionUrl.trim())
-      await invalidateProjectQueryDomain(queryClient, 'bing')
-      setInspectionResult(result)
-      setInspections((prev) => [result, ...prev])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Inspection failed')
-    }
-  }
-
-  async function handleSubmitUrl(url: string) {
-    setRequestingIndexing(true)
-    setError(null)
-    try {
-      const result = await bingRequestIndexing(projectName, { urls: [url] })
-      const { succeeded, failed, total } = result.summary
-      addToast({
-        title: 'Bing submission requested',
-        detail: failed === 0
-          ? `${succeeded} URL submitted to Bing.`
-          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
-        tone: failed === 0 ? 'positive' : 'caution',
-        dedupeKey: `bing:indexing:${projectName}:${url}`,
-        dedupeMode: 'replace',
-      })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Submission failed'
-      setError(message)
-      addToast({
-        title: 'Bing submission failed',
-        detail: message,
-        tone: 'negative',
-        dedupeKey: `bing:indexing:${projectName}:${url}`,
-        dedupeMode: 'replace',
-      })
-    } finally {
-      setRequestingIndexing(false)
-    }
-  }
-
-  async function handleSubmitAllUnindexed() {
-    setRequestingIndexing(true)
-    setError(null)
-    addToast({
-      title: 'Submitting URLs to Bing',
-      detail: 'Requesting indexing for all currently unindexed URLs.',
-      tone: 'neutral',
-      dedupeKey: `bing:indexing-all:${projectName}`,
-      dedupeMode: 'replace',
-    })
-    try {
-      const result = await bingRequestIndexing(projectName, { allUnindexed: true })
-      const { succeeded, failed, total } = result.summary
-      addToast({
-        title: 'Bing submissions requested',
-        detail: failed === 0
-          ? `${succeeded}/${total} URL${total !== 1 ? 's' : ''} submitted to Bing.`
-          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
-        tone: failed === 0 ? 'positive' : 'caution',
-        dedupeKey: `bing:indexing-all:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Batch submission failed'
-      setError(message)
-      addToast({
-        title: 'Bing submissions failed',
-        detail: message,
-        tone: 'negative',
-        dedupeKey: `bing:indexing-all:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    } finally {
-      setRequestingIndexing(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <Card className="surface-card">
-        <div className="text-label-14 text-secondary">Loading Bing data...</div>
-      </Card>
-    )
-  }
-
-  if (!connection?.connected) {
-    if (isEmbed()) {
-      return (
-        <Card className="surface-card">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Connection</p>
-              <h3>Domain authorization</h3>
-            </div>
-            <ToneBadge tone="caution">Not connected</ToneBadge>
-          </div>
-          <p className="text-copy-14 text-neutral">Bing Webmaster Tools is not connected for this project.</p>
-        </Card>
-      )
-    }
-    return (
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection</p>
-            <h3>Domain authorization</h3>
-          </div>
-          <ToneBadge tone="caution">Not connected</ToneBadge>
-        </div>
-        <p className="text-copy-14 text-neutral">
-          Connect Bing Webmaster Tools to inspect URLs, monitor index coverage, and submit pages for indexing.
-        </p>
-        <div className="mt-3">
-          <label className="text-label-12 text-muted" htmlFor="bing-api-key">API Key</label>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              id="bing-api-key"
-              type="password"
-              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-              placeholder="Bing Webmaster Tools API key"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { void handleConnect() } }}
-            />
-            <WriteButton size="sm" disabled={!apiKeyInput.trim()} onClick={asyncHandler(handleConnect)}>
-              Connect
-            </WriteButton>
-          </div>
-          <p className="mt-1 text-copy-14 text-secondary">
-            Get your API key from{' '}
-            <a
-              href="https://www.bing.com/webmasters/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-secondary hover:text-neutral underline underline-offset-2"
-            >
-              Bing Webmaster Tools
-            </a>
-          </p>
-        </div>
-        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
-      </Card>
-    )
-  }
-
-  if (!connection.siteUrl) {
-    return (
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection</p>
-            <h3>Domain authorization</h3>
-          </div>
-          <div className="flex items-center gap-2">
-            <ToneBadge tone="positive">Connected</ToneBadge>
-            {!isEmbed() && <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</WriteButton>}
-          </div>
-        </div>
-        <div className="space-y-3">
-          <div className="material-base px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-label-14 text-strong">Authorized for this project domain</span>
-              <span className="text-label-12 text-muted">{connection.domain}</span>
-            </div>
-            <p className="mt-2 text-copy-13 text-muted">
-              The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
-            </p>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Registered domain</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.domain}</p>
-            </div>
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Last auth update</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
-            </div>
-          </div>
-          <div className="material-base p-3">
-            <p className="text-label-12 normal-case text-muted">Select site</p>
-            {sites.length > 0 ? (
-              <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                <select
-                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
-                  value={selectedSite}
-                  onChange={(e) => setSelectedSite(e.target.value)}
-                >
-                  <option value="">Select a site...</option>
-                  {sites.map((s) => (
-                    <option key={s.url} value={s.url}>{s.url}{s.verified ? ' (verified)' : ''}</option>
-                  ))}
-                </select>
-                {!isEmbed() && <WriteButton size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</WriteButton>}
-              </div>
-            ) : (
-              <p className="mt-3 text-copy-13 text-muted">
-                No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.
-              </p>
-            )}
-          </div>
-        </div>
-        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
-      </Card>
-    )
-  }
-
-  const tabs = [
-    { key: 'performance' as const, label: 'Performance', eyebrow: 'Performance', title: 'Search performance' },
-    { key: 'coverage' as const, label: 'Coverage', eyebrow: 'Coverage', title: 'Index monitoring' },
-    { key: 'inspections' as const, label: 'Inspections', eyebrow: 'Inspection', title: 'URL inspection history' },
-  ]
-  const activeTabMeta = tabs.find(t => t.key === activeTab) ?? tabs[0]!
-
-  return (
-    <div className="space-y-3">
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Connection</p>
-            <h3>Domain authorization</h3>
-          </div>
-          <div className="flex items-center gap-2">
-            <ToneBadge tone="positive">Connected</ToneBadge>
-            {!isEmbed() && <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</WriteButton>}
-          </div>
-        </div>
-        {error && <p className="mb-3 text-copy-13 text-negative-400">{error}</p>}
-        <div className="space-y-3">
-          <div className="material-base px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-label-14 text-strong">Authorized for this project domain</span>
-              <span className="text-label-12 text-muted">{connection.domain}</span>
-            </div>
-            <p className="mt-2 text-copy-14 text-secondary">This project uses <code>{connection.siteUrl}</code>.</p>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Selected site</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.siteUrl}</p>
-            </div>
-            <div className="material-base p-3">
-              <p className="text-label-12 normal-case text-muted">Last auth update</p>
-              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="surface-card">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">{activeTabMeta.eyebrow}</p>
-            <h3>{activeTabMeta.title}</h3>
-          </div>
-          <p className="text-copy-13 text-muted">
-            {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}
-          </p>
-        </div>
-
-        <div className="flex gap-1 border-b border-base">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              className={`px-3 py-1.5 text-button-14 border-b-2 transition-colors ${
-                activeTab === t.key
-                  ? 'border-mono-200 text-strong'
-                  : 'border-transparent text-muted hover:text-neutral'
-              }`}
-              onClick={() => setActiveTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {activeTab === 'coverage' && coverage && (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
-              <BingSummaryMetric label="Not in index" value={coverage.summary.notIndexed + (coverage.summary.unknown ?? 0)} tone="negative" />
-              <BingSummaryMetric label="Status unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
-              <BingSummaryMetric label="Coverage" value={formatPercent(coverage.summary.percentage, RatioUnits.percent)} tone="neutral" />
-            </div>
-
-            {coverage.notIndexed.length > 0 && (
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-heading-14 text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
-                  {!isEmbed() && (
-                    <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
-                      {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
-                    </WriteButton>
-                  )}
-                </div>
-                <div className="overflow-x-auto material-base">
-                  <table className="w-full text-label-12">
-                    <thead>
-                      <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">HTTP</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {coverage.notIndexed.map((row) => (
-                        <tr key={row.id} className="border-b border-subtle">
-                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
-                          {!isEmbed() && (
-                            <td className="py-1.5 px-3 text-right">
-                              <button
-                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
-                                disabled={requestingIndexing}
-                                onClick={() => { void handleSubmitUrl(row.url) }}
-                              >
-                                Submit
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {(coverage.unknown ?? []).length > 0 && (
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-heading-14 text-secondary">Unknown, not yet confirmed ({(coverage.unknown ?? []).length})</h4>
-                  {!isEmbed() && (
-                    <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
-                      {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
-                    </WriteButton>
-                  )}
-                </div>
-                <div className="overflow-x-auto material-base">
-                  <table className="w-full text-label-12">
-                    <thead>
-                      <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(coverage.unknown ?? []).map((row) => (
-                        <tr key={row.id} className="border-b border-subtle">
-                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
-                          {!isEmbed() && (
-                            <td className="py-1.5 px-3 text-right">
-                              <button
-                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
-                                disabled={requestingIndexing}
-                                onClick={() => { void handleSubmitUrl(row.url) }}
-                              >
-                                Submit
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {coverage.indexed.length > 0 && (
-              <div>
-                <h4 className="mb-2 text-heading-14 text-secondary">Indexed ({coverage.indexed.length})</h4>
-                <div className="overflow-x-auto material-base">
-                  <table className="w-full text-label-12">
-                    <thead>
-                      <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {coverage.indexed.map((row) => (
-                        <tr key={row.id} className="border-b border-subtle">
-                          <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                          <td className="py-1.5 px-3 text-secondary">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'coverage' && !coverage && (
-          <p className="mt-4 text-copy-13 text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
-        )}
-
-        {activeTab === 'inspections' && (
-          <div className="mt-4 space-y-3">
-            {!isEmbed() && (
-              <div className="flex flex-col gap-2 lg:flex-row">
-                <input
-                  type="text"
-                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
-                  placeholder="URL to inspect"
-                  value={inspectionUrl}
-                  onChange={(e) => setInspectionUrl(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { void handleInspect() } }}
-                />
-                <WriteButton size="sm" disabled={!inspectionUrl.trim()} onClick={asyncHandler(handleInspect)}>
-                  Inspect
-                </WriteButton>
-              </div>
-            )}
-
-            {inspectionResult && (
-              <div className="material-base p-3 text-label-12 space-y-1">
-                <div className="text-label-12-strong text-strong">{inspectionResult.url}</div>
-                <div className="text-secondary">
-                  In Index: <span className={inspectionResult.inIndex ? 'text-positive-400' : 'text-negative-400'}>
-                    {inspectionResult.inIndex ? 'Yes' : 'No'}
-                  </span>
-                  {' \u00b7 '}HTTP: {inspectionResult.httpCode ?? '\u2014'}
-                  {' \u00b7 '}Crawled: {inspectionResult.lastCrawledDate ?? '\u2014'}
-                </div>
-              </div>
-            )}
-
-            {inspections.length > 0 && (
-              <div className="overflow-x-auto material-base">
-                <table className="w-full text-label-12">
-                  <thead>
-                    <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">Index</th>
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-14">HTTP</th>
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Inspected</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inspections.map((row) => (
-                      <tr key={row.id} className="border-b border-subtle">
-                        <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.url}</td>
-                        <td className="py-1.5 px-3">
-                          <ToneBadge tone={row.inIndex ? 'positive' : 'negative'}>{row.inIndex ? 'Yes' : 'No'}</ToneBadge>
-                        </td>
-                        <td className="py-1.5 px-3 text-secondary">{row.httpCode ?? '\u2014'}</td>
-                        <td className="py-1.5 px-3 text-secondary">{formatTimestamp(row.inspectedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'performance' && (
-          <div className="mt-4">
-            {performance.length === 0 ? (
-              <p className="text-copy-13 text-muted">No Bing performance data available.</p>
-            ) : (
-              <div className="overflow-x-auto material-base">
-                <table className="w-full text-label-12">
-                  <thead>
-                    <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">Query</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {performance.map((row, i) => (
-                      <tr key={i} className="border-b border-subtle">
-                        <td className="py-1.5 px-3 text-neutral truncate max-w-[480px]">{row.query}</td>
-                        <td className="py-1.5 px-3 text-right text-strong">{row.clicks}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{row.impressions}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{formatPercent(row.ctr)}</td>
-                        <td className="py-1.5 px-3 text-right text-secondary">{row.averagePosition.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-    </div>
-  )
-}
-
 function SearchConsoleSection({
   projectName,
 }: {
   projectName: string
 }) {
+  const tabsId = useId()
   const queryClient = useQueryClient()
   const [workspace, setWorkspace] = useState<SearchConsoleWorkspace>('google')
   const [loading, setLoading] = useState(true)
@@ -981,7 +358,34 @@ function SearchConsoleSection({
         notices.push('Bing check is still running. Coverage will update shortly.')
       }
 
-      const results = await Promise.allSettled([syncGoogle(), syncBing()])
+      // --- Bing data: queue the stored-data sync (traffic, queries, crawl, sitemaps, settings) ---
+      //
+      // Separate from the URL check above: that one inspects pages, this one
+      // stores Bing's own reports. Both run server-side and paced per key.
+      async function syncBingData() {
+        if (!bingConnection?.connected || !bingConnection.siteUrl) return
+        const run = await triggerBingSync(projectName).catch(() => null)
+        if (!run?.id) {
+          failures.push('Bing data sync could not be started')
+          return
+        }
+        const deadline = Date.now() + REFRESH_POLL_TIMEOUT_MS
+        while (Date.now() < deadline) {
+          if (signal.aborted) return
+          await new Promise<void>((resolve) => setTimeout(resolve, REFRESH_POLL_INTERVAL_MS))
+          if (signal.aborted) return
+          const detail = await fetchRunDetail(run.id).catch(() => null)
+          if (!detail) break
+          if (['completed', 'failed', 'cancelled', 'partial'].includes(detail.status)) {
+            if (detail.status === 'failed') failures.push('Bing data sync failed')
+            else if (detail.status === 'partial') notices.push('Bing data sync finished with some sections missing')
+            return
+          }
+        }
+        notices.push('Bing data sync is still running. Search data will update shortly.')
+      }
+
+      const results = await Promise.allSettled([syncGoogle(), syncBing(), syncBingData()])
       for (const r of results) {
         if (r.status === 'rejected') {
           failures.push(r.reason instanceof Error ? r.reason.message : 'Sync failed')
@@ -999,6 +403,8 @@ function SearchConsoleSection({
       await Promise.all([
         invalidateProjectQueryDomain(queryClient, 'gsc'),
         invalidateProjectQueryDomain(queryClient, 'bing'),
+        // Both syncs rewrite the stored sitemap lists the cards compare.
+        invalidateProjectQueryDomain(queryClient, 'sitemaps'),
       ])
 
       if (signal.aborted) return
@@ -1069,23 +475,19 @@ function SearchConsoleSection({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Search engine workspaces">
-          {([
+        <WorkspaceTabs
+          id={tabsId}
+          label="Search engine workspaces"
+          value={workspace}
+          onChange={setWorkspace}
+          className="flex flex-wrap gap-2"
+          tabClassName="project-subnav-link"
+          activeTabClassName="project-subnav-link-active"
+          options={[
             ['google', 'Google'],
             ['bing', 'Bing'],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={workspace === key}
-              className={`project-subnav-link ${workspace === key ? 'project-subnav-link-active' : ''}`}
-              onClick={() => setWorkspace(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+          ]}
+        />
         {!isEmbed() && (
           <WriteButton
             type="button"
@@ -1107,23 +509,25 @@ function SearchConsoleSection({
         </div>
       )}
 
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${workspace}`} tabIndex={0}>
       {workspace === 'google' && (
         <GscSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
 
       {workspace === 'bing' && (
-        <section className="page-section-divider">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Search engine</p>
-              <h2>Bing Webmaster Tools</h2>
-            </div>
-          </div>
-          <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
-        </section>
+        <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
+      </div>
     </div>
   )
+}
+
+/**
+ * The queries Citation gaps counts out of: those with an answer whose sources
+ * were checked. The API's gap score uses the same population.
+ */
+function citationGapBase(queryCounts: ProjectCommandCenterVm['queryCounts']): number {
+  return queryCounts.total - queryCounts.citationNotMeasured
 }
 
 function OverviewMetricRow({
@@ -1168,6 +572,13 @@ function OverviewMetricRow({
   )
 }
 
+/** The competitor comparison's empty state, exported so tests assert the shipped strings. */
+export const COMPETITOR_COMPARISON_COPY = {
+  emptyTitle: 'No competitors set',
+  emptyDetail: 'Mention and citation gaps need at least one tracked competitor.',
+  add: 'Add competitors',
+} as const
+
 function OverviewDisclosure({
   id,
   title,
@@ -1181,12 +592,16 @@ function OverviewDisclosure({
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
+  const titleId = useId()
+  const metaId = useId()
   return (
     <details id={id} className="overview-disclosure page-section-divider scroll-mt-24" open={defaultOpen || undefined}>
-      <summary className="overview-disclosure-summary">
-        <h2 className="overview-disclosure-title">{title}</h2>
+      {/* The summary is the toggle, so it takes its name from the heading
+          alone; the meta line is its description. */}
+      <summary className="overview-disclosure-summary" aria-labelledby={titleId} aria-describedby={meta ? metaId : undefined}>
+        <h2 id={titleId} className="overview-disclosure-title">{title}</h2>
         <span className="overview-disclosure-meta">
-          {meta && <span>{meta}</span>}
+          {meta && <span id={metaId}>{meta}</span>}
           <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
         </span>
       </summary>
@@ -1239,7 +654,7 @@ function OverviewSignals({
                 <span className="min-w-0 flex-1 text-label-14 text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
+                  <Button type="button" variant="ghost" size="sm" onClick={event => { event.currentTarget.focus({ preventScroll: true }); void openEvidence(phrase.evidenceId) }}>
                     View evidence
                   </Button>
                 ) : null}
@@ -1414,7 +829,38 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
   />
 }
 
-type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+export type ProjectTabItem = { key: ProjectPageTab; label: string; href: string }
+
+/**
+ * The project sections in tab-row order. The row keeps the sections an
+ * operator returns to, AI Visibility first and Queries last; the rest open
+ * from More, and a narrow panel moves the row's later sections into More too.
+ * `key` is a wire value for embed allowlists and saved URLs. Journeys reads
+ * private visitor evidence, so view-only accounts never get it, and it is
+ * absent from the embed allowlist, so embeds drop it too.
+ */
+export function projectSectionTabs(projectTabBase: string, { journeys }: { journeys: boolean }): { primary: ProjectTabItem[]; overflow: ProjectTabItem[] } {
+  return {
+    primary: [
+      { key: 'overview', label: 'AI Visibility', href: projectTabBase },
+      { key: 'search-console', label: 'Search engines', href: `${projectTabBase}/search-console` },
+      { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
+      { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+      // `agent-readiness` is the route and embed token; the retired `/technical-aeo`
+      // route redirects here, and embeds that still list `technical-aeo` keep the tab.
+      { key: 'agent-readiness', label: 'Agent Readiness', href: `${projectTabBase}/agent-readiness` },
+      ...(journeys ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
+      { key: 'traffic', label: 'Server traffic', href: `${projectTabBase}/traffic` },
+      { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
+    ],
+    overflow: [
+      { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
+      { key: 'local', label: 'Local presence', href: `${projectTabBase}/local` },
+      { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
+      { key: 'history', label: 'Change history', href: `${projectTabBase}/history` },
+    ],
+  }
+}
 
 export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }: {
   items: ProjectTabItem[]
@@ -1425,6 +871,15 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
   const navRef = useRef<HTMLElement>(null)
   const measurementRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<{ visibleKeys: ProjectPageTab[]; settingsInMore: boolean } | null>(null)
+  // An open section that normally lives in More is shown as a tab before More,
+  // so the row always names the current page.
+  const { rowItems, menuOverflowItems } = useMemo(() => {
+    const activeOverflowItem = overflowItems.find(item => item.key === activeTab)
+    return {
+      rowItems: activeOverflowItem ? [...items, activeOverflowItem] : items,
+      menuOverflowItems: overflowItems.filter(item => item !== activeOverflowItem),
+    }
+  }, [items, overflowItems, activeTab])
 
   useLayoutEffect(() => {
     const nav = navRef.current
@@ -1438,22 +893,24 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
         .map(element => [element.dataset.projectTab!, element.getBoundingClientRect().width]))
       const widthOf = (key: string) => widths.get(key) ?? 0
       const totalWidth = (keys: string[]) => keys.reduce((total, key) => total + widthOf(key), 0) + Math.max(0, keys.length - 1) * gap
-      const allKeys = [...items.map(item => item.key), ...(overflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
-      let visibleKeys = items.map(item => item.key)
+      const allKeys = [...rowItems.map(item => item.key), ...(menuOverflowItems.length ? ['more'] : []), ...(settingsItem ? [settingsItem.key] : [])]
+      let visibleKeys = rowItems.map(item => item.key)
       let settingsInMore = false
       if (totalWidth(allKeys) > available) {
-        // Keep the selected primary section in view, even when it is near the
-        // end of the tab list. Settings joins More only on very narrow panels.
-        const active = items.find(item => item.key === activeTab)
+        // Keep the selected section in view, even when it is near the end of
+        // the tab list. Settings joins More only on very narrow panels, and
+        // never while it is the open section.
+        const active = rowItems.find(item => item.key === activeTab)
         const selected = active ? [active.key] : []
-        settingsInMore = Boolean(settingsItem && totalWidth([...selected, 'more', settingsItem.key]) > available)
+        settingsInMore = Boolean(settingsItem && settingsItem.key !== activeTab
+          && totalWidth([...selected, 'more', settingsItem.key]) > available)
         const trailing = ['more', ...(settingsItem && !settingsInMore ? [settingsItem.key] : [])]
-        for (const item of items) {
+        for (const item of rowItems) {
           if (item.key === active?.key) continue
           if (totalWidth([...selected, item.key, ...trailing]) > available) break
           selected.push(item.key)
         }
-        visibleKeys = items.filter(item => selected.includes(item.key)).map(item => item.key)
+        visibleKeys = rowItems.filter(item => selected.includes(item.key)).map(item => item.key)
       }
       setLayout(previous => previous?.settingsInMore === settingsInMore && previous.visibleKeys.join() === visibleKeys.join()
         ? previous
@@ -1468,20 +925,24 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
     observer.observe(nav)
     observer.observe(measurements) // Font loading or changed labels can alter item widths.
     return () => observer.disconnect()
-  }, [items, overflowItems, settingsItem, activeTab])
+  }, [rowItems, menuOverflowItems, settingsItem, activeTab])
 
-  const visibleItems = layout ? items.filter(item => layout.visibleKeys.includes(item.key)) : items
+  // The open section stays in the row even before a new active tab is measured.
+  const settingsInMore = Boolean(layout?.settingsInMore) && settingsItem?.key !== activeTab
+  const visibleItems = layout
+    ? rowItems.filter(item => item.key === activeTab || layout.visibleKeys.includes(item.key))
+    : rowItems
   const menuItems = [
-    ...items.filter(item => !visibleItems.includes(item)),
-    ...overflowItems,
-    ...(layout?.settingsInMore && settingsItem ? [settingsItem] : []),
+    ...rowItems.filter(item => !visibleItems.includes(item)),
+    ...menuOverflowItems,
+    ...(settingsInMore && settingsItem ? [settingsItem] : []),
   ]
 
   return (
     <nav className="project-subnav" aria-label="Project sections" ref={navRef}>
       <div className="project-subnav-measure" aria-hidden="true">
         <div className="project-subnav-measure-row" ref={measurementRef}>
-          {[...items, ...(settingsItem ? [settingsItem] : [])].map(item => (
+          {[...rowItems, ...(settingsItem ? [settingsItem] : [])].map(item => (
             <span className="project-subnav-link" key={item.key} data-project-tab={item.key}>{item.label}</span>
           ))}
           <span className="project-subnav-link project-subnav-more-trigger" data-project-tab="more">
@@ -1494,6 +955,11 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
           key={item.key}
           to={item.href}
           search={previous => ({ ...previous, onboarding: undefined })}
+          // AI Visibility is the project root, the parent of every other
+          // section. The router's default prefix match would mark it current
+          // on every section too, so only an exact match counts; `activeTab`
+          // decides the current page.
+          activeOptions={{ exact: true }}
           className={`project-subnav-link ${item.key === activeTab ? 'project-subnav-link-active project-subnav-current' : ''}`}
           aria-current={item.key === activeTab ? 'page' : undefined}
         >
@@ -1501,8 +967,8 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
         </Link>
       ))}
       <div className="project-subnav-trailing">
-        <ProjectSubnavMore items={menuItems} activeTab={activeTab} />
-        {settingsItem && !layout?.settingsInMore && (
+        <ProjectSubnavMore items={menuItems} />
+        {settingsItem && !settingsInMore && (
           <Link
             to={settingsItem.href}
             search={previous => ({ ...previous, onboarding: undefined })}
@@ -1524,7 +990,7 @@ export function ProjectSubnav({ items, overflowItems, settingsItem, activeTab }:
  * sit below ProjectPageContent's early returns. Lives here (not in its own
  * file) because it's a one-off for this subnav.
  */
-function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; activeTab: ProjectPageTab }) {
+function ProjectSubnavMore({ items }: { items: ProjectTabItem[] }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -1558,14 +1024,13 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
   }, [open])
 
   if (items.length === 0) return null
-  const hasActive = items.some((item) => item.key === activeTab)
 
   return (
     <div className="project-subnav-more" ref={ref}>
       <button
         type="button"
         ref={triggerRef}
-        className={`project-subnav-link project-subnav-more-trigger ${hasActive ? 'project-subnav-link-active' : ''}`}
+        className="project-subnav-link project-subnav-more-trigger"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -1605,8 +1070,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
               search={previous => ({ ...previous, onboarding: undefined })}
               role="menuitem"
               tabIndex={-1}
-              className={`project-subnav-menu-item ${item.key === activeTab ? 'project-subnav-menu-item-active' : ''}`}
-              aria-current={item.key === activeTab ? 'page' : undefined}
+              className="project-subnav-menu-item"
               onClick={() => setOpen(false)}
             >
               {item.label}
@@ -1619,7 +1083,7 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
 }
 
 /**
- * Same window Site Health's own scan picker reads. Deep enough that a run of
+ * Same window Agent Readiness's own scan picker reads. Deep enough that a run of
  * failures does not hide the completed scan underneath them.
  */
 const MAP_SITE_SCAN_HISTORY_LIMIT = 20
@@ -1657,6 +1121,7 @@ function ProjectPageContent({
   const projectName = model.project.name
   const hasInitialProjectDashboard = initialDashboard?.dashboard.projects.some(entry => entry.project.name === projectName) ?? false
   const projectSearchParams = useSearch({ strict: false }) as Record<string, unknown> & {
+    connectCloudRun?: CloudRunTrafficSetup
     manageQueries?: boolean
     runId?: string
     siteHealthRunId?: string
@@ -1665,22 +1130,25 @@ function ProjectPageContent({
   }
   const visibilitySelection = parseVisibilitySelection(projectSearchParams)
   const measurementScoped = isMeasurementScoped(visibilitySelection)
+  const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
+  const queryLimit = useMemo(() => embedQueryLimit(getEmbedConfig()), [])
+  const tab = useMemo(() => resolveProjectPageTab(requestedTab, getEmbedConfig()), [requestedTab])
+  const showVisibilityChecks = tab === 'overview' && !isEmbed()
+  const managedSweeps = isDashboardManagedSweeps()
   const measurementSetupQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
-    // Readiness drives the page-header sweep control on every project tab.
-    // Viewers still need setup state on the three result/configuration tabs
-    // that render Advanced Measurement, and on any scoped URL, where the
-    // context row says whether the tab follows that scope.
+    // The overview needs run readiness and the measurement mode. Portfolio,
+    // Settings and scoped URLs also use setup to resolve measurement context.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || requestedTab === 'portfolio' || requestedTab === 'overview' || requestedTab === 'settings' || measurementScoped),
+      && (tab === 'overview' || tab === 'portfolio' || tab === 'settings' || measurementScoped),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
   })
   const initialConfiguredApiProviders = initialDashboard
     ? initialDashboard.dashboard.settings.providerStatuses
-      .filter(provider => provider.state === 'ready')
+      .filter(provider => provider.state !== 'needs-config')
       .map(provider => normalizeProviderName(provider.name))
     : undefined
   const serverProviderReady = measurementSetupQuery.data?.answerVisibilityProviderReady
@@ -1695,7 +1163,8 @@ function ProjectPageContent({
     // The setup response owns live readiness. The direct CDP read remains only
     // as a first-paint fallback while a fixture or cold request has no setup
     // response yet.
-    enabled: !isEmbed()
+    enabled: showVisibilityChecks
+      && !managedSweeps
       && canWrite
       && serverProviderReady === undefined
       && selectionCanUseCdp
@@ -1716,14 +1185,6 @@ function ProjectPageContent({
     configuredApiProviders,
     cdpConfigured,
   })
-  // Read-only embed mode (#716): the effective project-tab allowlist hides
-  // operator surfaces from the embedded client dashboard. Non-embed = all tabs;
-  // an embed without `projectTabs` gets the embed-safe set. The subnav below is
-  // filtered to it; a direct-URL hit on a hidden tab falls back to a visible board.
-  const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
-  // The embedded client Queries tab comes from the agency's grant, not the allowlist.
-  const queryLimit = useMemo(() => embedQueryLimit(getEmbedConfig()), [])
-  const tab = useMemo(() => resolveProjectPageTab(requestedTab, getEmbedConfig()), [requestedTab])
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   const competitorAliases = useMemo<Record<string, readonly string[]>>(
     () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
@@ -1740,7 +1201,7 @@ function ProjectPageContent({
     () => Object.fromEntries(model.competitors.map(c => [c.domain, [...(c.aliases ?? []), ...(c.autoAliases ?? [])]])),
     [model.competitors],
   )
-  // "Local Presence" is always shown — GbpSection renders a setup guide when no
+  // "Local presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1807,6 +1268,7 @@ function ProjectPageContent({
 
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
+  const runPreview = useRunPreview(projectName, showVisibilityChecks && !managedSweeps && sweepConfirmationProject === projectName)
   const portfolioQueriesQuery = useQuery({
     ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
     enabled: tab === 'portfolio' && Boolean(projectName),
@@ -1819,7 +1281,7 @@ function ProjectPageContent({
     // project wherever it renders, including a deep link.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
+      && (isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings' || (canWrite && measurementScoped)),
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -2005,15 +1467,6 @@ function ProjectPageContent({
   // Real sweeps only, to date the sweep before a model or query change. Every
   // one back from the latest, so newer failed runs never leave a gap.
   const recentSweepTimes = useMemo(() => model.visibilitySweeps.map(run => run.createdAt), [model.visibilitySweeps])
-  // Other tabs still expose the admin sweep control. Its readiness needs the
-  // tracked basket, but never answer bodies or historical run detail.
-  const needsHeaderQueries = canWrite && !isEmbed() && !isDashboardManagedSweeps() && tab !== 'overview'
-  const headerQueriesQuery = useQuery({
-    ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: needsHeaderQueries,
-    staleTime: STATIC_VISIBILITY_STALE_MS,
-    refetchOnWindowFocus: 'always',
-  })
   // Advanced competitor reads are explicit. A market keeps its frozen market
   // identities AND the project pins that the stored-evidence API unions into
   // its denominator. All markets is a separate raw-evidence aggregate, never
@@ -2059,6 +1512,18 @@ function ProjectPageContent({
     setCompetitorHistoryOpenForProject(null)
   }, [projectName])
   const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
+  // "Add competitors" in the comparison's empty state opens Competitor history,
+  // where competitors are pinned and added, and moves focus to its toggle once
+  // it is open.
+  const competitorHistoryRef = useRef<HTMLDetailsElement>(null)
+  const [competitorHistoryFocusPending, setCompetitorHistoryFocusPending] = useState(false)
+  useEffect(() => {
+    if (!competitorHistoryFocusPending || !competitorHistoryOpen) return
+    setCompetitorHistoryFocusPending(false)
+    competitorHistoryRef.current?.querySelector<HTMLElement>(':scope > summary')?.focus()
+  }, [competitorHistoryFocusPending, competitorHistoryOpen])
+  const competitiveTitleId = useId()
+  const competitiveMetaId = useId()
   // Historical evidence is read when its disclosure opens.
   const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
   const competitorLandscapeQuery = useQuery({
@@ -2204,8 +1669,8 @@ function ProjectPageContent({
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
   // Manual launches use the project roster; schedules may select other providers.
-  const runAdmission = useRunAdmission(projectName, !isEmbed() && !isDashboardManagedSweeps(), 'manual').data
-  const scheduledRunAdmission = useRunAdmission(projectName, !isEmbed(), 'scheduled').data
+  const runAdmission = useRunAdmission(projectName, showVisibilityChecks && !managedSweeps, 'manual').data
+  const scheduledRunAdmission = useRunAdmission(projectName, showVisibilityChecks, 'scheduled').data
   const admissionScopesDiffer = runAdmission && scheduledRunAdmission
     && JSON.stringify(runAdmission) !== JSON.stringify(scheduledRunAdmission)
   const sweepsOnHold = runAdmission?.refused === true
@@ -2229,24 +1694,20 @@ function ProjectPageContent({
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
   // The authoritative tracked-query set — every query the project tracks,
   // including ones added but not yet run (build-dashboard seeds a "pending"
-  // evidence row for those). This is the same source as the "N queries tracked"
-  // header count, so the manage list and the count never diverge. Sorted for a
-  // stable order in the manage panel.
+  // evidence row for those). Sorted for a stable order in the manage panel.
   const trackedQueries = useMemo(
     () => [...new Set(visibilityEvidence.map(e => e.query))].sort((a, b) => a.localeCompare(b)),
     [visibilityEvidence],
   )
-  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0 || (headerQueriesQuery.data?.length ?? 0) > 0
+  const hasTrackedQueries = trackedQueries.length > 0 || model.queryCounts.total > 0
+  const draftRequiresPublication = measurementSetupQuery.data?.requiresPublication === true
   const hasMeasurementPlanQueries = activeMeasurementPlan !== null
   const hasVisibilityInputs = hasTrackedQueries || hasMeasurementPlanQueries
   const visibilityInputsPending = canWrite
     && !hasVisibilityInputs
     && ((activeMeasurementPlanQuery.data === undefined && activeMeasurementPlanQuery.isPending)
-      || headerQueriesQuery.isLoading || (needsSimpleEvidence && evidenceDashboard.evidenceLoading))
-  const providerReadinessFailed = canWrite && (
-    (measurementSetupQuery.isError && !measurementSetupQuery.isFetching)
-    || (needsHeaderQueries && headerQueriesQuery.isError && !headerQueriesQuery.isFetching)
-  )
+      || (needsSimpleEvidence && evidenceDashboard.evidenceLoading))
+  const providerReadinessFailed = canWrite && measurementSetupQuery.isError && !measurementSetupQuery.isFetching
   const sweepReadinessPending = canWrite
     && !providerReadinessFailed
     && (visibilityInputsPending
@@ -2255,19 +1716,20 @@ function ProjectPageContent({
   const sweepPrerequisitesReady = !sweepReadinessPending
     && !providerReadinessFailed
     && hasVisibilityInputs
+    && !draftRequiresPublication
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
-  // "Map site" invites the operator to do something that has not been done yet,
+  // "Check Agent Readiness" invites the operator to do something not done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
-  // this project already has a Site Health scan.
+  // this project already has an Agent Readiness audit scan.
   //
   // Scan history, not the crawl summary: a scorecard-only scan published no
   // crawl, so the crawl summary reports no scan for a project that has one and
   // the button comes back. Scan history is the list of readable scans and
   // already excludes probes.
-  const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
+  const mapSiteCandidate = showVisibilityChecks && !managedSweeps && sweepSetupRequired && !hasVisibilityInputs
   const siteAuditScansQuery = useQuery({
-    ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
+    ...getApiV1ProjectsByNameAgentReadinessRunsOptions({
       client: heyClient,
       path: { name: projectName },
       query: { limit: MAP_SITE_SCAN_HISTORY_LIMIT },
@@ -2283,7 +1745,7 @@ function ProjectPageContent({
   // read has actually come back without a scan to open.
   const showMapSite = mapSiteCandidate && siteAuditScansQuery.isSuccess && !hasReadableSiteAudit
   // `/projects/:name` opens on AI Visibility, which for a project in this state
-  // is entirely empty, while the Page Health result the operator just waited
+  // is entirely empty, while the Agent Readiness score the operator just waited
   // for sits two tabs away. Point at the evidence they actually have.
   const showViewPageHealth = mapSiteCandidate && hasReadableSiteAudit
   // The collection read returns [] when no schedule exists. This keeps fresh
@@ -2291,7 +1753,7 @@ function ProjectPageContent({
   // after queries or providers are removed.
   const sweepSchedulesQuery = useQuery({
     ...getApiV1ProjectsByNameSchedulesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: !isEmbed() && !isDashboardManagedSweeps() && Boolean(projectName),
+    enabled: showVisibilityChecks && !managedSweeps && Boolean(projectName),
     retry: false,
   })
   // Only claim a next sweep when one is genuinely coming: a schedule that
@@ -2381,7 +1843,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
+    if (runPreview.isError || runPreview.isFetching || runPreview.data?.canStart !== true || sweepConfirmationProject !== projectName || !canWrite || !showVisibilityChecks || managedSweeps || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -2395,18 +1857,22 @@ function ProjectPageContent({
   }
 
   function openAiVisibilitySetup() {
+    if (draftRequiresPublication) {
+      void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } })
+      return
+    }
     void navigate({
       to: '/setup',
       search: {
-        experience: 'legacy',
-        setupProject: projectName,
+        project: projectName,
+        track: 'ai-visibility',
       },
     })
   }
 
   function openSiteHealth() {
     void navigate({
-      to: '/projects/$projectName/technical-aeo',
+      to: '/projects/$projectName/agent-readiness',
       params: { projectName },
     })
   }
@@ -2569,7 +2035,7 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null }) {
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null; siteAuditDomains?: string[] }) {
     const updated = await apiUpdateProject(pName, updates)
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
     // Scoped to the edited project's own cache entries — see the helper.
@@ -2577,39 +2043,21 @@ function ProjectPageContent({
     return updated
   }
 
-  // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
-  // is chrome: plain text that recedes, the active tab marked by a Snow
-  // underline on the bar's hairline. Low-frequency sections live in a
-  // trailing "More" overflow; Settings is split out at the far right (universal
-  // convention). "Local Presence" only appears once GBP is connected.
+  // Quiet underline tabs in `projectSectionTabs` order. The bar keeps the
+  // sections an operator returns to; everything else is in More, and an open
+  // More section shows as a tab before it, so the bar always names the current
+  // page. Narrow widths can move primary sections into More, never the open
+  // one. Operators reach Settings from the sidebar; only embeds get a Settings
+  // tab, at the far right.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
-  const projectTabItemsAll: ProjectTabItem[] = [
-    // `key` is a WIRE value: embed installs list it in CANONRY_EMBED_PROJECT_TABS
-    // and it appears in saved URLs, so it stays `overview` however the label reads.
-    { key: 'overview', label: 'AI Visibility', href: projectTabBase },
-    { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
-    { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
-    { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
-    // Journeys reads private visitor evidence: never for view-only accounts, and
-    // absent from the embed allowlist, so embeds drop it automatically.
-    ...(account?.role !== UserRoles.viewer ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
-    // `technical-aeo` is a stable route and embed token. Site Health is the product label.
-    { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
-    { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
-    { key: 'local', label: 'Local Presence', href: `${projectTabBase}/local` },
-    { key: 'queries', label: 'Queries', href: `${projectTabBase}/queries` },
-    { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
-  ]
-  const projectOverflowTabItemsAll: ProjectTabItem[] = [
-    { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
-  ]
+  const sectionTabs = projectSectionTabs(projectTabBase, { journeys: account?.role !== UserRoles.viewer })
   // In embed mode the effective allowlist narrows the subnav to the curated
   // client-facing tabs. Settings also requires write access outside embed/demo.
   const projectTabItems = [
-    ...projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
+    ...sectionTabs.primary.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
     ...(queryLimit !== undefined ? [{ key: 'client-queries' as const, label: 'Queries', href: `${projectTabBase}/client-queries` }] : []),
   ]
-  const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
+  const projectOverflowTabItems = sectionTabs.overflow.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),
   )
   const canViewProjectSettings = canWrite || isEmbed() || isPublicDemo()
@@ -2640,8 +2088,8 @@ function ProjectPageContent({
         ) : undefined}
         // Embeds and managed dashboards name neither date. A sweep already under way brings
         // new numbers before the scheduled one, so it names no date either.
-        trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
-        nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
+        trackingChangedAt={isEmbed() || managedSweeps ? undefined : activeMeasurementPlan?.createdAt}
+        nextSweepDate={isEmbed() || managedSweeps || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
         fallback={overview}
       />
     )
@@ -2766,7 +2214,7 @@ function ProjectPageContent({
   const evidenceQueryEditor = !isEmbed() && managingQueries ? (
     <div className="mb-3 material-base p-3">
       {trackedQueries.length > 0 ? (
-        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto material-base">
+        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto">
           {trackedQueries.map((q) => (
             <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0 truncate text-label-14 text-strong" title={q}>{q}</span>
@@ -2814,7 +2262,7 @@ function ProjectPageContent({
               {model.project.canonicalDomain} · {model.contextLabel}
             </p>
           </div>
-          <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
+          <div className={managedSweeps ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
             {overviewRangeLabel !== null ? <p className="text-copy-14 text-muted">{overviewRangeLabel}</p> : null}
           </div>
         </div>
@@ -2831,69 +2279,20 @@ function ProjectPageContent({
               <span className="project-mode-tag-detail">{advancedProjectTag}</span>
             </span>
           ) : null}
-          <div className="project-context-actions" data-project-actions>
-            {isDashboardManagedSweeps() ? (
-              <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
-            ) : (
-              <>
-                {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
-                {showMapSite ? (
-                  <WriteButton type="button" onClick={openSiteHealth}>
-                    Map site
-                  </WriteButton>
-                ) : showViewPageHealth ? (
-                  <WriteButton type="button" onClick={openSiteHealth}>
-                    View Page Health
-                  </WriteButton>
-                ) : null}
-                {/* Secondary, not primary. The schedule beside it is what actually
-                    runs the sweep; this is the override for when you can't wait
-                    for it. Deleting the project used to sit here too — an
-                    irreversible action one misclick from the page's most-used
-                    button — and now lives at the bottom of the Settings tab. */}
-                <WriteButton
-                  type="button"
-                  variant="outline"
-                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
-                  onClick={providerReadinessFailed
-                    ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
-                    : sweepSetupRequired
-                      ? openAiVisibilitySetup
-                      : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
-                >
-                  {triggerRunMutation.isPending
-                    ? 'Starting…'
-                    : hasActiveVisibilitySweep
-                      ? 'AI Visibility check running…'
-                      : sweepReadinessPending
-                        ? 'Checking AI readiness…'
-                        : providerReadinessFailed
-                          ? 'Retry AI readiness'
-                        : sweepSetupRequired
-                          ? 'Set up AI Visibility'
-                          : sweepsOnHold
-                            ? 'AI Visibility checks on hold'
-                            : 'Run AI Visibility check'}
-                </WriteButton>
-              </>
-            )}
-          </div>
+          {showMapSite || showViewPageHealth ? (
+            <div className="project-context-actions" data-project-actions>
+              <WriteButton type="button" onClick={openSiteHealth}>
+                {showMapSite ? 'Check Agent Readiness' : 'View Agent Readiness score'}
+              </WriteButton>
+            </div>
+          ) : null}
         </div>
       )}
 
-      {!isEmbed() && !isDashboardManagedSweeps() && <ProjectSweepConfirmation
-        open={sweepConfirmationProject === projectName}
-        projectLabel={projectLabel}
-        onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
-        onConfirm={asyncHandler(handleTriggerRun)}
-        onClosed={() => sweepOpener.current?.focus()}
-        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
-        leftOut={sweepLeavesOut}
-      />}
       <ProjectSubnav
         items={projectTabItems}
         overflowItems={projectOverflowTabItems}
-        settingsItem={projectSettingsTab}
+        settingsItem={isEmbed() ? projectSettingsTab : null}
         activeTab={tab}
       />
 
@@ -2901,6 +2300,7 @@ function ProjectPageContent({
         <AdvancedMeasurementSection
           key={projectName}
           projectName={projectName}
+          projectDomain={model.project.canonicalDomain}
           canEdit={canWrite}
           queries={portfolioQueriesQuery.data ?? []}
           isQueryLoading={isPortfolioQueriesLoading}
@@ -2945,8 +2345,54 @@ function ProjectPageContent({
         />
       ) : tab === 'overview' ? (
         <>
+        {showVisibilityChecks ? (
+          <div role="group" aria-label="AI Visibility checks" className="visibility-checks">
+            {managedSweeps ? <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} /> : (
+              <>
+                {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
+                <WriteButton
+                  type="button"
+                  variant="outline"
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
+                  onClick={providerReadinessFailed
+                    ? () => { void measurementSetupQuery.refetch() }
+                    : sweepSetupRequired
+                      ? openAiVisibilitySetup
+                      : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
+                >
+                  {triggerRunMutation.isPending
+                    ? 'Starting…'
+                    : hasActiveVisibilitySweep
+                      ? 'AI Visibility check running…'
+                      : sweepReadinessPending
+                        ? 'Checking AI engines…'
+                        : providerReadinessFailed
+                          ? 'Retry engine check'
+                          : sweepSetupRequired
+                            ? draftRequiresPublication ? 'Review and publish plan' : 'Set up AI Visibility'
+                            : sweepsOnHold
+                              ? 'AI Visibility checks on hold'
+                              : 'Run AI Visibility check'}
+                </WriteButton>
+                <ProjectSweepConfirmation
+                  open={sweepConfirmationProject === projectName}
+                  projectLabel={projectLabel}
+                  onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
+                  onConfirm={asyncHandler(handleTriggerRun)}
+                  onClosed={() => sweepOpener.current?.focus()}
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
+                  leftOut={sweepLeavesOut}
+                  preview={runPreview.data}
+                  previewPending={runPreview.isFetching}
+                  previewFailed={runPreview.isError}
+                  onRetryPreview={() => { void runPreview.refetch() }}
+                />
+              </>
+            )}
+          </div>
+        ) : null}
         {/* Above both overviews and their loading state: a refused or partial sweep is the project's state, whichever portfolio it is. */}
-        {!isEmbed() ? <>
+        {showVisibilityChecks ? <>
           {scheduledRunAdmission ? <RunAdmissionNoticeView admission={scheduledRunAdmission} canFix={canWrite && isAdmin} selection={admissionScopesDiffer || !runAdmission ? 'scheduled' : undefined} /> : null}
           {runAdmission && (admissionScopesDiffer || !scheduledRunAdmission) ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite && isAdmin} selection="manual" /> : null}
         </> : null}
@@ -2976,7 +2422,7 @@ function ProjectPageContent({
             canEdit={canWrite && !isEmbed() && !isActiveMeasurementPlanLoading && !isActiveMeasurementPlanError}
             simpleOverview={(
               <>
-          <section className="page-section-divider">
+          <section className="mb-6">
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
@@ -2989,14 +2435,18 @@ function ProjectPageContent({
             />
           </section>
 
-          <section className="page-section-divider">
-            <div className="av-card-head">
-              <h2 className="av-card-title">Where competitors are winning</h2>
-              {hasVisibilityBaseline ? <p className="av-card-meta">Latest check</p> : null}
-            </div>
+          {hasVisibilityBaseline && <><section className="mb-6"><details className="av-history" open={competitorDomains.length > 0}>
+            {/* The summary is the toggle, so it takes its name from the heading
+                alone; the check it reads is its description. */}
+            <summary className="av-card-head" aria-labelledby={competitiveTitleId} aria-describedby={competitiveMetaId}>
+              <h2 id={competitiveTitleId} className="av-card-title">{competitorDomains.length > 0 ? 'Where competitors are winning' : 'Compare competitors'}</h2>
+              <span className="inline-flex items-center gap-2">
+                <span id={competitiveMetaId} className="av-card-meta">Latest check</span>
+                <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
+              </span>
+            </summary>
 
-            {hasVisibilityBaseline ? (
-              <div className="competitive-summary">
+            <div className="competitive-summary">
                 <MentionShare
                   key={model.project.name}
                   summary={model.mentionShareSummary}
@@ -3004,40 +2454,55 @@ function ProjectPageContent({
                   competitorDomains={competitorDomains}
                 />
 
-                <div className="competitive-gaps">
-                  <p className="competitive-gaps-scope">All queries</p>
-                  <div className="aeo-hero-rows">
-                    <OverviewMetricRow
-                      label="Mention gaps"
-                      summary={model.mentionGaps}
-                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
-                      tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
-                    />
-                    <OverviewMetricRow
-                      label="Citation gaps"
-                      summary={model.gapQueries}
-                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
-                      tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
-                    />
+                {competitorDomains.length > 0 ? (
+                  <div className="competitive-gaps">
+                    <p className="competitive-gaps-scope">All queries</p>
+                    <div className="aeo-hero-rows">
+                      <OverviewMetricRow
+                        label="Mention gaps"
+                        summary={model.mentionGaps}
+                        displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                        tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
+                      />
+                      <OverviewMetricRow
+                        label="Citation gaps"
+                        summary={model.gapQueries}
+                        displayValue={citationGapBase(model.queryCounts) === 0
+                          // No answer carries sources, so there is no base to count gaps out of.
+                          ? <><span className="whitespace-nowrap text-label-13 text-secondary">{CITATION_NOT_MEASURED.label}</span><span className="sr-only">, all queries</span></>
+                          : <><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {citationGapBase(model.queryCounts)}</span><span className="sr-only"> queries, all queries</span></>}
+                        tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  // A gap counts only tracked competitors, so with none tracked
+                  // both counts are zero whatever the answers said. Zeros with
+                  // bars would read as winning; say what is missing instead.
+                  <div className="competitive-gaps">
+                    <p className="text-label-14-strong text-strong">{COMPETITOR_COMPARISON_COPY.emptyTitle}</p>
+                    <p className="mt-1 text-copy-14 text-secondary">{COMPETITOR_COMPARISON_COPY.emptyDetail}</p>
+                    {competitorLandscapeAvailable && canWrite && !isEmbed() ? (
+                      <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => {
+                        setCompetitorHistoryOpenForProject(projectName)
+                        setCompetitorHistoryFocusPending(true)
+                      }}>
+                        {COMPETITOR_COMPARISON_COPY.add}
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
               </div>
-            ) : (
-              <p className="text-copy-14 text-secondary">
-                Competitive mention and citation gaps appear after the first AI Visibility check.
-              </p>
-            )}
+          </details></section>
 
-          </section>
-
-          <div className="page-section-divider">
-            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
+          <div className="mb-6">
+            <CitationVisibilitySection projectName={model.project.name} revision={latestVisibilityRevision} />
           </div>
-
+</>}
           <OverviewDisclosure
             id="evidence-section"
             title="Query evidence"
-            meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
+            meta={`${model.queryCounts.total} measured ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen
           >
             {model.project.locations.length > 0 && (
@@ -3167,7 +2632,7 @@ function ProjectPageContent({
             )}
           </details> : null}
           {competitorLandscapeCard !== null ? (
-            <details className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+            <details ref={competitorHistoryRef} className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
               <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
               <div className="visibility-disclosure-panel">{competitorLandscapeCard}</div>
             </details>
@@ -3187,7 +2652,7 @@ function ProjectPageContent({
         <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
-          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
+          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async settings => { await handleUpdateProject(model.project.name, settings) }} />
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
               <h2 className="text-heading-20 text-heading">Advanced measurement</h2>
@@ -3271,7 +2736,7 @@ function ProjectPageContent({
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
           publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
         />
-      ) : tab === 'technical-aeo' ? (
+      ) : tab === 'agent-readiness' ? (
         <SiteHealthSection
           projectName={model.project.name}
           projectId={model.project.id}
@@ -3294,6 +2759,15 @@ function ProjectPageContent({
         <ProjectHistorySection projectName={model.project.name} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
+      ) : tab === 'traffic' ? (
+        <ServerTrafficSection
+          key={JSON.stringify([model.project.id, projectSearchParams.connectCloudRun])}
+          view="project"
+          projectName={projectName}
+          initialCloudRunTarget={projectSearchParams.connectCloudRun}
+          sourceId={typeof projectSearchParams.trafficSource === 'string' ? projectSearchParams.trafficSource : undefined}
+          onSelectSource={trafficSource => updateVisibilitySearch({ trafficSource, connectCloudRun: undefined })}
+        />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
       ) : tab === 'seo-data' ? (

@@ -13,7 +13,7 @@ import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { writeCoverageSnapshot } from './gsc-coverage-snapshot.js'
 import { createLogger } from './logger.js'
 import { inspectUrlsPaced, INSPECT_FAILFAST_THRESHOLD, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
-import { describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunStatuses } from '@canonry/canonry-contracts'
+import { defaultSearchSitemapUrl, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunStatuses } from '@canonry/canonry-contracts'
 import { googleRunFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('InspectSitemap')
@@ -79,7 +79,8 @@ export async function executeInspectSitemap(
     }
 
     // Determine sitemap URL: explicit > stored on connection > default
-    const sitemapUrl = opts.sitemapUrl || conn.sitemapUrl || `https://${project.canonicalDomain}/sitemap.xml`
+    const sitemapUrl = opts.sitemapUrl || conn.sitemapUrl || defaultSearchSitemapUrl(conn.propertyId, project.canonicalDomain)
+    if (!sitemapUrl) throw withOutcomeReason(new Error('Cannot determine a sitemap URL for this Search Console property'), OutcomeReasonCodes.VALIDATION)
     log.info('sitemap.fetch', { runId, projectId, sitemapUrl })
 
     const urls = await fetchAndParseSitemap(sitemapUrl)

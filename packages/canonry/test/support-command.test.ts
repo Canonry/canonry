@@ -1,22 +1,42 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { supportCommand } from '../src/commands/support.js'
 import { CliError, EXIT_SYSTEM_ERROR, printCliError } from '../src/cli-error.js'
-import { CANONRY_DISCORD_URL } from '../src/support-links.js'
+
+const welcomeInvite = 'https://discord.gg/8K9yY7GywJ'
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('canonry support', () => {
-  it('prints the Discord invite, issue tracker and feedback command', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  const support = {
+    discord: welcomeInvite,
+    issues: 'https://github.com/Canonry/canonry/issues',
+    feedbackCommand: 'canonry feedback "<what happened>"',
+  }
+  const social = {
+    x: 'https://x.com/canonry_ai',
+    youtube: 'https://www.youtube.com/@Canonry_AI',
+  }
+
+  it('prints support and social links on a self-hosted install', () => {
+    vi.stubEnv('CANONRY_RUNTIME_MODE', undefined)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     supportCommand('text')
-    expect(log.mock.calls[0]?.[0]).toContain('https://discord.gg/jnJ2H2z5Xh')
-    expect(log.mock.calls[0]?.[0]).toContain('canonry feedback')
+    for (const value of Object.values({ ...support, ...social })) {
+      expect(log.mock.calls[0]?.[0]).toContain(value)
+    }
     supportCommand('json')
-    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual({
-      discord: 'https://discord.gg/jnJ2H2z5Xh',
-      issues: 'https://github.com/Canonry/canonry/issues',
-      feedbackCommand: 'canonry feedback "<what happened>"',
-    })
+    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual({ ...support, ...social })
+  })
+
+  it('shows the welcome invite in cloud mode and omits the social links', () => {
+    vi.stubEnv('CANONRY_RUNTIME_MODE', ' Cloud ')
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    supportCommand('text')
+    for (const url of Object.values(social)) expect(log.mock.calls[0]?.[0]).not.toContain(url)
+    supportCommand('json')
+    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toEqual(support)
   })
 })
 
@@ -28,7 +48,7 @@ describe('the help hint on errors', () => {
     tty(true)
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     printCliError(new Error('boom'), 'text')
-    expect(err.mock.calls.map(c => String(c[0])).join('\n')).toContain(CANONRY_DISCORD_URL)
+    expect(err.mock.calls.map(c => String(c[0])).join('\n')).toContain(welcomeInvite)
     err.mockClear()
     printCliError(new CliError({ code: 'INTERNAL', message: 'x', exitCode: EXIT_SYSTEM_ERROR }), 'text')
     expect(err.mock.calls.map(c => String(c[0])).join('\n')).toContain("canonry support")
@@ -41,6 +61,6 @@ describe('the help hint on errors', () => {
     printCliError(new Error('boom'), 'json')
     tty(false)
     printCliError(new Error('boom'), 'text')
-    expect(err.mock.calls.map(c => String(c[0])).join('\n')).not.toContain(CANONRY_DISCORD_URL)
+    expect(err.mock.calls.map(c => String(c[0])).join('\n')).not.toMatch(/discord\.gg|canonry support/)
   })
 })

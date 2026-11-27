@@ -40,9 +40,12 @@ export function toneFromTrafficSourceStatus(status: TrafficSourceStatus): Metric
 }
 
 export interface ServerTrafficEventsFilters {
-  kind?: TrafficEventKind | 'all'
+  /** One kind, 'all', or several comma-separated (`trafficFetchKind`). */
+  kind?: TrafficEventKind | 'all' | (string & {})
   sourceId?: string
   sinceMinutes?: number
+  /** An exact span (one chart bucket). Takes the place of `sinceMinutes`. */
+  range?: { since: string; until: string }
   limit?: number
   granularity?: TrafficSeriesGranularity
 }
@@ -56,13 +59,17 @@ function paramsForFilters(filters: ServerTrafficEventsFilters): {
   kind?: string
   sourceId?: string
   since?: string
+  until?: string
   limit?: string
   granularity?: TrafficSeriesGranularity
 } {
-  const params: { kind?: string; sourceId?: string; since?: string; limit?: string; granularity?: TrafficSeriesGranularity } = {}
+  const params: { kind?: string; sourceId?: string; since?: string; until?: string; limit?: string; granularity?: TrafficSeriesGranularity } = {}
   if (filters.kind && filters.kind !== 'all') params.kind = filters.kind
   if (filters.sourceId) params.sourceId = filters.sourceId
-  if (filters.sinceMinutes !== undefined) {
+  if (filters.range) {
+    params.since = filters.range.since
+    params.until = filters.range.until
+  } else if (filters.sinceMinutes !== undefined) {
     params.since = new Date(Date.now() - filters.sinceMinutes * 60_000).toISOString()
   }
   if (filters.limit !== undefined) params.limit = String(filters.limit)
@@ -111,6 +118,7 @@ export function useServerTrafficSource(project: string | null, sourceId: string 
 export function useServerTrafficEvents(
   project: string | null,
   filters: ServerTrafficEventsFilters,
+  options: { enabled?: boolean } = {},
 ) {
   // CRITICAL: memoize the query params on `filters.sinceMinutes`, NOT
   // on every render. `paramsForFilters` computes `since` via
@@ -125,9 +133,10 @@ export function useServerTrafficEvents(
   // the page mounted), so the query key is stable until the user picks
   // a different window. The data is still "last N minutes from now" in
   // intent — it just doesn't tick forward on every render frame.
+  // The range is keyed by its two strings, never the object, for the same reason.
   const stableQuery = useMemo(
     () => paramsForFilters(filters),
-    [filters.kind, filters.sourceId, filters.sinceMinutes, filters.limit, filters.granularity],
+    [filters.kind, filters.sourceId, filters.sinceMinutes, filters.range?.since, filters.range?.until, filters.limit, filters.granularity],
   )
   return useQuery({
     ...getApiV1ProjectsByNameTrafficEventsOptions({
@@ -135,7 +144,7 @@ export function useServerTrafficEvents(
       path: { name: project ?? '' },
       query: stableQuery,
     }),
-    enabled: Boolean(project),
+    enabled: Boolean(project) && options.enabled !== false,
     staleTime: TRAFFIC_STALE_MS,
   })
 }

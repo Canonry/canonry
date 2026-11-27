@@ -28,7 +28,7 @@ export interface EmbedConfigEntry {
   views?: string[]
   /**
    * Optional allowlist of PROJECT TAB keys the embedded project page may render
-   * (`overview`, `technical-aeo`, `search-console`, `activity`, `backlinks`, ...).
+   * (`overview`, `agent-readiness`, `search-console`, `activity`, `backlinks`, ...).
    * Finer-grained than `views` (which only gates whole top-level routes): the
    * project page collapses to one `project` view, so this is the only lever that
    * can hide individual operator tabs from the embedded client dashboard. Omit =
@@ -229,6 +229,23 @@ export function normalizeIdTokens(raw: string[]): string[] | undefined {
   return out.length > 0 ? out : undefined
 }
 
+/** Project-tab keys from earlier releases, mapped to the key that replaced them. */
+const RENAMED_EMBED_PROJECT_TABS: Readonly<Record<string, string>> = {
+  'technical-aeo': 'agent-readiness',
+}
+
+/**
+ * `normalizeIdTokens` for project-tab keys: a host that still lists a renamed
+ * tab (`technical-aeo`) keeps its grant under the current key
+ * (`agent-readiness`), so a saved allowlist never silently loses a tab.
+ */
+export function normalizeEmbedProjectTabs(raw: string[]): string[] | undefined {
+  return normalizeIdTokens(raw.map((tab) => {
+    const id = tab.trim().toLowerCase()
+    return RENAMED_EMBED_PROJECT_TABS[id] ?? id
+  }))
+}
+
 /**
  * Parse a per-request theme override header (`X-Canonry-Embed-Theme`, a plain
  * JSON object string the Embed v2 `/e` proxy sets per dashboard) into a flat
@@ -284,7 +301,7 @@ export function embedClientConfigForRequest(
 ): EmbedClientConfig | undefined {
   const base = buildEmbedClientConfig(resolved)
   if (!base) return undefined
-  const tabs = normalizeIdTokens(splitList(projectTabsOverride))
+  const tabs = normalizeEmbedProjectTabs(splitList(projectTabsOverride))
   const theme = parseThemeOverride(themeOverride)
   const renderToken = parseRenderTokenOverride(renderTokenOverride)
   const queryLimit = parseEmbedQueryLimit(queryLimitOverride)

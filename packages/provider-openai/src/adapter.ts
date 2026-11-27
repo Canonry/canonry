@@ -93,8 +93,8 @@ export const openaiAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await openaiHealthcheck(toOpenAIConfig(config))
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
+    const result = await openaiHealthcheck(toOpenAIConfig(config), signal)
     return {
       ok: result.ok,
       provider: 'openai',

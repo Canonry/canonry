@@ -46,12 +46,12 @@ vi.mock('../src/server.js', async importOriginal => {
 import { runCli } from '../src/cli.js'
 
 const ENV_KEYS = [
-  'CANONRY_PORT', 'CANONRY_HOST', 'CANONRY_BASE_PATH',
+  'CANONRY_PORT', 'CANONRY_HOST', 'CANONRY_BASE_PATH', 'CANONRY_RUNTIME_MODE',
   'CANONRY_EMBED', 'CANONRY_EMBED_ORIGINS', 'CANONRY_EMBED_VIEWS', 'CANONRY_EMBED_PROJECT_TABS',
   'CANONRY_TRUST_PROXY', 'CANONRY_EXTERNAL_MCP', 'CANONRY_OPERATOR_KEY_IDS',
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD', 'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
-  'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP',
-  'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION', 'CANONRY_DASHBOARD_MANAGED_SWEEPS',
+  'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP', 'CANONRY_DASHBOARD_SHOW_FEEDBACK',
+  'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION', 'CANONRY_DASHBOARD_WHATS_NEW_ONLY', 'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_DASHBOARD_MANAGED_RUN_KINDS', 'CANONRY_ONBOARDING_MODE', 'CANONRY_DASHBOARD_BRAND_MARK',
   'CANONRY_RESEARCH_ALLOW_VIEWERS', 'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
 ] as const
@@ -60,7 +60,8 @@ const CONFIG_WARN = 'This server is configured to be reached through a proxy or 
 const OFF = { enabled: false }
 const ON = { enabled: true, projectTabs: ['overview'] }
 const LIMITED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview'] }
-const TABBED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview', 'technical-aeo'] }
+// The row below passes the renamed `technical-aeo` tab key; the browser reads it as `agent-readiness`.
+const TABBED = { enabled: true, views: ['overview', 'project'], projectTabs: ['overview', 'agent-readiness'] }
 
 interface SettingsRow {
   id: string
@@ -71,12 +72,14 @@ interface SettingsRow {
   host?: string
   url?: string
   prefix?: string
+  hideFeedback?: boolean
   embed?: typeof ON | typeof LIMITED | typeof TABBED
   csp?: string
   expectedEnv?: Record<string, string>
 }
 const SETTINGS: SettingsRow[] = [
   { id: 'default-json', port: 4100 },
+  { id: 'hide-feedback-overrides-env', args: ['--hide-feedback'], env: { CANONRY_DASHBOARD_SHOW_FEEDBACK: '1' }, port: 4100, hideFeedback: true },
   { id: 'default-jsonl', args: ['--format', 'jsonl'], port: 4100 },
   { id: 'inherited-port', env: { CANONRY_PORT: '4101' }, port: 4101, expectedEnv: { CANONRY_PORT: '4101' } },
   { id: 'env-before-config-port', env: { CANONRY_PORT: '4101' }, config: { port: 5000 }, port: 4101, expectedEnv: { CANONRY_PORT: '4101' } },
@@ -101,14 +104,14 @@ const JAN2 = '2026-01-02T00:00:00.000Z'
 const JAN3 = '2026-01-03T00:00:00.000Z'
 const ALPHA = { id: 'p1', name: 'alpha', createdAt: JAN1 }
 const BANNERS: BannerRow[] = [
-  { id: 'empty', projects: [], open: 'Open http://127.0.0.1:4100/setup to map your site and run your first Page Health scan.' },
-  { id: 'unscanned', projects: [{ id: 'p1', name: 'example-com', createdAt: JAN1 }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=example-com to run your first Page Health scan.' },
+  { id: 'empty', projects: [], open: 'Open http://127.0.0.1:4100/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.' },
+  { id: 'unscanned', projects: [{ id: 'p1', name: 'example-com', createdAt: JAN1 }], open: 'Open http://127.0.0.1:4100/setup?project=example-com&onboarding=first-run to run its first Agent Readiness audit scan.' },
   { id: 'completed', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100' },
   { id: 'partial', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.partial }], open: 'Open http://127.0.0.1:4100' },
-  { id: 'probe', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed, trigger: RunTriggers.probe }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Page Health scan.' },
-  { id: 'unfinished', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.running }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Page Health scan.' },
-  { id: 'chronological-unscanned', projects: [{ id: 'p3', name: 'aardvark', createdAt: JAN3 }, { id: 'p2', name: 'bravo', createdAt: JAN2 }, ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=bravo to run your first Page Health scan.' },
-  { id: 'name-tie-unscanned', projects: [{ id: 'p2', name: 'bravo', createdAt: JAN2 }, { id: 'p1', name: 'alpha', createdAt: JAN2 }, { id: 'p3', name: 'zulu', createdAt: JAN1 }], runs: [{ projectId: 'p3', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?onboarding=site-health&setupProject=alpha to run your first Page Health scan.' },
+  { id: 'probe', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed, trigger: RunTriggers.probe }], open: 'Open http://127.0.0.1:4100/setup?project=alpha&onboarding=first-run to run its first Agent Readiness audit scan.' },
+  { id: 'unfinished', projects: [ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.running }], open: 'Open http://127.0.0.1:4100/setup?project=alpha&onboarding=first-run to run its first Agent Readiness audit scan.' },
+  { id: 'chronological-unscanned', projects: [{ id: 'p3', name: 'aardvark', createdAt: JAN3 }, { id: 'p2', name: 'bravo', createdAt: JAN2 }, ALPHA], runs: [{ projectId: 'p1', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?project=bravo to run its first Agent Readiness audit scan.' },
+  { id: 'name-tie-unscanned', projects: [{ id: 'p2', name: 'bravo', createdAt: JAN2 }, { id: 'p1', name: 'alpha', createdAt: JAN2 }, { id: 'p3', name: 'zulu', createdAt: JAN1 }], runs: [{ projectId: 'p3', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?project=alpha to run its first Agent Readiness audit scan.' },
 ]
 const WARNS = [
   { id: 'wildcard-ipv4', host: '0.0.0.0', url: 'http://127.0.0.1:4100', warn: true },
@@ -232,6 +235,8 @@ it.each(SETTINGS)('CLI serve resolves settings: $id', async row => {
   expect(script).toBeDefined()
   if (script === undefined) throw new Error('Expected native client configuration')
   const browserConfig: unknown = JSON.parse(script)
+  if (row.hideFeedback) expect(browserConfig).toHaveProperty('dashboard.showFeedback', false)
+  else expect(browserConfig).not.toHaveProperty('dashboard.showFeedback')
   if (row.prefix) expect(browserConfig).toHaveProperty('basePath', `${row.prefix}/`)
   else expect(browserConfig).not.toHaveProperty('basePath')
   if (row.embed) expect(browserConfig).toHaveProperty('embed', row.embed)
@@ -252,7 +257,7 @@ it.each(WARNS)('CLI serve reports bind setup guidance: $id', async row => {
   expect(native.binds).toEqual([{ host: row.host, port: 4100 }])
   expect(lines).toEqual([
     `\nCanonry server running at ${row.url}`,
-    `Open ${row.url}/setup to map your site and run your first Page Health scan.`,
+    `Open ${row.url}/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.`,
     ...(row.warn ? [WARN] : []),
     'Press Ctrl+C to stop.\n',
   ])
@@ -262,7 +267,7 @@ it.each(CONFIGURED_WARNS)('CLI serve reports configured setup guidance: $id', as
   const { lines } = await startNative({ args: row.args, env: row.env, config: row.config })
   expect(lines).toEqual([
     '\nCanonry server running at http://127.0.0.1:4100',
-    'Open http://127.0.0.1:4100/setup to map your site and run your first Page Health scan.',
+    'Open http://127.0.0.1:4100/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.',
     ...(row.notice ? [row.notice] : []),
     'Press Ctrl+C to stop.\n',
   ])

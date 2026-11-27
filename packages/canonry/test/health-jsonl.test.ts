@@ -33,8 +33,9 @@ const snapshots: HealthSnapshotDto[] = [
     overallMentionRate: 0.25,
     totalPairs: 12,
     citedPairs: 5,
+    citationNotMeasuredPairs: 0,
     mentionedPairs: 3,
-    providerBreakdown: { openai: { citedRate: 0.5, mentionRate: 0.33, cited: 3, mentioned: 2, total: 6 } },
+    providerBreakdown: { openai: { citedRate: 0.5, mentionRate: 0.33, cited: 3, mentioned: 2, total: 6, citationNotMeasured: 0 } },
     createdAt: '2026-04-28T00:00:00.000Z',
     status: 'ready',
   },
@@ -46,8 +47,9 @@ const snapshots: HealthSnapshotDto[] = [
     overallMentionRate: 0.33,
     totalPairs: 12,
     citedPairs: 6,
+    citationNotMeasuredPairs: 0,
     mentionedPairs: 4,
-    providerBreakdown: { openai: { citedRate: 0.6, mentionRate: 0.5, cited: 4, mentioned: 3, total: 6 } },
+    providerBreakdown: { openai: { citedRate: 0.6, mentionRate: 0.5, cited: 4, mentioned: 3, total: 6, citationNotMeasured: 0 } },
     createdAt: '2026-04-29T00:00:00.000Z',
     status: 'ready',
   },
@@ -61,8 +63,9 @@ const health: HealthSnapshotDto = {
   overallMentionRate: 0.33,
   totalPairs: 12,
   citedPairs: 6,
+  citationNotMeasuredPairs: 0,
   mentionedPairs: 4,
-  providerBreakdown: { openai: { citedRate: 0.6, mentionRate: 0.5, cited: 4, mentioned: 3, total: 6 } },
+  providerBreakdown: { openai: { citedRate: 0.6, mentionRate: 0.5, cited: 4, mentioned: 3, total: 6, citationNotMeasured: 0 } },
   createdAt: '2026-04-29T00:00:00.000Z',
   status: 'ready',
 }
@@ -176,6 +179,30 @@ describe('showHealth human render', () => {
     expect(out).toContain('60.0% cited (4/6)')
   })
 
+  it('reads every pair as checked from a server that predates the not-measured counts', async () => {
+    // An older server sends neither count: it counted every pair as checked.
+    const older = ({ citationNotMeasuredPairs: _pairs, providerBreakdown, ...snapshot }: HealthSnapshotDto) => ({
+      ...snapshot,
+      providerBreakdown: Object.fromEntries(Object.entries(providerBreakdown)
+        .map(([provider, { citationNotMeasured: _answers, ...stats }]) => [provider, stats])),
+    })
+    mockGetHealth.mockResolvedValue(older(health))
+    mockGetHealthHistory.mockResolvedValue(snapshots.map(older))
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showHealth('demo', {})
+      await showHealth('demo', { history: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(logs).toContain('        50.0% cited (6/12 pairs)')
+    expect(logs).toContain(`  ${'openai'.padEnd(15)} 50.0% mentioned (3/6)   60.0% cited (4/6)`)
+    expect(logs).toContain(`${'2026-04-28T00:00:00'.padEnd(25)}  25.0%        ${'3/12'.padEnd(15)}    42.0%        5/12`)
+    expect(logs.join('\n')).not.toContain('NaN')
+  })
+
   it('--history table renders a Mention Rate column next to Cited Rate', async () => {
     mockGetHealthHistory.mockResolvedValue(snapshots)
     const logs: string[] = []
@@ -206,7 +233,7 @@ describe('showHealth human render', () => {
       totalPairs: 2500,
       mentionedPairs: 2500,
       citedPairs: 1,
-      providerBreakdown: { openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 6, total: 6 } },
+      providerBreakdown: { openai: { citedRate: 0, mentionRate: 1, cited: 0, mentioned: 6, total: 6, citationNotMeasured: 0 } },
     })
     mockGetHealthHistory.mockResolvedValue([{ ...snapshots[0]!, overallMentionRate: 0, overallCitedRate: 0.9996 }])
     const logs: string[] = []
@@ -223,5 +250,38 @@ describe('showHealth human render', () => {
     expect(logs).toContain(`  ${'openai'.padEnd(15)} 100% mentioned (6/6)   0% cited (0/6)`)
     // History columns stay six wide whatever the value.
     expect(logs).toContain(`${'2026-04-28T00:00:00'.padEnd(25)}     0%        ${'3/12'.padEnd(15)}   >99.9%        5/12`)
+  })
+
+  // Local (no web access) returns no sources: its pairs leave every cited
+  // figure and read "not measured", never 0%; mention still counts them.
+  it('prints citations as not measured when no pair carried sources, and cites over checked pairs otherwise', async () => {
+    mockGetHealth.mockResolvedValue({
+      ...health,
+      overallCitedRate: 2 / 3,
+      overallMentionRate: 0.5,
+      totalPairs: 6,
+      citedPairs: 2,
+      citationNotMeasuredPairs: 3,
+      mentionedPairs: 3,
+      providerBreakdown: {
+        gemini: { citedRate: 2 / 3, mentionRate: 1 / 3, cited: 2, mentioned: 1, total: 3, citationNotMeasured: 0 },
+        local: { citedRate: null, mentionRate: 2 / 3, cited: 0, mentioned: 2, total: 3, citationNotMeasured: 3 },
+      },
+    })
+    mockGetHealthHistory.mockResolvedValue([{ ...snapshots[0]!, overallCitedRate: null, citedPairs: 0, citationNotMeasuredPairs: 12 }])
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showHealth('demo', {})
+      await showHealth('demo', { history: true })
+    } finally {
+      console.log = origLog
+    }
+    expect(logs).toContain('Health: 50.0% mentioned (3/6 pairs)')
+    expect(logs).toContain('        66.7% cited (2/3 pairs), 3 not measured (no sources)')
+    expect(logs).toContain(`  ${'gemini'.padEnd(15)} 33.3% mentioned (1/3)   66.7% cited (2/3)`)
+    expect(logs).toContain(`  ${'local'.padEnd(15)} 66.7% mentioned (2/3)   not measured`)
+    expect(logs).toContain(`${'2026-04-28T00:00:00'.padEnd(25)}  25.0%        ${'3/12'.padEnd(15)}   not measured        0/0`)
   })
 })

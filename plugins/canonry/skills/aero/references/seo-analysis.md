@@ -13,7 +13,7 @@ Say searches for what people type into Google and queries for the project's trac
 
 ## Read the selected evidence
 
-1. For a question about the current SEO view, start with `aero_inspect_view`.
+1. In built-in Aero, use `aero_inspect_view` when the user refers to their current SEO view.
 2. Load the `seo` toolkit through `aero_load_toolkit` in built-in Aero.
    External MCP agents use `canonry_help` with intent `seo` and their exposed catalog.
 3. Read `canonry_seo_context` and `canonry_seo_profiles` to resolve the source, capabilities, profile, and supported scope.
@@ -36,8 +36,9 @@ Say searches for what people type into Google and queries for the project's trac
    | `canonry_seo_market_rankings` | The site's Google position for each tracked query in each market, searched from that market's location |
 
 6. Page with `limit` and `offset` until the relevant stored rows are covered, or disclose the inspected sample.
-   These tools accept no keyword filter, target filter, or sort parameter. Do not invent them.
-   Market rankings alone take `marketKey` and `regionKey` to narrow the rows, `outcome` (one outcome, `needs-work` or `rival-ahead`), `q` (text in the query, searched text or market) and `sort` (`market`, `rank`, `-rank`, `query`, `-query`).
+   Keyword metrics, domain intelligence, and ranked searches accept profile and run selectors plus pagination.
+   Organic competitors and search gaps accept `sort`. Search gaps also accept `kind`.
+   Market rankings accept `marketKey`, `regionKey`, `outcome`, `q`, and `sort`.
    `total` counts stored rows, not the complete search market.
    Run detail returns at most 20 rows per dataset. Check `resultsTruncated` and `resultCounts`, then use the dataset tools.
 
@@ -48,6 +49,18 @@ If the user selects an active refresh, treat its rows as provisional because the
 If no usable evidence exists, explain the missing dataset and request an operator refresh for the exact profile.
 Aero cannot edit profiles, start or cancel SEO refreshes, or inspect operator receipts.
 Analysis never requires a refresh intent. Keep credentials and hosted financial controls out of the response.
+
+## Read trends
+
+Use `canonry_seo_trends` with the selected `profileId` and a 30-, 90- or 180-day window.
+The first target's domain readings cover ranked searches, the top 10 and estimated
+organic traffic. Market readings count tracked non-brand query assignments on page
+one across comparable refreshes. For ranked-keyword profiles, select one search
+with `keyword`. A missing position means the saved sample supplied no usable rank.
+Use the server's change basis and actual observation dates. Keep nulls as gaps
+and make no change claim from a single reading. Use each
+point's `runId` for drill-down. Monthly keyword estimates use the source's calendar
+months and represent search demand separately.
 
 ## Preserve the measurement boundary
 
@@ -121,8 +134,8 @@ Use this order of judgment:
 | Competitor with stronger domain estimates | Investigate the difference within comparable scope | Per-target evidence. Totals do not establish keyword gaps. |
 | Missing, stale, partial, or incompatible evidence | Validate the evidence first | The exact missing dataset, profile, or comparable refresh |
 
-Inspect stored page or Site Health evidence before prescribing title, content, indexability, or internal-link changes.
-Read `site-health` through `read_skill_doc` for its interpretation rules.
+Inspect stored page or Agent Readiness evidence before prescribing title, content, indexability, or internal-link changes.
+Read the Agent Readiness skill doc (slug `site-health`) through `read_skill_doc` for its interpretation rules.
 A rank alone cannot identify a technical or content cause.
 If supporting evidence is absent, recommend a specific inspection instead of asserting a defect.
 

@@ -219,7 +219,7 @@ export function EmbedQueriesSection({ projectName, limit }: { projectName: strin
   const error = message?.kind === 'error' ? message.text : null
   const lineId = 'embed-query-line'
 
-  // Same page header as the other embed tabs (Site Health): the title sits right under the tab bar.
+  // Same page header as the other embed tabs (Agent Readiness): the title sits right under the tab bar.
   return (
     <section aria-labelledby="embed-queries-heading">
       <header>

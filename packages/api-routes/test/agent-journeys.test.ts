@@ -141,6 +141,16 @@ describe('observed agent journeys', () => {
     expect(body.coverage.limitations.join(' ')).toContain('Likely fake requests')
   })
 
+  it('discloses what a browser agent\'s journey keeps and what it leaves out', async () => {
+    const browserAgents = (await list()).coverage.limitations.filter(limitation => limitation.includes('Google-Agent'))
+    expect(browserAgents).toHaveLength(1)
+    // Named from the browser rules, and true to what capture keeps: page loads,
+    // form posts and failures stay; what the agent's pages fetched by themselves does not.
+    for (const named of ['Claude-Agent and Google-Agent', 'page loads, form posts and failed requests (HTTP 400-599)', 'files and data or API calls', '?_rsc= prefetches and client-side navigations', 'beacons', 'HEAD and OPTIONS requests']) {
+      expect(browserAgents[0]).toContain(named)
+    }
+  })
+
   it('refuses an oversized selection rather than exposing an incomplete timeline or an incorrect total', async () => {
     db.transaction(() => {
       for (let i = 0; i < 20_001; i++) event(`bulk-${i}`, '10:00:00', { sourceId: i < 10_000 ? 'source' : 'second', ts: `2026-10-${i < 20_000 ? '27' : '26'}T10:00:00.000Z` })

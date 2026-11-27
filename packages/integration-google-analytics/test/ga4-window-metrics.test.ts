@@ -47,18 +47,17 @@ describe('fetchWindowMetrics', () => {
     metricValues: values.map(value => ({ value })),
   })
 
-  it('asks for both periods as named ranges, with every window figure by its GA4 name', async () => {
+  it.each([['30d', '30daysAgo', '60daysAgo', '31daysAgo'], ['180d', '180daysAgo', '360daysAgo', '181daysAgo']] as const)('asks for both %s periods with every figure by its GA4 name', async (window, start, previousStart, previousEnd) => {
     mockBatch([], [])
 
-    await fetchWindowMetrics('fake-token', '123456', '30d')
+    await fetchWindowMetrics('fake-token', '123456', window)
 
     expect(requests).toHaveLength(2)
     for (const request of requests) {
-      // GA4's "Last 30 days": the 30 complete days ending yesterday, and the
-      // 30 before. Relative dates, so GA4 counts them in the property's zone.
+      // Complete days ending yesterday, and the same number before. Relative dates, so GA4 counts them in the property's zone.
       expect(request.dateRanges).toEqual([
-        { startDate: '30daysAgo', endDate: 'yesterday', name: 'current' },
-        { startDate: '60daysAgo', endDate: '31daysAgo', name: 'previous' },
+        { startDate: start, endDate: 'yesterday', name: 'current' },
+        { startDate: previousStart, endDate: previousEnd, name: 'previous' },
       ])
       expect(request.dimensions).toEqual([])
     }
@@ -84,12 +83,14 @@ describe('fetchWindowMetrics', () => {
     const lateEvening = new Date('2026-10-23T02:00:00Z')
     mockBatch([], [], 'America/New_York')
     const newYork = await fetchWindowMetrics('fake-token', '123456', '7d', { now: lateEvening })
+    expect(newYork.timeZone).toBe('America/New_York')
     expect(newYork.current).toMatchObject({ startDate: '2026-10-15', endDate: '2026-10-21' })
     expect(newYork.previous).toMatchObject({ startDate: '2026-10-08', endDate: '2026-10-14' })
 
     // A response with no zone falls back to the UTC date.
     mockBatch([], [])
     const unstated = await fetchWindowMetrics('fake-token', '123456', '7d', { now: lateEvening })
+    expect(unstated.timeZone).toBe('UTC')
     expect(unstated.current).toMatchObject({ startDate: '2026-10-16', endDate: '2026-10-22' })
   })
 

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,11 +6,13 @@ import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import { invokeCli } from './cli-test-utils.js'
 
 describe('bing CLI commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let client: ApiClient
+  let serverUrl: string
   let close: () => Promise<void>
 
   beforeEach(async () => {
@@ -40,6 +42,7 @@ describe('bing CLI commands', () => {
       database: dbPath,
       apiKey: apiKeyPlain,
       providers: {},
+      bing: { apiKey: 'saved-bing-key' },
     }
 
     fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
@@ -53,7 +56,7 @@ describe('bing CLI commands', () => {
 
     const addr = app.server.address()
     const port = typeof addr === 'object' && addr ? addr.port : 0
-    const serverUrl = `http://127.0.0.1:${port}`
+    serverUrl = `http://127.0.0.1:${port}`
 
     config.apiUrl = serverUrl
     fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
@@ -63,6 +66,7 @@ describe('bing CLI commands', () => {
   })
 
   afterEach(async () => {
+    vi.restoreAllMocks()
     await close()
     if (origConfigDir === undefined) {
       delete process.env.CANONRY_CONFIG_DIR
@@ -70,6 +74,50 @@ describe('bing CLI commands', () => {
       process.env.CANONRY_CONFIG_DIR = origConfigDir
     }
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('connects with the Settings key and retains the selected site without exposing the key', async () => {
+    const project = 'test-proj'
+    const url = 'https://example.com/'
+    await client.putProject(project, { displayName: 'Test', canonicalDomain: 'example.com', country: 'US', language: 'en' })
+    const bing = await import('@canonry/canonry-integration-bing')
+    const sites = vi.spyOn(bing, 'getSites').mockResolvedValue([{ Url: url, IsVerified: true }])
+    sites.mockRejectedValueOnce(new Error('Bing rejected saved-bing-key'))
+    const refused = await invokeCli(['bing', 'connect', project, '--use-saved-key', '--format', 'json'])
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain('Canonry Settings')
+    expect(refused.stderr).not.toContain('saved-bing-key')
+
+    const result = await invokeCli(['bing', 'connect', project, '--use-saved-key', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    expect(JSON.parse(result.stdout)).toEqual({
+      connected: true, domain: 'example.com', siteUrl: null, availableSites: [{ url, verified: true }],
+    })
+    expect(sites).toHaveBeenCalledWith('saved-bing-key')
+    await client.bingSetSite(project, url)
+    expect(await client.bingStatus(project)).toMatchObject({ connected: true, siteUrl: url })
+    expect(await client.bingSites(project)).toEqual({ sites: [{ url, verified: true }] })
+  })
+
+  it('lets a project writer select its own Bing site while protecting other sites and shared connections', async () => {
+    const settings = { displayName: 'Project', canonicalDomain: 'WWW.Example.com', country: 'US', language: 'en' }
+    const project = await client.putProject('scoped', settings)
+    const key = await client.createApiKey({ name: 'project-writer', projectId: project.id, scopes: ['*'] })
+    const scoped = new ApiClient(serverUrl, key.key)
+    const bing = await import('@canonry/canonry-integration-bing')
+    vi.spyOn(bing, 'getSites').mockResolvedValue([{ Url: 'https://www.example.com/', IsVerified: true }])
+    await scoped.bingConnect(project.name, { apiKey: 'project-owned-key' })
+    await scoped.bingSetSite(project.name, 'https://www.example.com/')
+    for (const site of ['https://example.com/', 'http://www.example.com/', 'https://www.example.com:8443/', 'https://www.example.com/shop/', 'https://another.example/']) {
+      await expect(scoped.bingSetSite(project.name, site)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    }
+    await client.putProject('shared', { ...settings, canonicalDomain: 'https://www.example.com/' })
+    await expect(scoped.bingSetSite(project.name, 'https://www.example.com/')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(await client.bingStatus(project.name)).toMatchObject({ siteUrl: 'https://www.example.com/' })
+    await client.putProject('shared', settings)
+    await expect(scoped.bingConnect(project.name, { apiKey: 'replacement-fixture' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(scoped.bingDisconnect(project.name)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(await client.bingStatus('shared')).toMatchObject({ connected: true, siteUrl: 'https://www.example.com/' })
   })
 
   it('bingRefresh prints "No previously inspected URLs" when project has no inspections', async () => {

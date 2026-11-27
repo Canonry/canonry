@@ -7,7 +7,10 @@ import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
 import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@canonry/canonry-contracts'
-import { googleRoutes } from '../src/google.js'
+import { GBP_LOCATION_DATA_TABLES, googleRoutes } from '../src/google.js'
+import * as db from '@canonry/canonry-db'
+import { getTableColumns, getTableName, is } from 'drizzle-orm'
+import { SQLiteTable } from 'drizzle-orm/sqlite-core'
 
 interface StoredConnection {
   domain: string
@@ -19,6 +22,7 @@ interface StoredConnection {
   tokenExpiresAt?: string | null
   scopes?: string[]
   gbpAccountName?: string | null
+  createdByProjectId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -85,7 +89,7 @@ function buildApp() {
     return id
   }
 
-  function seedGbpConnection(domain: string, accessToken: string, expiresInSeconds = 3600) {
+  function seedGbpConnection(domain: string, accessToken: string, expiresInSeconds = 3600, createdByProjectId: string | null = null) {
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString()
     connections.push({
@@ -95,6 +99,7 @@ function buildApp() {
       refreshToken: 'refresh-token',
       tokenExpiresAt: expiresAt,
       scopes: ['https://www.googleapis.com/auth/business.manage'],
+      createdByProjectId,
       createdAt: now,
       updatedAt: now,
     })
@@ -184,7 +189,7 @@ describe('GBP routes (Phase 1)', () => {
       mockGoogleResponses({
         accounts: [{ name: 'accounts/123', accountName: 'Hotel Group' }],
         locations: [
-          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://one.example.com', categories: { primaryCategory: { displayName: 'Hotel' } } },
+          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://one.hotels.example.com', categories: { primaryCategory: { displayName: 'Hotel' } } },
           { name: 'locations/2', title: 'Hotel Two', categories: { primaryCategory: { displayName: 'Resort' } } },
         ],
       })
@@ -201,6 +206,26 @@ describe('GBP routes (Phase 1)', () => {
       expect(body.totalSelected).toBe(2)
       expect(body.locations.map(l => l.locationName).sort()).toEqual(['locations/1', 'locations/2'])
       expect(body.locations.every(l => l.selected)).toBe(true)
+    })
+
+    it('leaves a new location on another business\'s website unselected, even with selectAllNew', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [
+          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://www.hotels.example.com/' },
+          { name: 'locations/2', title: 'Other Business', websiteUri: 'https://other-business.example/' },
+          { name: 'locations/3', title: 'No Website' },
+        ],
+      })
+
+      const res = await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { selectAllNew: true } })
+
+      const body = res.json() as { totalSelected: number; locations: Array<{ locationName: string; selected: boolean; websiteMatchesProject: boolean | null }> }
+      const state = Object.fromEntries(body.locations.map(l => [l.locationName, [l.selected, l.websiteMatchesProject]]))
+      expect(state).toEqual({ 'locations/1': [true, true], 'locations/2': [false, false], 'locations/3': [true, null] })
+      expect(body.totalSelected).toBe(2)
     })
 
     it('persists the Maps placeId + mapsUri from location metadata (#648)', async () => {
@@ -466,6 +491,124 @@ describe('GBP routes (Phase 1)', () => {
       expect(logs.some(l => l.action === 'gbp.location.deselected')).toBe(true)
     })
 
+    // One row on every synced GBP surface for a project's location.
+    function seedLocationData(projectId: string, locationName: string): void {
+      ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName, date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 7, syncRunId: null }).run()
+      ctx.db.insert(gbpKeywordImpressions).values({ id: crypto.randomUUID(), projectId, locationName, periodStart: '2025-06', periodEnd: '2026-05', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null }).run()
+      ctx.db.insert(gbpKeywordMonthly).values({ id: crypto.randomUUID(), projectId, locationName, month: '2026-04', keyword: 'hotel', valueCount: 100, valueThreshold: null, syncRunId: null, syncedAt: '2026-05-01T00:00:00Z' }).run()
+      ctx.db.insert(gbpPlaceActions).values({ id: crypto.randomUUID(), projectId, locationName, placeActionLinkName: `${locationName}/placeActionLinks/x`, placeActionType: 'BOOK', uri: 'https://book.example', isPreferred: true, providerType: 'MERCHANT', syncRunId: null }).run()
+      ctx.db.insert(gbpLodgingSnapshots).values({ id: crypto.randomUUID(), projectId, locationName, contentHash: 'h1', attributes: {}, populatedGroupCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpAttributesSnapshots).values({ id: crypto.randomUUID(), projectId, locationName, contentHash: 'a1', attributes: [], attributeCount: 0, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpPlaceDetails).values({ id: crypto.randomUUID(), projectId, locationName, placeId: `place-${locationName}`, contentHash: 'p1', tier: 'atmosphere', attributes: {}, syncedAt: '2026-05-01T00:00:00Z', syncRunId: null }).run()
+      ctx.db.insert(gbpReviews).values({ id: crypto.randomUUID(), projectId, locationName, origin: 'gbp', reviewName: `accounts/123/${locationName}/reviews/r`, starRating: 1, updateTime: '2026-05-01T00:00:00.000Z', firstSeenAt: '2026-05-01T00:00:00.000Z', lastSeenAt: '2026-05-01T00:00:00.000Z', alertState: 'sent' }).run()
+      ctx.db.insert(gbpReviewRatings).values({ id: crypto.randomUUID(), projectId, locationName, origin: 'gbp', rating: 4.1, reviewCount: 9, firstObservedAt: '2026-05-01T00:00:00.000Z', observedAt: '2026-05-01T00:00:00.000Z', alertState: 'baseline' }).run()
+    }
+
+    // Rows per synced surface for a project's location, in a fixed table order.
+    function countLocationData(projectId: string, locationName: string): number[] {
+      return [gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings]
+        .map(table => ctx.db.select().from(table).all().filter(row => row.projectId === projectId && row.locationName === locationName).length)
+    }
+
+    async function discoverTwoLocations(projectName: string, domain: string): Promise<string> {
+      const projectId = ctx.seedProject(projectName, domain)
+      ctx.seedGbpConnection(domain, 'valid-access-token')
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [{ name: 'locations/1', title: 'Hotel One' }, { name: 'locations/2', title: 'Other Business' }],
+      })
+      await ctx.app.inject({ method: 'POST', url: `/projects/${projectName}/gbp/locations/discover`, payload: {} })
+      return projectId
+    }
+
+    function setSelection(projectName: string, locationName: string, selected: boolean) {
+      return ctx.app.inject({
+        method: 'PUT',
+        url: `/projects/${projectName}/gbp/locations/${encodeURIComponent(locationName)}/selection`,
+        payload: { selected },
+      })
+    }
+
+    it('deselecting clears that location\'s synced data and keeps the location, its sibling and other projects', async () => {
+      const projectId = await discoverTwoLocations('hotels', 'hotels.example.com')
+      const otherProjectId = ctx.seedProject('other', 'other.example.com')
+      seedLocationData(projectId, 'locations/1')
+      seedLocationData(projectId, 'locations/2')
+      // Another project tracking the same Google location keeps its copy.
+      seedLocationData(otherProjectId, 'locations/2')
+
+      const res = await setSelection('hotels', 'locations/2', false)
+
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toMatchObject({ locationName: 'locations/2', selected: false })
+      expect(countLocationData(projectId, 'locations/2')).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
+      expect(countLocationData(projectId, 'locations/1')).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1])
+      expect(countLocationData(otherProjectId, 'locations/2')).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1])
+      // The location row stays, so it can be selected again.
+      const rows = ctx.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
+      expect(rows.map(r => [r.locationName, Boolean(r.selected)]).sort()).toEqual([['locations/1', true], ['locations/2', false]])
+      const log = ctx.db.select().from(auditLog).where(eq(auditLog.projectId, projectId)).all()
+        .find(l => l.action === 'gbp.location.deselected') as { entityId: string; diff: string | null } | undefined
+      expect(log?.entityId).toBe('locations/2')
+      expect(JSON.parse(log?.diff ?? 'null')).toEqual({ clearedLocationData: true })
+    })
+
+    it('a repeat deselect clears data an earlier deselect left behind', async () => {
+      const projectId = await discoverTwoLocations('hotels', 'hotels.example.com')
+      await setSelection('hotels', 'locations/2', false)
+      // Rows stored for a location that was already deselected, as before this clearing existed.
+      seedLocationData(projectId, 'locations/2')
+
+      const res = await setSelection('hotels', 'locations/2', false)
+
+      expect(res.statusCode).toBe(200)
+      expect(countLocationData(projectId, 'locations/2')).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
+    })
+
+    it('selecting keeps stored data', async () => {
+      const projectId = await discoverTwoLocations('hotels', 'hotels.example.com')
+      await setSelection('hotels', 'locations/2', false)
+      seedLocationData(projectId, 'locations/2')
+
+      const res = await setSelection('hotels', 'locations/2', true)
+
+      expect(res.json()).toMatchObject({ selected: true })
+      expect(countLocationData(projectId, 'locations/2')).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1])
+    })
+
+    it('flags a location whose website is not one of the project\'s domains', async () => {
+      const projectId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.db.update(projects).set({ ownedDomains: ['hotels-booking.example'] }).where(eq(projects.id, projectId)).run()
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')
+      mockGoogleResponses({
+        accounts: [{ name: 'accounts/123' }],
+        locations: [
+          { name: 'locations/1', title: 'Hotel One', websiteUri: 'https://www.hotels.example.com/' },
+          { name: 'locations/2', title: 'Other Business', websiteUri: 'https://other-business.example/' },
+          { name: 'locations/3', title: 'Booking Site', websiteUri: 'http://book.hotels-booking.example/rooms' },
+          { name: 'locations/4', title: 'No Website' },
+        ],
+      })
+      await ctx.app.inject({ method: 'POST', url: '/projects/hotels/gbp/locations/discover', payload: { selectAllNew: false } })
+
+      const list = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/locations' })
+      const flags = Object.fromEntries(list.json().locations.map((l: { locationName: string; websiteMatchesProject: boolean | null }) => [l.locationName, l.websiteMatchesProject]))
+      expect(flags).toEqual({ 'locations/1': true, 'locations/2': false, 'locations/3': true, 'locations/4': null })
+
+      const selected = await setSelection('hotels', 'locations/2', true)
+      expect(selected.json()).toMatchObject({ selected: true, websiteMatchesProject: false, websiteDomain: 'other-business.example' })
+    })
+
+    it('clears every table keyed by location: a new one must join GBP_LOCATION_DATA_TABLES', () => {
+      const tablesWithLocation = Object.values(db)
+        .filter((value): value is SQLiteTable => is(value, SQLiteTable))
+        .filter(table => 'locationName' in getTableColumns(table) && 'projectId' in getTableColumns(table))
+        .map(table => getTableName(table))
+        .filter(name => name !== 'gbp_locations')
+        .sort()
+      expect(GBP_LOCATION_DATA_TABLES.map(table => getTableName(table)).sort()).toEqual(tablesWithLocation)
+    })
+
     it('returns 404 for an unknown location', async () => {
       ctx.seedProject('hotels', 'hotels.example.com')
       const res = await ctx.app.inject({
@@ -525,6 +668,37 @@ describe('GBP routes (Phase 1)', () => {
       expect(ctx.db.select().from(gbpReviews).where(eq(gbpReviews.projectId, projectId)).all().length).toBe(0)
       expect(ctx.db.select().from(gbpReviewRatings).where(eq(gbpReviewRatings.projectId, projectId)).all().length).toBe(0)
       // Connection store entry is gone
+      expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
+    })
+
+    it('refuses to remove a connection another project on the same domain owns, and clears nothing', async () => {
+      const ownerId = ctx.seedProject('hotels', 'hotels.example.com')
+      const otherId = ctx.seedProject('hotels-rival', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token', 3600, ownerId)
+      for (const projectId of [ownerId, otherId]) {
+        ctx.db.insert(gbpDailyMetrics).values({ id: crypto.randomUUID(), projectId, locationName: 'locations/1', date: '2026-05-01', metric: 'WEBSITE_CLICKS', value: 7, syncRunId: null }).run()
+      }
+
+      const res = await ctx.app.inject({ method: 'DELETE', url: '/projects/hotels-rival/gbp/connection' })
+
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error.message).toBe('This Google GBP connection is owned by a different project. Disconnect from the owning project instead.')
+      // The shared connection survives, and neither project's synced data was cleared.
+      expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeDefined()
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, ownerId)).all().length).toBe(1)
+      expect(ctx.db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, otherId)).all().length).toBe(1)
+      const logs = ctx.db.select().from(auditLog).where(eq(auditLog.projectId, otherId)).all() as { action: string }[]
+      expect(logs.map(l => l.action)).not.toContain('gbp.disconnected')
+    })
+
+    it('lets the project that owns the connection remove it', async () => {
+      const ownerId = ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedProject('hotels-rival', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'valid-access-token', 3600, ownerId)
+
+      const res = await ctx.app.inject({ method: 'DELETE', url: '/projects/hotels/gbp/connection' })
+
+      expect(res.statusCode).toBe(204)
       expect(ctx.connections.find(c => c.domain === 'hotels.example.com' && c.connectionType === 'gbp')).toBeUndefined()
     })
   })

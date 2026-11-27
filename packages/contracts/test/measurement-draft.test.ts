@@ -7,6 +7,7 @@ import {
   measurementDraftClassifyAssignmentsRequestSchema,
   measurementDraftExcludeTargetRequestSchema,
   measurementDraftEtag,
+  measurementDraftProviderNames,
   measurementDraftMutationResponseSchema,
   measurementDraftPreviewAssignmentsResponseSchema,
   measurementDraftPublishRequestSchema,
@@ -56,6 +57,16 @@ const AUTHORING: MeasurementDraftAuthoring = {
 }
 
 describe('measurement plan draft', () => {
+  it('includes defaults, overrides and frozen contexts when checking draft provider authority', () => {
+    expect(measurementDraftProviderNames({
+      ...AUTHORING,
+      assignments: [
+        { ...AUTHORING.assignments[0]!, contextOverride: { providers: ['openai'] } },
+        { ...AUTHORING.assignments[0]!, executionContexts: [{ providers: ['openrouter:google/gemini-2.5-flash'], models: {}, location: null }] },
+      ],
+    })).toEqual(['gemini', 'openai', 'openrouter:google/gemini-2.5-flash'])
+    expect(measurementDraftProviderNames({ ...AUTHORING, defaultContext: { ...AUTHORING.defaultContext, providers: [] }, assignments: [] })).toEqual([])
+  })
   it('accepts exact frozen contexts but refuses a simultaneous mutable override', () => {
     const assignment = {
       ...AUTHORING.assignments[0],

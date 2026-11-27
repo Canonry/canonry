@@ -187,7 +187,7 @@ describe('MentionShare class control', () => {
     renderShare({}, [])
     expect(block().textContent).not.toContain('%')
     expect(block().querySelector('.mention-share-rows')).toBeNull()
-    expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('Add competitors')
+    expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('No comparison')
     expect(block().textContent).toContain('you were named in 1 of 32 answers')
   })
 

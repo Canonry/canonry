@@ -8,11 +8,12 @@ import {
   type TrafficSeriesPoint,
 } from '@canonry/canonry-contracts'
 
-import { isEmbed } from '../api.js'
+import { isEmbed, isPublicDemo, type ApiTrafficSyncResult } from '../api.js'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { useAccount } from '../contexts/account-context.js'
 import { extractErrorMessage } from '../lib/extract-error-message.js'
 import {
   Bar,
@@ -39,6 +40,7 @@ import { localTimeZoneLabel } from '../lib/format-helpers.js'
 import { likelyFakeAgentHitsNote } from '../lib/agent-trust-copy.js'
 import {
   bucketForChartClick,
+  bucketTimeRange,
   filterTrafficEvents,
   identityOf,
   pathOf,
@@ -71,6 +73,8 @@ const WINDOW_OPTIONS: readonly WindowOption[] = [
 const DEFAULT_WINDOW = WINDOW_OPTIONS.find((w) => w.label === '24h') ?? WINDOW_OPTIONS[2]
 
 const EVENTS_PAGE_SIZE = 50
+/** The events route's row cap; one bucket's rows fit under it. */
+const MAX_EVENT_ROWS = 5000
 
 const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
 const AI_USER_FETCH_COLOR = CHART_SERIES_COLORS[2]
@@ -100,20 +104,42 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+const SERIES_ORDER: readonly SeriesKind[] = ['crawler', 'ai-user-fetch', 'ai-referral']
+
 /**
- * Which event kind to ASK THE SERVER for, given the series the user has on.
+ * Which event kinds to ASK THE SERVER for, given the series the user has on:
+ * 'all' when every series is on (or none is), else exactly those kinds,
+ * comma-separated in a fixed order.
  *
  * Exported for test: this one value decides whether a narrow series is
  * reachable at all. The events fetch is row-capped, so requesting 'all' returns
  * the most recent N rows across every series and the browser then filters them.
  * Where one series dominates, the others never make the cut and the table
- * reports an honest but misleading "no rows".
+ * reports an honest but misleading "no rows". That held for two series as much
+ * as one: with the crawler off, 'all' still filled the cap with crawler rows.
  */
-export function trafficFetchKind(visibleSeries: ReadonlySet<SeriesKind>): 'all' | SeriesKind {
-  // Exactly one selected is both the case that breaks and the case where the
-  // caller has already told us what it wants. Zero or several means the union,
-  // which is what 'all' returns anyway.
-  return visibleSeries.size === 1 ? [...visibleSeries][0]! : 'all'
+export function trafficFetchKind(visibleSeries: ReadonlySet<SeriesKind>): string {
+  const kinds = SERIES_ORDER.filter((kind) => visibleSeries.has(kind))
+  return kinds.length === 0 || kinds.length === SERIES_ORDER.length ? 'all' : kinds.join(',')
+}
+
+export const BROWSER_AGENT_NON_PAGE_LABEL = 'browser agent non-page'
+
+/**
+ * The Sync now summary, from the sync response's counts. Like the CLI, it
+ * names a browser agent's requests other than page loads when there are any:
+ * no bucket holds them, so the response is the only place they show.
+ */
+export function trafficSyncSummary(result: ApiTrafficSyncResult): string {
+  return [
+    `Pulled ${result.pulledEvents} entries`,
+    `${result.crawlerHits} crawler`,
+    `${result.aiUserFetchHits} AI user fetch`,
+    `${result.aiUserFetchLikelyFakeHits} likely fake agent`,
+    ...(result.aiUserFetchBrowserNonPageHits ? [`${result.aiUserFetchBrowserNonPageHits} ${BROWSER_AGENT_NON_PAGE_LABEL}`] : []),
+    `${result.aiReferralHits} AI referral`,
+    `${result.unknownHits} unknown`,
+  ].join(' · ')
 }
 
 /**
@@ -124,13 +150,8 @@ export function trafficFetchKind(visibleSeries: ReadonlySet<SeriesKind>): 'all' 
  * new tab). The label tracks the behavior — "Back" when popping
  * history, "All sources" when falling back to the list.
  */
-function BackLink({
-  canGoBack,
-  className,
-}: {
-  canGoBack: boolean
-  className?: string
-}) {
+function BackLink({ className }: { className: string }) {
+  const canGoBack = useCanGoBack()
   const baseClasses = 'inline-flex items-center gap-1'
   if (canGoBack) {
     // TanStack Router's `router.history.back()` is typed `any` by its
@@ -144,14 +165,14 @@ function BackLink({
       <button
         type="button"
         onClick={handleBack}
-        className={`${baseClasses} ${className ?? ''}`}
+        className={`${baseClasses} ${className}`}
       >
         <ArrowLeft className="size-3" /> Back
       </button>
     )
   }
   return (
-    <Link to="/traffic" className={`${baseClasses} ${className ?? ''}`}>
+    <Link to="/traffic" className={`${baseClasses} ${className}`}>
       <ArrowLeft className="size-3" /> All sources
     </Link>
   )
@@ -159,15 +180,24 @@ function BackLink({
 
 export function TrafficSourceDetailPage() {
   const params = useParams({ strict: false }) as { projectName?: string; sourceId?: string }
-  const projectName = params.projectName ?? ''
-  // `useCanGoBack` reports whether the browser-history-style back action
-  // would land on a previous in-app page. Avoids the dead-end case where
-  // the user landed on this page directly (deep link, refresh) — there's
-  // no prior history entry, so we render a deterministic Link to /traffic
-  // instead of a back button that would no-op or leave the app.
-  const canGoBack = useCanGoBack()
-  const sourceId = params.sourceId ?? ''
+  return (
+    <div className="page-container">
+      {params.projectName && params.sourceId ? (
+        <TrafficSourceDetail key={params.sourceId} projectName={params.projectName} sourceId={params.sourceId} standalone />
+      ) : (
+        <p className="text-copy-14 text-secondary">Missing project name or source id in URL.</p>
+      )}
+    </div>
+  )
+}
 
+export function TrafficSourceDetail({ projectName, sourceId, standalone = false }: {
+  projectName: string
+  sourceId: string
+  standalone?: boolean
+}) {
+  const { canWrite } = useAccount()
+  const canSync = canWrite && !isEmbed() && !isPublicDemo()
   const [windowMinutes, setWindowMinutes] = useState<number>(DEFAULT_WINDOW.value)
   const [visibleSeries, setVisibleSeries] = useState<Set<SeriesKind>>(
     () => new Set<SeriesKind>(['crawler', 'ai-user-fetch', 'ai-referral']),
@@ -198,25 +228,52 @@ export function TrafficSourceDetailPage() {
   // server-side and drew the bar correctly; clicking it filtered a set that had
   // never contained the rows, and the table truthfully reported "0 of 0".
   //
-  // A single selected series is the case worth scoping, and it is the case that
-  // breaks: the caller already knows it wants one narrow slice. With several
-  // selected the union is what 'all' already returns.
+  // Any series turned off is worth scoping: with two of three ticked, the cap
+  // still filled with whichever series dominates. Only all three (or none)
+  // reads as 'all'.
   const selectedKind = useMemo(() => trafficFetchKind(visibleSeries), [visibleSeries])
+  // A clicked bar's rows are fetched by its own span, so they load however many
+  // newer rows the window holds. Filtering the window's newest rows by bucket
+  // found nothing for any bar older than the row cap reached.
+  const bucketRange = useMemo(
+    () => (selectedBucket ? bucketTimeRange(selectedBucket, activeWindow.granularity) : null),
+    [selectedBucket, activeWindow.granularity],
+  )
 
-  const sourceQuery = useServerTrafficSource(projectName || null, sourceId || null)
-  const eventsQuery = useServerTrafficEvents(projectName || null, {
-    kind: selectedKind,
-    sourceId: sourceId || undefined,
+  const sourceQuery = useServerTrafficSource(projectName, sourceId)
+  // The chart, the series counts and the totals always cover every kind, so a
+  // hidden series keeps its count on its toggle.
+  const eventsQuery = useServerTrafficEvents(projectName, {
+    kind: 'all',
+    sourceId,
     sinceMinutes: windowMinutes,
     limit: activeWindow.fetchLimit,
     granularity: activeWindow.granularity,
   })
-  const sync = useSyncServerTrafficSource(projectName || null, sourceId || null)
+  // The rows follow what the chart shows: only the ticked series, and only the
+  // clicked bar when there is one. Unscoped, the chart's own rows serve.
+  const rowsScoped = selectedKind !== 'all' || bucketRange !== null
+  const rowsQuery = useServerTrafficEvents(
+    projectName,
+    {
+      kind: selectedKind,
+      sourceId,
+      sinceMinutes: windowMinutes,
+      range: bucketRange ?? undefined,
+      limit: bucketRange ? MAX_EVENT_ROWS : activeWindow.fetchLimit,
+      granularity: activeWindow.granularity,
+    },
+    { enabled: rowsScoped },
+  )
+  const rowsSource = rowsScoped ? rowsQuery : eventsQuery
+  const sync = useSyncServerTrafficSource(projectName, sourceId)
 
   const detail = sourceQuery.data
-  const allEvents = eventsQuery.data?.events ?? []
+  const allEvents = rowsSource.data?.events ?? []
   const totals = eventsQuery.data?.totals
-  const eventRows = eventsQuery.data?.eventRows
+  const eventRows = rowsSource.data?.eventRows
+  const rowsLoading = rowsSource.isLoading
+  const rowsError = rowsSource.isError ? rowsSource.error : null
 
   const visibleEvents = useMemo(
     () =>
@@ -249,7 +306,8 @@ export function TrafficSourceDetailPage() {
       filterTrafficEvents(
         visibleEvents,
         {
-          selectedBucket,
+          // The rows were fetched for the clicked bar already.
+          selectedBucket: null,
           identity: identityFilter,
           operator: operatorFilter,
           pathQuery: pathFilter,
@@ -258,7 +316,7 @@ export function TrafficSourceDetailPage() {
         },
         activeWindow.granularity,
       ),
-    [visibleEvents, selectedBucket, identityFilter, operatorFilter, pathFilter, statusClassFilter, verificationFilter, activeWindow.granularity],
+    [visibleEvents, identityFilter, operatorFilter, pathFilter, statusClassFilter, verificationFilter, activeWindow.granularity],
   )
 
   // Reset to page 1 whenever the underlying event slice changes — filter
@@ -338,63 +396,50 @@ export function TrafficSourceDetailPage() {
     setSyncResult(null)
     try {
       const result = await sync.mutateAsync({ sinceMinutes: 60 })
-      setSyncResult(
-        `Pulled ${result.pulledEvents} entries · ${result.crawlerHits} crawler · ${result.aiUserFetchHits} AI user fetch · ${result.aiUserFetchLikelyFakeHits} likely fake agent · ${result.aiReferralHits} AI referral · ${result.unknownHits} unknown`,
-      )
+      setSyncResult(trafficSyncSummary(result))
     } catch (e) {
       setSyncError(extractErrorMessage(e))
     }
   }
 
-  if (!projectName || !sourceId) {
-    return (
-      <div className="page-container">
-        <p className="text-copy-14 text-muted">Missing project name or source id in URL.</p>
-      </div>
-    )
-  }
-
   if (sourceQuery.isLoading) {
-    return (
-      <div className="page-container">
-        <p className="text-copy-14 text-muted">Loading source…</p>
-      </div>
-    )
+    return <p role="status" className="text-copy-14 text-secondary">Loading source…</p>
   }
 
   if (sourceQuery.isError || !detail) {
     return (
-      <div className="page-container">
+      <div role="alert">
         <p className="text-copy-14 text-negative">Could not load this source.</p>
-        <BackLink canGoBack={canGoBack} className="mt-2 text-label-12 text-secondary hover:text-strong" />
+        <Button type="button" variant="outline" size="sm" onClick={() => { void sourceQuery.refetch() }}>Retry</Button>
+        {standalone && <BackLink className="ml-2 text-label-12 text-secondary hover:text-strong" />}
       </div>
     )
   }
 
+  const syncButton = canSync && (
+    <Button type="button" variant="outline" size="sm" disabled={sync.isPending} onClick={() => void handleSync()}>
+      <RefreshCw className={`size-3.5 ${sync.isPending ? 'animate-spin' : ''}`} />
+      {sync.isPending ? 'Syncing…' : 'Sync now'}
+    </Button>
+  )
+
   return (
-    <div className="page-container space-y-8">
-      <div className="page-header">
+    <div className="space-y-8">
+      {standalone && <div className="page-header">
         <div className="page-header-left">
-          <BackLink canGoBack={canGoBack} className="text-label-12 text-muted hover:text-strong" />
+          <BackLink className="text-label-12 text-muted hover:text-strong" />
           <h1 className="page-title mt-2">{detail.displayName}</h1>
           <p className="page-subtitle">{detail.sourceType} source for {projectName}</p>
         </div>
         <div className="flex items-center gap-2">
           <ToneBadge tone={toneFromTrafficSourceStatus(detail.status)}>{detail.status}</ToneBadge>
-          {!isEmbed() && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={sync.isPending}
-              onClick={() => void handleSync()}
-            >
-              <RefreshCw className={`size-3.5 ${sync.isPending ? 'animate-spin' : ''}`} />
-              {sync.isPending ? 'Syncing…' : 'Sync now'}
-            </Button>
-          )}
+          {syncButton}
         </div>
-      </div>
+      </div>}
+
+      {detail.lastError && detail.lastError !== detail.latestRun?.error ? (
+        <p className="break-words text-copy-14 text-negative">{detail.lastError}</p>
+      ) : null}
 
       {syncError ? (
         <div className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-label-14 text-negative-200">{syncError}</div>
@@ -425,7 +470,10 @@ export function TrafficSourceDetailPage() {
       </section>
 
       <section>
-        <p className="eyebrow mb-4">Latest sync run</p>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <p className="eyebrow">Latest sync run</p>
+          {!standalone && syncButton}
+        </div>
         {detail.latestRun ? (
           <Card className="p-4 text-label-14">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
@@ -446,7 +494,7 @@ export function TrafficSourceDetailPage() {
             ) : null}
           </Card>
         ) : (
-          <Card className="px-4 py-3 text-label-14 text-muted">{isEmbed() ? 'No traffic-sync runs recorded yet.' : 'No traffic-sync runs recorded yet. Hit "Sync now" above to create one.'}</Card>
+          <Card className="px-4 py-3 text-label-14 text-secondary">No traffic-sync runs recorded yet.{canSync && ' Select “Sync now” to start one.'}</Card>
         )}
       </section>
 
@@ -577,15 +625,20 @@ export function TrafficSourceDetailPage() {
           <div>
             <p className="text-label-12-strong normal-case text-muted">Event rows</p>
             <p className="mt-1 text-copy-13 text-muted">
-              Showing <span className="tabular-nums text-neutral">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
-              <span className="tabular-nums text-muted">{visibleEvents.length.toLocaleString('en-US')}</span>{' '}
-              {eventRows?.truncated ? 'loaded events' : 'events'}
-              {eventRows?.truncated ? (
+              {/* No counts while the rows load: "0 of 0" read as an empty result. */}
+              {rowsLoading ? 'Loading…' : (
                 <>
-                  {' '}· loaded <span className="tabular-nums text-neutral">{eventRows.returned.toLocaleString('en-US')}</span> of{' '}
-                  <span className="tabular-nums text-muted">{eventRows.total.toLocaleString('en-US')}</span> rows
+                  Showing <span className="tabular-nums text-neutral">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
+                  <span className="tabular-nums text-muted">{visibleEvents.length.toLocaleString('en-US')}</span>{' '}
+                  {eventRows?.truncated ? 'loaded events' : 'events'}
+                  {eventRows?.truncated ? (
+                    <>
+                      {' '}· loaded <span className="tabular-nums text-neutral">{eventRows.returned.toLocaleString('en-US')}</span> of{' '}
+                      <span className="tabular-nums text-muted">{eventRows.total.toLocaleString('en-US')}</span> rows
+                    </>
+                  ) : null}
                 </>
-              ) : null}{' '}· {LOCAL_TZ}
+              )}{' '}· {LOCAL_TZ}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -692,7 +745,17 @@ export function TrafficSourceDetailPage() {
           </div>
         ) : null}
 
-        <EventsTable events={pagedEvents} truncated={eventRows?.truncated ?? false} />
+        {rowsError ? (
+          <p className="py-8 text-center text-copy-13 text-negative-400">
+            Failed to load event rows: {rowsError instanceof Error ? rowsError.message : 'Unknown error'}
+          </p>
+        ) : rowsLoading ? (
+          <p className="py-8 text-center text-copy-13 text-muted">
+            {selectedBucketLabel ? `Loading rows for ${selectedBucketLabel}…` : 'Loading event rows…'}
+          </p>
+        ) : (
+          <EventsTable events={pagedEvents} truncated={eventRows?.truncated ?? false} />
+        )}
 
         {showPagination ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-label-12 text-secondary">

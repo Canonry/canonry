@@ -118,7 +118,7 @@ describe('Aero tool results', () => {
   })
 
   it('shows link importance as the 0 to 100 percent the dashboard shows', async () => {
-    const crawlPages = canonryMcpTools.find(tool => tool.name === 'canonry_technical_aeo_crawl_pages')!
+    const crawlPages = canonryMcpTools.find(tool => tool.name === 'canonry_agent_readiness_pages')!
     const page = (nodeKey: string, linkScoreNormalized: number) => ({
       nodeKey, url: `https://example.com/${nodeKey}`, finalUrl: null, path: `/${nodeKey}`, parentPath: '/',
       discoverySource: 'link', fetchState: 'html', httpStatus: 200, canonicalUrl: null,

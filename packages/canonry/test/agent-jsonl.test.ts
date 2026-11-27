@@ -73,6 +73,11 @@ const providersResponse: AgentProvidersResponse = {
       defaultModel: 'claude-opus-4-8',
       configured: true,
       keySource: 'config',
+      backgroundPause: {
+        reason: 'PROVIDER_BILLING',
+        retryAt: '2026-10-10T12:00:00.000Z',
+        recovery: 'Restore billing access, then send Aero a prompt to retry now.',
+      },
     },
     {
       id: 'openai',
@@ -143,6 +148,11 @@ describe('agent providers — jsonl', () => {
       id: 'claude',
       configured: true,
       keySource: 'config',
+      backgroundPause: {
+        reason: 'PROVIDER_BILLING',
+        retryAt: '2026-10-10T12:00:00.000Z',
+        recovery: 'Restore billing access, then send Aero a prompt to retry now.',
+      },
     })
     expect(records[1]).toMatchObject({ project: 'demo', id: 'openai', configured: false })
   })
@@ -167,6 +177,24 @@ describe('agent providers — jsonl', () => {
     const cap = captureLog(() => agentProviders({ project: 'demo', format: 'json' }))
     await cap.run
     expect(JSON.parse(cap.lines().join(''))).toEqual(providersResponse)
+  })
+
+  it('prints the server account pause and recovery action without disabling manual prompts', async () => {
+    mockListAgentProviders.mockResolvedValue({
+      ...providersResponse,
+      providers: [{
+        ...providersResponse.providers[0],
+        backgroundPause: {
+          reason: 'PROVIDER_BILLING',
+          retryAt: '2026-10-10T12:00:00.000Z',
+          recovery: 'Restore billing access, then send Aero a prompt to retry now.',
+        },
+      }],
+    })
+    const cap = captureLog(() => agentProviders({ project: 'demo', format: 'text' }))
+    await cap.run
+    expect(cap.lines().join('\n')).toContain('Automatic work paused: PROVIDER_BILLING; retry after 2026-10-10T12:00:00.000Z')
+    expect(cap.lines().join('\n')).toContain('Restore billing access, then send Aero a prompt to retry now.')
   })
 })
 

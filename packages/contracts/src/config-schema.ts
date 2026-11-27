@@ -8,6 +8,7 @@ import {
   hasLocationLabel,
   PROJECT_QUALIFIED_ALIAS_LIMIT,
   PROJECT_QUALIFIED_ALIAS_MAX_LENGTH,
+  siteAuditDomainsSchema,
 } from './project.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
@@ -101,11 +102,17 @@ const configSpecShape = {
   /** Highest star rating that counts as a negative Google review (1-4). Omitted means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.optional(),
   /**
-   * Site Health page budget for scans that set none (1-50,000); null means the
+   * Agent Readiness page budget for scans that set none (1-50,000); null means the
    * full site. Absent leaves the stored value alone, so a re-apply that never
    * mentions it cannot undo a budget set in the dashboard.
    */
   siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Owned domains every Agent Readiness scan covers besides the main domain.
+   * Each must be one of `ownedDomains`. Absent keeps the stored list, minus
+   * domains no longer owned; `[]` scans the main domain only.
+   */
+  siteAuditDomains: siteAuditDomainsSchema.optional(),
   /**
    * Answer-derived competitor alias detection: `off`, `preview` (log only) or
    * `apply`. Absent leaves the stored mode alone; a new project starts in

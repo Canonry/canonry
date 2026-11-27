@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FACTOR_DEFINITIONS, scoreFactors } from '@canonry/aeo-audit/scoring'
+import { FACTOR_DEFINITIONS, scoreFactors } from '@canonry/agent-readiness/scoring'
 import { computeFactorAverages, recordedSharePct } from '../src/site-audit-factors.js'
 
 /**

@@ -8,6 +8,7 @@ Source of truth for `AGENTS.md` “Lint Guards (Critical)” summary. Lint runs 
 |---|---|---|
 | `canonry-vocabulary/no-banned-metric-literal` | `packages/canonry/src/commands`, `…/cli-commands`, `packages/api-routes/src`, `apps/web/src`, `packages/contracts/src/visibility-display.ts` | Legacy/conflated AEO metric literals ("Vocabulary (Critical)" rule 7) |
 | `canonry-vocabulary/no-question-ui-copy` | `apps/web/src`, `packages/contracts/src/visibility-display.ts` | "question" in UI copy ("Query vs question") |
+| `canonry-vocabulary/no-retired-feature-name` | `apps/web/src`, `packages/contracts/src/visibility-display.ts` | The retired names Site Health, Technical AEO, technical audit and Page health, a bare "Agent Readiness scan", "site scan" and "Map site", in UI copy — the feature is Agent Readiness and one run is an Agent Readiness audit scan |
 | `canonry-guards/no-inline-ai-hostname` | `packages/canonry`, `api-routes`, `provider-*`, `integration-*`, `intelligence`, `apps/*` src | Raw AI-provider hostnames — use `AI_ENGINE_DOMAINS` |
 | `canonry-guards/no-inline-percent` | `packages/canonry/src/commands`, `…/cli-commands`, `…/agent`, `apps/web/src`, `packages/api-routes/src`, `packages/intelligence/src`, `packages/contracts/src` (not `formatting.ts`) | A `%` right after a number rounded inline — show it with `formatPercent` |
 | `canonry-guards/no-inline-ga4-dimension` | `packages/integration-google-analytics/src` | Raw GA4 dimension names — use `GA4_DIMENSIONS` |

@@ -129,9 +129,9 @@ describe('isEmbedProjectTabAllowed', () => {
   })
 
   it('allows only the listed tabs when an allowlist is set', () => {
-    const allow = ['overview', 'technical-aeo']
+    const allow = ['overview', 'agent-readiness']
     expect(isEmbedProjectTabAllowed('overview', allow)).toBe(true)
-    expect(isEmbedProjectTabAllowed('technical-aeo', allow)).toBe(true)
+    expect(isEmbedProjectTabAllowed('agent-readiness', allow)).toBe(true)
     expect(isEmbedProjectTabAllowed('search-console', allow)).toBe(false)
     expect(isEmbedProjectTabAllowed('activity', allow)).toBe(false)
     expect(isEmbedProjectTabAllowed('backlinks', allow)).toBe(false)
@@ -144,16 +144,16 @@ describe('resolveEmbedProjectTab', () => {
   })
 
   it('returns the requested tab when it is allowed', () => {
-    expect(resolveEmbedProjectTab('technical-aeo', ['overview', 'technical-aeo'])).toBe('technical-aeo')
+    expect(resolveEmbedProjectTab('agent-readiness', ['overview', 'agent-readiness'])).toBe('agent-readiness')
   })
 
   it('falls back to overview when the requested tab is hidden', () => {
-    expect(resolveEmbedProjectTab('backlinks', ['overview', 'technical-aeo'])).toBe('overview')
-    expect(resolveEmbedProjectTab('search-console', ['overview', 'technical-aeo'])).toBe('overview')
+    expect(resolveEmbedProjectTab('backlinks', ['overview', 'agent-readiness'])).toBe('overview')
+    expect(resolveEmbedProjectTab('search-console', ['overview', 'agent-readiness'])).toBe('overview')
   })
 
   it('falls back to the first allowed tab when even overview is hidden', () => {
-    expect(resolveEmbedProjectTab('backlinks', ['technical-aeo', 'activity'])).toBe('technical-aeo')
+    expect(resolveEmbedProjectTab('backlinks', ['agent-readiness', 'activity'])).toBe('agent-readiness')
   })
 
   it('falls back to overview when filtering leaves no valid tabs', () => {
@@ -170,7 +170,21 @@ describe('filterEmbedProjectTabs', () => {
   it('keeps retired Report grants closed, including mixed lists', () => {
     expect(filterEmbedProjectTabs(['report'])).toEqual([])
     expect(filterEmbedProjectTabs(['overview', 'report'])).toEqual([])
+    expect(filterEmbedProjectTabs(['agent-readiness', 'REPORT'])).toEqual([])
     expect(filterEmbedProjectTabs(['technical-aeo', 'REPORT'])).toEqual([])
+  })
+
+  // Agent Readiness's tab key was `technical-aeo`. A host allowlist saved
+  // before the rename keeps the tab under its current key, in the host's order,
+  // and naming both keys grants it once.
+  it('maps the retired technical-aeo key onto the Agent Readiness tab', () => {
+    expect(filterEmbedProjectTabs(['overview', 'technical-aeo'])).toEqual(['overview', 'agent-readiness'])
+    expect(filterEmbedProjectTabs(['technical-aeo', 'overview'])).toEqual(['agent-readiness', 'overview'])
+    expect(filterEmbedProjectTabs(['technical-aeo', 'agent-readiness'])).toEqual(['agent-readiness'])
+    expect(filterEmbedProjectTabs([' Technical-AEO '])).toEqual(['agent-readiness'])
+    expect(filterEmbedProjectTabs(['technical-aeo', 'portfolio'])).toEqual(['agent-readiness'])
+    expect(filterEmbedProjectTabs(undefined)).toContain('agent-readiness')
+    expect(filterEmbedProjectTabs(undefined)).not.toContain('technical-aeo')
   })
 
   it('defaults an unset allowlist to every embed-safe project tab', () => {
@@ -210,16 +224,20 @@ describe('effectiveEmbedProjectTabs', () => {
 // allowlist and fall every embed back to a different tab.
 it('keeps the overview tab id on the wire however the label reads', () => {
   expect(isEmbedProjectTabAllowed('overview', ['overview'])).toBe(true)
-  expect(resolveEmbedProjectTab('overview', ['overview', 'technical-aeo'])).toBe('overview')
+  expect(resolveEmbedProjectTab('overview', ['overview', 'agent-readiness'])).toBe('overview')
   expect(isEmbedProjectTabAllowed('ai-visibility', ['overview'])).toBe(false)
 })
 
-// Site Health replaces the visible Technical AEO label, but existing embed
-// allowlists and saved routes must continue to use the stable wire token.
-it('keeps the technical-aeo tab id on the wire however the Site Health label reads', () => {
-  expect(isEmbedProjectTabAllowed('technical-aeo', ['technical-aeo'])).toBe(true)
-  expect(resolveEmbedProjectTab('technical-aeo', ['overview', 'technical-aeo'])).toBe('technical-aeo')
-  expect(isEmbedProjectTabAllowed('site-health', ['technical-aeo'])).toBe(false)
+// The Agent Readiness tab is `agent-readiness` on the wire. An embed whose host
+// still sends the retired `technical-aeo` key is normalized before any tab is
+// checked, so the page it opens (and the subnav) is the Agent Readiness tab.
+it('grants the Agent Readiness tab to a host that still lists technical-aeo', () => {
+  const allow = effectiveEmbedProjectTabs({ projectTabs: ['overview', 'technical-aeo'] })
+  expect(allow).toEqual(['overview', 'agent-readiness'])
+  expect(isEmbedProjectTabAllowed('agent-readiness', allow)).toBe(true)
+  expect(isEmbedProjectTabAllowed('technical-aeo', allow)).toBe(false)
+  expect(resolveProjectPageTab('agent-readiness', { projectTabs: ['technical-aeo'] })).toBe('agent-readiness')
+  expect(isEmbedProjectTabAllowed('site-health', allow)).toBe(false)
 })
 
 describe('embedQueryLimit', () => {
@@ -236,21 +254,22 @@ describe('resolveProjectPageTab', () => {
     expect(resolveProjectPageTab('client-queries', { queries: { limit: 10 } })).toBe('client-queries')
     // An embed without the grant falls back like any hidden tab, even if it lists the key.
     expect(resolveProjectPageTab('client-queries', { projectTabs: ['overview', 'client-queries'] })).toBe('overview')
-    expect(resolveProjectPageTab('client-queries', { projectTabs: ['technical-aeo'] })).toBe('technical-aeo')
+    expect(resolveProjectPageTab('client-queries', { projectTabs: ['agent-readiness'] })).toBe('agent-readiness')
+    expect(resolveProjectPageTab('client-queries', { projectTabs: ['technical-aeo'] })).toBe('agent-readiness')
     // Operators have no client Queries tab; theirs is the operator Queries tab.
     expect(resolveProjectPageTab('client-queries', null)).toBe('queries')
   })
 
   it('leaves every other tab to the embed allowlist', () => {
-    expect(resolveProjectPageTab('technical-aeo', { projectTabs: ['overview'] })).toBe('overview')
-    expect(resolveProjectPageTab('technical-aeo', null)).toBe('technical-aeo')
+    expect(resolveProjectPageTab('agent-readiness', { projectTabs: ['overview'] })).toBe('overview')
+    expect(resolveProjectPageTab('agent-readiness', null)).toBe('agent-readiness')
   })
 })
 
 describe('embed tab memory', () => {
   it('remembers project tabs and forgets on the first tab', () => {
     expect(embedTabToRemember('/projects/summit/client-queries')).toBe('/projects/summit/client-queries')
-    expect(embedTabToRemember('/projects/summit/technical-aeo/')).toBe('/projects/summit/technical-aeo')
+    expect(embedTabToRemember('/projects/summit/agent-readiness/')).toBe('/projects/summit/agent-readiness')
     expect(embedTabToRemember('/projects/summit')).toBeNull()
     expect(embedTabToRemember('/projects/summit/properties/north')).toBeNull()
     expect(embedTabToRemember('/settings')).toBeNull()
@@ -260,7 +279,7 @@ describe('embed tab memory', () => {
     expect(embedTabToRestore('/projects/summit', '/projects/summit/client-queries')).toBe('/projects/summit/client-queries')
     expect(embedTabToRestore('/projects/summit/', '/projects/summit/client-queries')).toBe('/projects/summit/client-queries')
     expect(embedTabToRestore('/projects/other', '/projects/summit/client-queries')).toBeNull()
-    expect(embedTabToRestore('/projects/summit/technical-aeo', '/projects/summit/client-queries')).toBeNull()
+    expect(embedTabToRestore('/projects/summit/agent-readiness', '/projects/summit/client-queries')).toBeNull()
     expect(embedTabToRestore('/projects/summit', null)).toBeNull()
     expect(embedTabToRestore('/projects/summit', '/projects/summit/../settings')).toBeNull()
   })

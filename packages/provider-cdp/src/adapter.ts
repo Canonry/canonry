@@ -77,10 +77,10 @@ export const cdpChatgptAdapter: ProviderAdapter = {
     }
   },
 
-  async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
+  async healthcheck(config: ProviderConfig, signal?: AbortSignal): Promise<ProviderHealthcheckResult> {
     try {
       const conn = getConnection(config)
-      const health = await conn.healthcheck()
+      const health = await conn.healthcheck(signal)
       if (!health.connected) {
         const port = config.cdpEndpoint?.split(':').pop() || '9222'
         return {

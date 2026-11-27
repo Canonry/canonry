@@ -143,12 +143,13 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'connect', 'cloud-run'],
-    usage: 'canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path> [--service <name>] [--location <region>] [--display-name <name>] [--format json]',
+    usage: 'canonry traffic connect cloud-run <project> --gcp-project <id> [--service-account-key <path>] [--service <name>] [--location <region>] [--display-name <name>] [--start-from-now] [--format json]',
     options: {
       'gcp-project': stringOption(),
       service: stringOption(),
       location: stringOption(),
       'service-account-key': stringOption(),
+      'start-from-now': { type: 'boolean' },
       'display-name': stringOption(),
     },
     run: async (input) => {
@@ -156,18 +157,17 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(
         input,
         'traffic.connect.cloud-run',
-        'canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path>',
+        'canonry traffic connect cloud-run <project> --gcp-project <id> [--service-account-key <path>]',
       )
       const gcpProject = getString(input.values, 'gcp-project')
       if (!gcpProject) throw new Error('--gcp-project is required')
-      const serviceAccountKey = getString(input.values, 'service-account-key')
-      if (!serviceAccountKey) throw new Error('--service-account-key is required')
 
       await trafficConnectCloudRun(project, {
         gcpProject,
         service: getString(input.values, 'service'),
         location: getString(input.values, 'location'),
-        serviceAccountKey,
+        serviceAccountKey: getString(input.values, 'service-account-key'),
+        startFromNow: getBoolean(input.values, 'start-from-now') || undefined,
         displayName: getString(input.values, 'display-name'),
         format: input.format,
       })
@@ -423,7 +423,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'events'],
-    usage: 'canonry traffic events <project> [--kind crawler|ai-user-fetch|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--granularity hour|day] [--format json]',
+    usage: 'canonry traffic events <project> [--kind all|crawler|ai-user-fetch|ai-referral[,...]] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--path <page>] [--agent <id>] [--group-by agent,path,status,source] [--limit 500] [--cursor <next-cursor>] [--granularity hour|day|month] [--format json|jsonl]',
     options: {
       kind: stringOption(),
       source: stringOption(),
@@ -432,6 +432,10 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       until: stringOption(),
       limit: stringOption(),
       granularity: stringOption(),
+      path: stringOption(),
+      agent: stringOption(),
+      cursor: stringOption(),
+      'group-by': stringOption(),
     },
     run: async (input) => {
       const { trafficEvents } = await import('../commands/traffic.js')
@@ -459,6 +463,10 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         since: getString(input.values, 'since'),
         until: getString(input.values, 'until'),
         limit,
+        path: getString(input.values, 'path'),
+        agent: getString(input.values, 'agent'),
+        cursor: getString(input.values, 'cursor'),
+        groupBy: getString(input.values, 'group-by'),
         format: input.format,
       })
     },

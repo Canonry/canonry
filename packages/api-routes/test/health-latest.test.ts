@@ -58,6 +58,7 @@ test('returns 200 with no-data sentinel when no health snapshot exists', async (
     overallMentionRate: 0,
     totalPairs: 0,
     citedPairs: 0,
+    citationNotMeasuredPairs: 0,
     mentionedPairs: 0,
     providerBreakdown: {},
     createdAt: '',
@@ -93,7 +94,36 @@ test('returns 200 with status:"ready" when a snapshot exists', async () => {
   // Mention is surfaced alongside cited, never in place of it.
   expect(body.overallMentionRate).toBe(0.3)
   expect(body.mentionedPairs).toBe(3)
-  expect(body.providerBreakdown).toEqual({ gemini: { citedRate: 0.5, mentionRate: 0.3, cited: 5, mentioned: 3, total: 10 } })
+  expect(body.providerBreakdown).toEqual({ gemini: { citedRate: 0.5, mentionRate: 0.3, cited: 5, mentioned: 3, total: 10, citationNotMeasured: 0 } })
+})
+
+test('reads a snapshot none of whose pairs carried sources as not measured, never 0%', async () => {
+  const projectId = insertProject(ctx.db, 'local-only')
+  // A Local-only run: the NOT NULL rate column stored 0, and the breakdown
+  // says every pair's engine returned no sources.
+  ctx.db.insert(healthSnapshots).values({
+    id: 'snap-local',
+    projectId,
+    runId: null,
+    overallCitedRate: '0',
+    overallMentionRate: '0.4',
+    totalPairs: 5,
+    citedPairs: 0,
+    mentionedPairs: 2,
+    providerBreakdown: { local: { citedRate: null, mentionRate: 0.4, cited: 0, mentioned: 2, total: 5, citationNotMeasured: 5 } },
+    createdAt: '2026-11-01T00:00:00Z',
+  }).run()
+  await ctx.app.ready()
+
+  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/local-only/health/latest' })
+  const body = JSON.parse(res.body) as HealthSnapshotDto
+  expect(body.overallCitedRate).toBeNull()
+  expect(body.citationNotMeasuredPairs).toBe(5)
+  expect(body.citedPairs).toBe(0)
+  // Mention is measured on the same answers and unaffected.
+  expect(body.overallMentionRate).toBe(0.4)
+  expect(body.mentionedPairs).toBe(2)
+  expect(body.providerBreakdown.local).toEqual({ citedRate: null, mentionRate: 0.4, cited: 0, mentioned: 2, total: 5, citationNotMeasured: 5 })
 })
 
 test('coalesces a legacy row with NULL mention columns to 0 instead of crashing', async () => {
@@ -125,7 +155,9 @@ test('coalesces a legacy row with NULL mention columns to 0 instead of crashing'
   // Missing mention data reads back as 0 (NULL→0), not NaN/null/undefined.
   expect(body.overallMentionRate).toBe(0)
   expect(body.mentionedPairs).toBe(0)
-  expect(body.providerBreakdown.gemini).toEqual({ citedRate: 0.6, mentionRate: 0, cited: 6, mentioned: 0, total: 10 })
+  // Written before not-measured pairs were counted: read as stored, never recomputed.
+  expect(body.citationNotMeasuredPairs).toBe(0)
+  expect(body.providerBreakdown.gemini).toEqual({ citedRate: 0.6, mentionRate: 0, cited: 6, mentioned: 0, total: 10, citationNotMeasured: 0 })
 })
 
 test('still returns 404 when the project itself does not exist', async () => {
@@ -200,4 +232,48 @@ test('aggregates healthSnapshots across the latest fan-out group when a multi-lo
 
   // Synthesized id signals this is a group aggregate.
   expect(body.id).toMatch(/^group:/)
+})
+
+test('aggregates a fan-out group over the pairs whose sources were checked (mixed engines)', async () => {
+  const { runs } = await import('@canonry/canonry-db')
+  const projectId = insertProject(ctx.db, 'multi-loc-local')
+  const createdAt = '2026-11-02T10:00:00.000Z'
+  ctx.db.insert(runs).values([
+    { id: 'run-fl', projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida', createdAt, finishedAt: createdAt },
+    { id: 'run-mi', projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt, finishedAt: createdAt },
+  ]).run()
+  // Each location: Gemini 4 pairs, Local 4 pairs with no sources.
+  // florida: Gemini cites 2, mentions 1; Local mentions 3.
+  // michigan: Gemini cites 1, mentions 0; Local mentions 1.
+  ctx.db.insert(healthSnapshots).values([
+    {
+      id: 'snap-fl', projectId, runId: 'run-fl', overallCitedRate: '0.5', overallMentionRate: '0.5', totalPairs: 8, citedPairs: 2, mentionedPairs: 4,
+      providerBreakdown: {
+        gemini: { citedRate: 0.5, mentionRate: 0.25, cited: 2, mentioned: 1, total: 4, citationNotMeasured: 0 },
+        local: { citedRate: null, mentionRate: 0.75, cited: 0, mentioned: 3, total: 4, citationNotMeasured: 4 },
+      },
+      createdAt,
+    },
+    {
+      id: 'snap-mi', projectId, runId: 'run-mi', overallCitedRate: '0.25', overallMentionRate: '0.125', totalPairs: 8, citedPairs: 1, mentionedPairs: 1,
+      providerBreakdown: {
+        gemini: { citedRate: 0.25, mentionRate: 0, cited: 1, mentioned: 0, total: 4, citationNotMeasured: 0 },
+        local: { citedRate: null, mentionRate: 0.25, cited: 0, mentioned: 1, total: 4, citationNotMeasured: 4 },
+      },
+      createdAt,
+    },
+  ]).run()
+  await ctx.app.ready()
+
+  const body = JSON.parse((await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/multi-loc-local/health/latest' })).body) as HealthSnapshotDto
+  // Cited: 3 of the 8 checked pairs; the 8 Local pairs are out.
+  expect(body.totalPairs).toBe(16)
+  expect(body.citedPairs).toBe(3)
+  expect(body.citationNotMeasuredPairs).toBe(8)
+  expect(body.overallCitedRate).toBe(0.375)
+  // Mention: 5 of all 16 pairs.
+  expect(body.mentionedPairs).toBe(5)
+  expect(body.overallMentionRate).toBe(0.3125)
+  expect(body.providerBreakdown.gemini).toEqual({ citedRate: 0.375, mentionRate: 0.125, cited: 3, mentioned: 1, total: 8, citationNotMeasured: 0 })
+  expect(body.providerBreakdown.local).toEqual({ citedRate: null, mentionRate: 0.5, cited: 0, mentioned: 4, total: 8, citationNotMeasured: 8 })
 })

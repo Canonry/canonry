@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { RunKinds } from '@canonry/canonry-contracts'
 
 import {
   clearOnboardingRunLaunched,
@@ -98,10 +99,11 @@ describe('onboarding launched-run marker', () => {
     // sub-second FAILURE always records: the funnel could only count failures.
     expect(readOnboardingLaunchedRun('acme')).toBeNull()
 
-    markOnboardingRunLaunched('acme', 'run-42')
+    markOnboardingRunLaunched('acme', 'run-42', RunKinds['answer-visibility'])
     expect(readOnboardingLaunchedRun('acme')).toEqual({
       projectName: 'acme',
       runId: 'run-42',
+      kind: RunKinds['answer-visibility'],
       handled: false,
     })
 
@@ -112,7 +114,7 @@ describe('onboarding launched-run marker', () => {
   it('never hands one project the run of another', () => {
     // Launch a sweep for acme, then open setup for globex. A bare run id would
     // poll acme's run here and attribute its outcome to globex's onboarding.
-    markOnboardingRunLaunched('acme', 'run-42')
+    markOnboardingRunLaunched('acme', 'run-42', RunKinds['answer-visibility'])
 
     expect(readOnboardingLaunchedRun('globex')).toBeNull()
     expect(readOnboardingLaunchedRun(undefined)).toBeNull()
@@ -122,14 +124,15 @@ describe('onboarding launched-run marker', () => {
   it('stops offering a run whose outcome was already reported', () => {
     // The per-mount dedupe ref is born empty on every mount, so it cannot stop
     // a remount from re-reporting a terminal run. This is what does.
-    markOnboardingRunLaunched('acme', 'run-42')
+    markOnboardingRunLaunched('acme', 'run-42', RunKinds['answer-visibility'])
     markOnboardingRunHandled('run-42')
 
     expect(readOnboardingLaunchedRun('acme')).toBeNull()
+    expect(readOnboardingLaunchedRun('acme', true)).toEqual({ projectName: 'acme', runId: 'run-42', kind: RunKinds['answer-visibility'], handled: true })
   })
 
   it('ignores a handled mark for a different run', () => {
-    markOnboardingRunLaunched('acme', 'run-42')
+    markOnboardingRunLaunched('acme', 'run-42', RunKinds['answer-visibility'])
     markOnboardingRunHandled('run-99')
 
     expect(readOnboardingLaunchedRun('acme')?.handled).toBe(false)
@@ -145,7 +148,7 @@ describe('onboarding launched-run marker', () => {
   })
 
   it('survives a page reload but not a new browser session', () => {
-    markOnboardingRunLaunched('acme', 'run-42')
+    markOnboardingRunLaunched('acme', 'run-42', RunKinds['answer-visibility'])
     // sessionStorage is the same scope the onboarding session id uses, so the
     // marker and the session it belongs to expire together.
     expect(window.sessionStorage.getItem('canonry.onboarding-launched-run.v1')).toContain('run-42')

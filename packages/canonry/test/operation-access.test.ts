@@ -258,7 +258,8 @@ describe('CLI and MCP operation access metadata', () => {
     expect(operationAccess('POST', '/api/v1/projects/{name}/measurement-discovery')).toBe('live')
     expect(operationAccess('GET', '/api/v1/projects/{name}/discover/sessions/{id}/harvest')).toBe('live')
     expect(operationAccess('GET', '/api/v1/cdp/status')).toBe('live')
-    expect(operationAccess('GET', '/api/v1/projects/{name}/bing/performance')).toBe('live')
+    // Reads the bing-sync store since the full Bing API PR; it no longer calls Bing.
+    expect(operationAccess('GET', '/api/v1/projects/{name}/bing/performance')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/projects/{name}/bing/coverage')).toBe('write')
     expect(operationAccess('GET', '/api/v1/projects/{name}/results/export')).toBe('stored')
     expect(operationAccess('GET', '/api/v1/google/callback')).toBe('write')

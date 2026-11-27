@@ -147,6 +147,8 @@ export interface PacedInspectDeps {
    * trip the breaker, and would grind through a whole sitemap against a wall.
    */
   isRetryable?: (err: unknown) => boolean
+  /** Stop immediately when the client has exhausted an account-wide limit. */
+  abortOnError?: (err: unknown) => boolean
   /**
    * Names the upstream limit this sweep draws on, so concurrent sweeps sharing
    * that limit queue behind ONE clock (see `inspect-rate-gate.ts`). REQUIRED,
@@ -275,6 +277,12 @@ export async function inspectUrlsPaced<TResult>(
       } catch (err) {
         errors++
         cb.onError(url, err, index)
+        if (deps.abortOnError?.(err)) {
+          aborted = true
+          abortError = err
+          deps.log?.error('inspect.account-paused', { inspected, errors, remaining: Math.max(0, urls.length - nextIndex) })
+          return
+        }
         // Only rate/server/network-shaped failures advance the breaker — a
         // non-retryable per-URL error (bad URL, 404) is a data issue, not a
         // signal that the whole property is throttled or inaccessible.

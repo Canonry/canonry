@@ -44,7 +44,7 @@ it('stores scheduled host refreshes and manual CLI syncs, including after a refu
     await app.listen({ host: '127.0.0.1', port: address.port }); await waitForServerRuntimeStartup(app)
     expect(callbacks.has(expression)).toBe(true)
     callbacks.get(expression)!()
-    await vi.waitFor(() => expect(scheduledResponses).toBe(7), { timeout: 10_000 })
+    await vi.waitFor(() => expect(scheduledResponses).toBe(8), { timeout: 10_000 })
     let rows = db.select().from(runs).all().filter(row => row.kind === 'gsc-sync')
     expect(rows).toHaveLength(1); expect(rows[0]!.trigger).toBe('scheduled')
     const firstId = rows[0]!.id
@@ -54,7 +54,7 @@ it('stores scheduled host refreshes and manual CLI syncs, including after a refu
     expect(rows).toHaveLength(2); expect(rows.find(row => row.id !== firstId)?.trigger).toBe('manual')
     config.google!.connections = []
     callbacks.get(expression)!()
-    await vi.waitFor(() => expect(scheduledResponses).toBe(14), { timeout: 10_000 })
+    await vi.waitFor(() => expect(scheduledResponses).toBe(16), { timeout: 10_000 })
     expect(db.select().from(runs).all().filter(row => row.kind === 'gsc-sync')).toHaveLength(2)
     config.google!.connections = [connection]
     const afterRefusal = await invokeCli(['google', 'sync', 'example', '--format', 'json'])

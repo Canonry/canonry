@@ -12,6 +12,7 @@ function applyServerEnv(values: CliValues): void {
   if (port) process.env.CANONRY_PORT = port
   if (host) process.env.CANONRY_HOST = host
   if (basePath) process.env.CANONRY_BASE_PATH = basePath
+  if (getBoolean(values, 'hide-feedback')) process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK = '0'
 
   // Embed mode (#716). Each var is guarded on presence so an unset flag never
   // clobbers an inherited env value (mirrors the basePath handling above).
@@ -56,7 +57,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['init'],
     usage: 'canonry init [--force] [--ref <tag>] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--muse-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
-    help: 'Optional interactive provider and OAuth setup. First-run Page Health does not need this: use "canonry bootstrap", then "canonry serve". At least one provider is required here. --format json needs provider flags or environment variables.',
+    help: 'Optional interactive provider and OAuth setup. First-run Agent Readiness does not need this: use "canonry bootstrap", then "canonry serve". At least one provider is required here. --format json needs provider flags or environment variables.',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
       ref: stringOption(),
@@ -118,11 +119,12 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['serve'],
-    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
+    usage: 'canonry serve [--port <port>] [--host <host>] [--base-path <path>] [--hide-feedback] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
       'base-path': stringOption(),
+      'hide-feedback': { type: 'boolean' },
       embed: { type: 'boolean', default: false },
       'embed-allow-origin': multiStringOption(),
       'embed-view': multiStringOption(),
@@ -137,11 +139,12 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['start'],
-    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
+    usage: 'canonry start [--port <port>] [--host <host>] [--base-path <path>] [--hide-feedback] [--embed] [--embed-allow-origin <origin>...] [--embed-view <view>...] [--embed-project-tab <tab>...] [--format json]',
     options: {
       port: stringOption(),
       host: stringOption(),
       'base-path': stringOption(),
+      'hide-feedback': { type: 'boolean' },
       embed: { type: 'boolean', default: false },
       'embed-allow-origin': multiStringOption(),
       'embed-view': multiStringOption(),
@@ -153,6 +156,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         port: getString(input.values, 'port'),
         host: getString(input.values, 'host'),
         basePath: getString(input.values, 'base-path'),
+        hideFeedback: getBoolean(input.values, 'hide-feedback'),
         embed: getBoolean(input.values, 'embed'),
         embedAllowOrigins: getStringArray(input.values, 'embed-allow-origin'),
         embedViews: getStringArray(input.values, 'embed-view'),
@@ -172,7 +176,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['support'],
     usage: 'canonry support [--format json]',
-    help: 'Where to get help: the Canonry Discord, the issue tracker, and canonry feedback.',
+    help: 'Show Canonry support and available community links.',
     allowPositionals: false,
     run: async (input) => {
       const { supportCommand } = await import('../commands/support.js')

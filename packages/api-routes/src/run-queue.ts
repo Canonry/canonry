@@ -47,15 +47,18 @@ import {
   type ProviderDispatchMode,
   type ProviderErrorCode,
   type RunAdmissionDto,
+  type RunPreviewDto,
+  type RunTriggerRequest,
   type RunDispatchResolution,
   compareText,
   sortedUnique,
 } from '@canonry/canonry-contracts'
 import type { DatabaseClient } from '@canonry/canonry-db'
-import { auditLog, measurementPlans, measurementPlanVersions, parseJsonColumn, projects, querySnapshots, runs, schedules } from '@canonry/canonry-db'
+import { auditLog, measurementPlanDrafts, measurementPlans, measurementPlanVersions, parseJsonColumn, projects, queries, querySnapshots, runs, schedules } from '@canonry/canonry-db'
 import { writeAuditLog } from './helpers.js'
 import { buildMeasurementRunManifest } from './measurement-report-adapter.js'
 import { ensureCurrentQueryBasketRevision } from './query-basket.js'
+import { readQueryClasses } from './query-class-read.js'
 
 export interface QueueRunParams {
   projectId: string
@@ -131,6 +134,48 @@ interface MeasurementStamp {
 export function hasActiveMeasurementPlan(db: DatabaseClient, projectId: string): boolean {
   return db.select({ projectId: measurementPlans.projectId }).from(measurementPlans)
     .where(eq(measurementPlans.projectId, projectId)).get() !== undefined
+}
+
+/** Shared setup/launch gate; a deliberately deactivated plan may run as Simple. */
+export function requiresMeasurementPublication(db: DatabaseClient, projectId: string): boolean {
+  if (hasActiveMeasurementPlan(db, projectId)) return false
+  const draft = db.select({ id: measurementPlanDrafts.id, etagVersion: measurementPlanDrafts.etagVersion })
+    .from(measurementPlanDrafts).where(eq(measurementPlanDrafts.projectId, projectId)).get()
+  // Opening Advanced setup creates a seeded draft at ETag version 1, and every
+  // content edit bumps it. Until an operator edits it nothing is being set up,
+  // so a project that was only looked at keeps measuring as Simple.
+  if (draft === undefined || draft.etagVersion <= 1) return false
+  // Deactivation deliberately returns to Simple while preserving draft work.
+  return db.select({ id: measurementPlanVersions.id }).from(measurementPlanVersions)
+    .where(eq(measurementPlanVersions.projectId, projectId)).limit(1).get() === undefined
+}
+
+/**
+ * A draft is not permission for an operator to measure the live library as a
+ * Simple project. A schedule keeps measuring it until the plan is published:
+ * no one is there to see a refused scheduled sweep, and refusing it would
+ * leave a gap in the trend.
+ */
+export function assertPublishedMeasurementPlanForSweep(db: DatabaseClient, params: Pick<QueueRunParams, 'projectId' | 'trigger' | 'kind'>): void {
+  if ((params.kind ?? RunKinds['answer-visibility']) === RunKinds['answer-visibility']
+    && params.trigger !== RunTriggers.probe && params.trigger !== RunTriggers.scheduled
+    && requiresMeasurementPublication(db, params.projectId)) {
+    throw validationError('Publish the Advanced Measurement draft before starting a sweep.')
+  }
+}
+
+/** Shared by launch and preview so an omitted location uses the same saved default. */
+export function resolveRunLocation(
+  project: { locations: LocationContext[]; defaultLocation: string | null },
+  selection: Pick<RunTriggerRequest, 'location' | 'allLocations' | 'noLocation'>,
+): LocationContext | null | undefined {
+  if (selection.noLocation) return null
+  if (selection.allLocations) return undefined
+  const label = selection.location ?? project.defaultLocation
+  if (!label) return undefined
+  const location = project.locations.find(value => value.label === label)
+  if (!location) throw validationError(selection.location ? `Location "${label}" not found. Configure it first.` : `Default location "${label}" not found. Update the project configuration.`)
+  return location
 }
 
 /**
@@ -546,6 +591,7 @@ function measurementStampV2(plan: MeasurementPlanV2, versionId: string, params: 
 }
 
 function measurementStamp(tx: DatabaseClient, params: QueueRunParams): MeasurementStamp | null {
+  assertPublishedMeasurementPlanForSweep(tx, params)
   const active = tx.select().from(measurementPlans)
     .where(eq(measurementPlans.projectId, params.projectId)).get()
   if (!active) {
@@ -1085,6 +1131,95 @@ export function runAdmissionState(
     refused,
     retryAfter: refused ? providerAccountFailures(held).retryAfter : null,
     providers: Object.fromEntries(held),
+  }
+}
+
+/** No writes or provider calls: project the same stamp, roster and admission a manual launch uses. */
+export function previewManualRun(db: DatabaseClient, params: Pick<QueueRunParams, 'projectId' | 'runnableProviders' | 'routeFamilies' | 'providerModels'>): RunPreviewDto {
+  const project = db.select().from(projects).where(eq(projects.id, params.projectId)).get()
+  if (!project) throw new Error(`Missing project ${params.projectId}`)
+  const now = new Date().toISOString()
+  const admission = runAdmissionState(db, { ...params, now, selection: RunTriggers.manual })
+  const activeRunId = db.select({ id: runs.id }).from(runs).where(and(
+    eq(runs.projectId, params.projectId), eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+  )).get()?.id ?? null
+  if (requiresMeasurementPublication(db, params.projectId)) {
+    return {
+      mode: 'advanced', revision: null, queryCount: 0, assignmentCount: null,
+      queryClasses: [], requestCount: 0, expectedRequestCount: 0, engines: [], locations: [],
+      admission, activeRunId, canStart: false, blockedReason: 'unpublished-plan',
+    }
+  }
+  const queueParams = { ...params, kind: RunKinds['answer-visibility'], trigger: RunTriggers.manual, createdAt: now }
+  const stamp = measurementStamp(db, queueParams)
+  const dispatch = resolveQueueDispatch(db, queueParams, stamp)
+  const accountAdmission = queueProviderAdmission(db, queueParams, stamp, now)
+  dispatchAfterProviderAdmission(queueParams, dispatch, accountAdmission)
+
+  let slots: Array<Pick<MeasurementExpectedSlotV1, 'provider' | 'queryText' | 'context' | 'requestedModel'>>
+  let revision: number | null = null
+  let queryCount: number
+  let assignmentCount: number | null = null
+  let queryClasses: RunPreviewDto['queryClasses']
+  if (stamp) {
+    slots = stamp.manifest.expectedSlots
+    const version = db.select().from(measurementPlanVersions).where(and(
+      eq(measurementPlanVersions.id, stamp.versionId), eq(measurementPlanVersions.projectId, params.projectId),
+    )).get()!
+    const plan = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
+    revision = version.revision
+    if (plan.schemaVersion === MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
+      // This previews the full revision. Equivalent nodes can share one
+      // request without removing either Property's query assignment.
+      const assignments = plan.assignments
+      queryCount = new Set(assignments.map(assignment => assignment.queryId)).size
+      assignmentCount = assignments.length
+      queryClasses = (['non-brand', 'branded', 'unknown'] as const).map(queryClass => {
+        const own = assignments.filter(assignment => (assignment.queryClass ?? 'unknown') === queryClass)
+        return { queryClass, queryCount: new Set(own.map(assignment => assignment.queryId)).size, assignmentCount: own.length }
+      })
+    } else {
+      queryCount = new Set(slots.map(slot => normalizeMeasurementExecutionQueryText(slot.queryText))).size
+      queryClasses = [{ queryClass: 'unknown', queryCount, assignmentCount: null }]
+    }
+  } else {
+    const tracked = db.select({ id: queries.id, query: queries.query }).from(queries).where(eq(queries.projectId, params.projectId)).all()
+    const providers = providerRoster(db, queueParams)
+    const models = effectiveModels(db, queueParams, providers)
+    const location = resolveRunLocation(project, {}) ?? null
+    slots = tracked.flatMap(query => providers.map(provider => ({
+      provider, queryText: query.query, context: location,
+      ...(models[provider] ? { requestedModel: models[provider] } : {}),
+    })))
+    const classes = readQueryClasses(db, project, tracked)
+    queryCount = tracked.length
+    queryClasses = (['non-brand', 'branded', 'unknown'] as const).map(queryClass => ({
+      queryClass,
+      queryCount: tracked.filter(query => (classes.get(query.id) ?? 'unknown') === queryClass).length,
+      assignmentCount: null,
+    }))
+  }
+  const available = new Set(providersARunWouldCall(slots.map(slot => slot.provider), params.runnableProviders, params.routeFamilies))
+  const called = slots.filter(slot => available.has(slot.provider) && admission.providers[slot.provider] === undefined)
+  const engines = sortedUnique(slots.map(slot => slot.provider)).map(provider => ({
+    provider,
+    models: sortedUnique(slots.filter(slot => slot.provider === provider).flatMap(slot => slot.requestedModel ? [resolveProviderModel(provider, slot.requestedModel)] : [])),
+    requestCount: called.filter(slot => slot.provider === provider).length,
+    expectedRequestCount: slots.filter(slot => slot.provider === provider).length,
+    available: available.has(provider),
+  }))
+  const locations = [...new Set(slots.map(slot => slot.context?.label ?? null))].map(location => ({
+    location, requestCount: called.filter(slot => (slot.context?.label ?? null) === location).length,
+  }))
+  const blockedReason = activeRunId !== null ? 'run-in-progress'
+    : queryCount === 0 ? 'no-queries'
+      : admission.refused ? 'providers-failing'
+        : called.length === 0 ? 'no-provider' : null
+  return {
+    mode: stamp ? 'advanced' : 'simple', revision, queryCount, assignmentCount, queryClasses,
+    requestCount: called.length, expectedRequestCount: slots.length, engines, locations,
+    admission, activeRunId, canStart: blockedReason === null, blockedReason,
   }
 }
 

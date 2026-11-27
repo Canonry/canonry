@@ -253,6 +253,41 @@ describe('measurement report adapter', () => {
       .toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
   })
 
+  // The two ways a Local answer is stored: since this release as `not-measured`,
+  // before it as `not-cited` beside the engine's `not-applicable` retrieval
+  // status. Its source list is the empty raw envelope the sweep always wrote,
+  // which read as a complete capture and therefore as a measured miss.
+  it.each([
+    ['stored not measured', { citationState: 'not-measured' as const }],
+    ['stored before it existed as not cited', { citationState: 'not-cited' as const }],
+  ])('reads a Local answer %s as not measured beside a citing engine', (_label, stored) => {
+    const versionId = seedVersion()
+    const manifest = buildMeasurementRunManifest(plan, ['openai', 'local'])
+    const runId = seedRun(versionId, manifest)
+    const slot = manifest.expectedSlots[0]!
+    seedSnapshot(runId, {
+      measurementExecutionId: slot.executionId, requestedContext: slot.context, location: 'Harbor',
+      citedUrls: ['https://northstar.example/locations/harbor'], captureStatus: 'complete', retrievalStatus: 'used',
+    })
+    const localId = seedSnapshot(runId, {
+      provider: 'local', measurementExecutionId: slot.executionId, requestedContext: slot.context, location: 'Harbor',
+      ...stored, retrievalStatus: 'not-applicable', citedUrls: null, captureStatus: 'unsupported',
+      rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [], apiResponse: {} }),
+    })
+
+    const result = buildStoredMeasurementReport(db, projectId, 7)
+    expect(result.kind).toBe('report')
+    if (result.kind !== 'report') throw new Error('Expected report')
+    expect(result.report.targets[0]?.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1, citationNotMeasured: 1 })
+    expect(result.report.diagnostics).toMatchObject({
+      citationNotMeasuredObservationIds: [localId],
+      evidenceIncompleteObservationIds: [],
+      historicalObservationIds: [],
+    })
+    // The mention is read the same as for the citing engine.
+    expect(result.report.targets[0]?.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+  })
+
   it('reports incomplete population when an expected provider slot has no snapshot', () => {
     const versionId = seedVersion()
     const manifest = buildMeasurementRunManifest(plan, ['openai', 'gemini'])

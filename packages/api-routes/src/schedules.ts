@@ -9,22 +9,24 @@ import {
   type CalendarRecurrence,
   type ProviderName,
   type SchedulableRunKind,
+  type SiteAuditScheduleChecks,
   SchedulableRunKinds,
+  siteAuditScheduleChecks,
   schedulableRunKindSchema,
   nextScheduleUpdatedAt,
   scheduleEnabledAt,
   scheduleExpectedUpdatedAtSchema,
   scheduleUpsertRequestSchema,
+  schedulePreviewRequestSchema,
   scheduleVersionConflict,
   validationError,
   notFound,
-  describeError,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
+import { previewScheduleTiming } from './schedule-utils.js'
 
 /**
  * Resolve the optional `?kind=` query into a SchedulableRunKind. Defaults to
@@ -63,6 +65,14 @@ export interface ScheduleRoutesOptions {
 
 export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesOptions) {
   const routeFamilies = providerRouteFamilies(opts.providerAdapters)
+  app.post<{ Params: { name: string } }>('/projects/:name/schedule/preview', { config: { readSemantic: true } }, async (request, reply) => {
+    requireScope(request, 'read')
+    resolveProject(app.db, request.params.name)
+    const parsed = schedulePreviewRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid schedule timing', { issues: parsed.error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) })
+    return reply.send(previewScheduleTiming(parsed.data))
+  })
+
   // PUT /projects/:name/schedule — create or update schedule.
   // Optional `kind` body field (or `?kind=` query) selects which run kind
   // this schedule dispatches. Defaults to 'answer-visibility' for backward
@@ -70,7 +80,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   app.put<{
     Params: { name: string }
     Querystring: { kind?: string }
-    Body: { kind?: string; preset?: string; cron?: string; recurrence?: CalendarRecurrence; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; expectedUpdatedAt?: string | null }
+    Body: { kind?: string; preset?: string; cron?: string; recurrence?: CalendarRecurrence; timezone?: string; providers?: string[]; enabled?: boolean; sourceId?: string; siteAudit?: Partial<SiteAuditScheduleChecks> | null; expectedUpdatedAt?: string | null }
   }>('/projects/:name/schedule', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -86,7 +96,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // Body kind takes precedence over the query string. Both default to
     // 'answer-visibility' so the legacy URL still works unchanged.
     const kind = parsedBody.data.kind ?? parseKindParam(request.query?.kind)
-    const { preset, cron, recurrence, timezone, providers, enabled, sourceId, expectedUpdatedAt } = parsedBody.data
+    const { preset, cron, recurrence, timezone, providers, enabled, sourceId, siteAudit, expectedUpdatedAt } = parsedBody.data
 
     // Per-kind invariants
     if (kind === SchedulableRunKinds['traffic-sync']) {
@@ -109,9 +119,12 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       throw validationError('"providers" is not valid for kind "backlinks-sync"')
     }
 
-    // site-audit (Technical AEO) crawls the sitemap — no answer-engine providers.
+    // site-audit (Agent Readiness) crawls the sitemap — no answer-engine providers.
     if (kind === SchedulableRunKinds['site-audit'] && providers && providers.length > 0) {
       throw validationError('"providers" is not valid for kind "site-audit"')
+    }
+    if (siteAudit !== undefined && kind !== SchedulableRunKinds['site-audit']) {
+      throw validationError('"siteAudit" is only valid when kind is "site-audit"')
     }
 
     if (kind === SchedulableRunKinds['seo-sync']) {
@@ -143,32 +156,10 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     }
 
     assertProviderRouteScope(request, providers ?? [], project.providers, routeFamilies)
-    if (!isValidTimezone(timezone)) {
-      throw validationError(`Invalid timezone: ${timezone}`)
-    }
-
-    let cronExpr: string
-    if (recurrence) {
-      cronExpr = ''
-    } else if (preset) {
-      try {
-        cronExpr = resolvePreset(preset)
-      } catch (err: unknown) {
-        const msg = describeError(err)
-        throw validationError(msg)
-      }
-    } else {
-      cronExpr = cron!
-      if (!validateCron(cronExpr)) {
-        throw validationError(`Invalid cron expression: ${cronExpr}`)
-      }
-    }
-
     const enabledBool = enabled !== false
-    const nextRunAt = enabledBool ? nextRunFromSchedule({ cronExpr, timezone, recurrence }) : null
-    if (recurrence && enabledBool && !nextRunAt) {
-      throw validationError('Calendar recurrence has no valid future occurrence')
-    }
+    const timing = previewScheduleTiming({ preset, cron, recurrence, timezone }, { requireFuture: enabledBool })
+    const { cronExpr } = timing
+    const nextRunAt = enabledBool ? timing.nextRunAt : null
     const mutation = app.db.transaction((tx) => {
       const existing = tx
         .select()
@@ -182,6 +173,13 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
 
       const now = nextScheduleUpdatedAt(existing?.updatedAt)
       const scheduleId = existing?.id ?? crypto.randomUUID()
+      // Omitted keeps the current checks, so a client that only moves, pauses or
+      // resumes the schedule never drops a deep scan; null resets to the defaults.
+      const siteAuditChecks = kind !== SchedulableRunKinds['site-audit']
+        ? null
+        : siteAudit === undefined
+          ? existing?.siteAuditChecks ?? null
+          : siteAudit === null ? null : siteAuditScheduleChecks(siteAudit)
       const values = {
         cronExpr,
         recurrence: recurrence ?? null,
@@ -190,6 +188,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         timezone,
         providers: (providers ?? []) as ProviderName[],
         sourceId: sourceId ?? null,
+        siteAuditChecks,
         enabled: enabledBool,
         enabledAt: scheduleEnabledAt(existing, enabledBool, now),
         updatedAt: now,
@@ -228,7 +227,9 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         actor: 'api',
         action: existing ? 'schedule.updated' : 'schedule.created',
         entityType: 'schedule',
-        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId },
+        // A scan schedule logs the checks it ends up with, so a reset to the
+        // defaults is as visible as turning deep checks on.
+        diff: { kind, cronExpr, preset, recurrence, timezone, providers, sourceId, ...(kind === SchedulableRunKinds['site-audit'] ? { siteAudit: siteAuditScheduleChecks(siteAuditChecks) } : {}) },
       })
 
       return {
@@ -336,6 +337,7 @@ function formatSchedule(row: typeof schedules.$inferSelect): ScheduleDto {
     enabled: row.enabled,
     providers: row.providers,
     sourceId: row.sourceId,
+    siteAudit: row.kind === SchedulableRunKinds['site-audit'] ? siteAuditScheduleChecks(row.siteAuditChecks) : null,
     lastRunAt: row.lastRunAt,
     nextRunAt: row.nextRunAt,
     createdAt: row.createdAt,

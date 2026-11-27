@@ -12,11 +12,16 @@ const AERO_PREFACE = [
   '> **Built-in Aero:** your available `canonry_*` tools are already loaded, and',
   '> you read this guide through `read_skill_doc` (slug `agent-operations`). Your',
   '> catalog does not include `canonry_help` or `canonry_load_toolkit`; the',
-  '> connection and navigation steps below are for external MCP hosts. Your',
-  "> project-scoped tools use the current session's project. Dashboard selections",
-  '> are not passed to chat: resolve the requested Property, market, filters, or',
-  '> page before making a scoped claim. The `portfolio-analysis` and `site-health`',
-  '> skill docs cover those investigations for Simple and Advanced portfolios.',
+  '> connection and navigation steps below are for external MCP hosts. It also',
+  '> leaves out the provider connection actions the guide names',
+  '> (`canonry_provider_test`, `canonry_provider_settings_update` and',
+  "> `canonry_providers_reload`): they spend on or change the operator's",
+  '> install-wide provider accounts, so the operator runs them from the dashboard',
+  "> or CLI. Your project-scoped tools use the current session's project.",
+  '> Dashboard selections are not passed to chat: resolve the requested Property,',
+  '> market, filters, or page before making a scoped claim. The',
+  '> `portfolio-analysis` and `site-health` skill docs cover those investigations',
+  '> for Simple and Advanced portfolios.',
   '',
   '',
 ].join('\n')
@@ -33,7 +38,13 @@ export function renderAgentOperations(source) {
   const { skill, nativeReferences, ...runtime } = data
   const generated = '// Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit.\n'
     + `export const OPERATIONS_GUIDE = ${JSON.stringify({ ...runtime, markdown }, null, 2)} as const\n`
-  const native = nativeReferences.map(([file, label]) => `- [${label}](${file})`).join('\n')
+  const native = nativeReferences.map(([file, label]) => {
+    // An unquoted ': ' in a YAML flow sequence turns the label into a mapping.
+    if (typeof file !== 'string' || typeof label !== 'string') {
+      throw new Error(`nativeReferences entries must be [file, label] strings; quote labels that contain ': ' (${JSON.stringify(file)})`)
+    }
+    return `- [${label}](${file})`
+  }).join('\n')
   const skillMarkdown = `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n`
     + '<!-- Generated from docs/agent-operations/v1.md by pnpm guide:sync. Do not edit. -->\n\n'
     + markdown + '\n## Optional host-native references\n\nRead only references relevant to the requested task. They are not required for MCP operation.\n\n'
@@ -79,14 +90,42 @@ export const AERO_MIRRORED_REFERENCES = [
   },
 ]
 
+// Aero references the Canonry skill links to. `cnry skills install canonry`
+// installs that skill alone, so a link into ../aero would be dead; each one is
+// copied into the Canonry references folder without Aero's frontmatter. The
+// Aero reference is the source.
+export const CANONRY_MIRRORED_REFERENCES = [
+  {
+    source: 'skills/aero/references/getting-started.md',
+    target: 'skills/canonry/references/getting-started.md',
+    into: 'canonry',
+  },
+]
+
+export const MIRRORED_REFERENCES = [...AERO_MIRRORED_REFERENCES, ...CANONRY_MIRRORED_REFERENCES]
+
+const CANONRY_MIRROR_PREFACE = [
+  '> This copy ships with the Canonry skill. The playbooks it names by slug, and',
+  '> the Aero skill it refers to, ship with the Aero skill: add them with',
+  '> `cnry skills install aero`, or read one over MCP with',
+  '> `canonry_help({playbook: "<slug>"})`.',
+  '',
+  '',
+].join('\n')
+
 export function renderMirroredReference(reference, body) {
+  if (reference.into === 'canonry') {
+    return `<!-- Generated from ${reference.source} by pnpm guide:sync. Do not edit. -->\n\n`
+      + CANONRY_MIRROR_PREFACE
+      + body.replace(/^---\n[\s\S]*?\n---\n+/, '')
+  }
   const slug = path.basename(reference.target, '.md')
   return `---\nname: ${slug}\ndescription: ${JSON.stringify(reference.description)}\n---\n\n`
     + `<!-- Generated from ${reference.source} by pnpm guide:sync. Do not edit. -->\n\n`
     + body
 }
 
-export function syncMirroredReferences(root = repoRoot, checkOnly = false, references = AERO_MIRRORED_REFERENCES) {
+export function syncMirroredReferences(root = repoRoot, checkOnly = false, references = MIRRORED_REFERENCES) {
   const failures = []
   for (const reference of references) {
     const expected = renderMirroredReference(reference, fs.readFileSync(path.join(root, reference.source), 'utf8'))

@@ -64,6 +64,7 @@ function dashboardFallback(urlStr: string) {
   }
   if (/\/api\/v1\/projects(?:\?|$)/.test(urlStr)) return jsonResponse([dashboardProject])
   if (urlStr.includes('/projects/') && urlStr.endsWith('/overview')) return jsonResponse({}, 404)
+  if (urlStr.includes('/runs/attention')) return jsonResponse({ since: '2026-01-01T00:00:00.000Z', items: [] })
   if (urlStr.includes('/runs')) return jsonResponse([])
   return jsonResponse({})
 }
@@ -101,7 +102,7 @@ describe('an install with no accounts', () => {
     })
 
     render(<AuthGate />)
-    expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeTruthy()
     expect(screen.queryByLabelText('Name')).toBeNull()
   })
 })
@@ -180,7 +181,7 @@ describe('signing in with an account', () => {
       fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
     })
 
-    expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeTruthy()
   })
 
   test('says the same thing whatever was wrong, and stays put', async () => {
@@ -212,7 +213,7 @@ describe('what a signed-in person sees', () => {
     serveAccounts({ authRequired: true, user: { name: 'owner', role: 'admin' } })
 
     render(<AuthGate />)
-    await screen.findByRole('heading', { name: 'All projects' })
+    await screen.findByRole('heading', { name: 'Overview' })
 
     const sidebar = within(screen.getByRole('complementary', { name: 'Primary navigation' }))
     expect(sidebar.getByText('owner')).toBeTruthy()
@@ -230,7 +231,7 @@ describe('what a signed-in person sees', () => {
     serveAccounts({ authRequired: true, user: { name: 'watcher', role: 'viewer' } })
 
     render(<AuthGate />)
-    await screen.findByRole('heading', { name: 'All projects' })
+    await screen.findByRole('heading', { name: 'Overview' })
 
     expect(screen.getAllByText('watcher').length).toBeGreaterThan(0)
     expect(screen.getAllByText('View only').length).toBeGreaterThan(0)
@@ -258,7 +259,7 @@ test('a viewer dashboard never asks for the settings it is not allowed to read',
   })
 
   render(<AuthGate />)
-  await screen.findByRole('heading', { name: 'All projects' })
+  await screen.findByRole('heading', { name: 'Overview' })
 
   expect(requested.some(url => url.includes('/api/v1/settings'))).toBe(false)
 })
@@ -283,7 +284,7 @@ test('P2.7: one account does not inherit the cached data of the one before it', 
   })
 
   const { container } = render(<AuthGate />)
-  await screen.findByRole('heading', { name: 'All projects' })
+  await screen.findByRole('heading', { name: 'Overview' })
   const adminCache = readQueryCacheKeys(container)
   expect(adminCache.some(key => /settings/i.test(key))).toBe(true)
 
@@ -299,7 +300,7 @@ test('P2.7: one account does not inherit the cached data of the one before it', 
   await act(async () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
   })
-  await screen.findByRole('heading', { name: 'All projects' })
+  await screen.findByRole('heading', { name: 'Overview' })
 
   expect(readQueryCacheKeys(container).some(key => /settings/i.test(key))).toBe(false)
 })
@@ -311,7 +312,7 @@ test('P2.9: identity and a way out exist on the mobile surface too', async () =>
   serveAccounts({ authRequired: true, user: { name: 'watcher', role: 'viewer' } })
 
   render(<AuthGate />)
-  await screen.findByRole('heading', { name: 'All projects' })
+  await screen.findByRole('heading', { name: 'Overview' })
 
   fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
   const mobileNav = await screen.findByRole('dialog', { name: 'Navigation' })

@@ -95,7 +95,7 @@ describe('executeDiscoveryRun', () => {
 })
 
 describe('discovery run outcome telemetry', () => {
-  const discovered = { feature: 'discovery', operation: 'run', trigger: 'manual', durationBucket: expect.any(String) }
+  const discovered = { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'discovery', operation: 'run', trigger: 'manual', durationBucket: expect.any(String) }
 
   it('reports a finished session with the queries it seeded, the probes it saved and the competitor domains it found', async () => {
     const cited = { answerText: 'Acme IQ is a strong option.', citedDomains: ['acme-iq.example.com'] }

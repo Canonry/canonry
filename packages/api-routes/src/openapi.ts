@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import {
+  WINDOW_SETS,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
   AdsOperationStates,
@@ -18,6 +19,9 @@ import {
   seoCompetitorSortSchema,
   seoMarketRankingFilterSchema,
   seoMarketRankingSortSchema,
+  legacyAgentReadinessPath,
+  seoTrendDaysSchema,
+  SEO_TREND_DEFAULT_DAYS,
   operationAccess,
 } from '@canonry/canonry-contracts'
 import {
@@ -78,6 +82,8 @@ interface OpenApiOperation {
   summary: string
   tags: string[]
   auth?: boolean
+  /** Emitted as OpenAPI `deprecated`; generated clients mark the call `@deprecated`. */
+  deprecated?: boolean
   description?: string
   parameters?: OpenApiParameter[]
   requestBody?: {
@@ -460,11 +466,16 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const gaTrafficWindowParameter: OpenApiParameter = {
+  ...analyticsWindowParameter,
+  schema: { type: 'string', enum: [...WINDOW_SETS.gaTraffic] },
+}
+
 const gaOverviewWindowParameter: OpenApiParameter = {
   name: 'window',
   in: 'query',
   description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
-  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
+  schema: { type: 'string', enum: [...WINDOW_SETS.gaOverview] },
 }
 
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
@@ -971,6 +982,24 @@ const routeCatalog: OpenApiOperation[] = [
       403: errorResponse('Insufficient authority.'),
       404: errorResponse('Project or selected evidence not found.'),
       409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/trends',
+    summary: 'Read trends from saved SEO refreshes',
+    tags: ['seo'],
+    description: 'Stored evidence only. Trends compare compatible domain estimates, tracked market rankings or organic positions for one saved search. The window ends at the latest observation.',
+    parameters: [
+      nameParameter,
+      { name: 'profileId', in: 'query', required: true, description: 'Exact project-scoped SEO profile identifier.', schema: stringSchema },
+      { name: 'days', in: 'query', description: 'Inclusive window in UTC calendar days, ending on the latest comparable refresh observation.', schema: { type: 'integer', enum: [...seoTrendDaysSchema.values], default: SEO_TREND_DEFAULT_DAYS } },
+      { name: 'keyword', in: 'query', description: 'Select a search for a ranked-keywords trend. Omit to use the default saved search.', schema: { type: 'string', minLength: 1, maxLength: 512 } },
+    ],
+    responses: {
+      200: jsonResponse('Comparable SEO observations and their changes.', 'SeoTrends'),
+      400: errorResponse('Invalid SEO trend selection.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected profile not found.'),
     },
   },
   {
@@ -1694,7 +1723,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: { 200: jsonResponse('Secret-free configuration and effective permissions.', 'SentimentSettings'), 404: errorResponse('Project not found.') },
   },
   {
-    method: 'put', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Configure experimental project sentiment', tags: ['sentiment'], parameters: [nameParameter],
+    method: 'put', path: '/api/v1/projects/{name}/sentiment/settings', summary: 'Configure project sentiment', tags: ['sentiment'], parameters: [nameParameter],
     description: 'Install administrators only. Enabling processes future eligible completions; historical backfill is explicit. Stance-only evaluator definitions are immutable and comparisons preserve their identity. TypeSafe credentials remain local install configuration.',
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SentimentSettingsUpdate' } } } },
     responses: { 200: jsonResponse('Updated project configuration.', 'SentimentSettings'), 400: errorResponse('Invalid configuration or install unavailable.'), 403: errorResponse('Install administrator required.'), 404: errorResponse('Project not found.') },
@@ -2125,7 +2154,7 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post', path: '/api/v1/projects/{name}/results/clear', summary: 'Preview or clear selected saved visibility and research results', tags: ['runs'],
-    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Site Health, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
+    description: 'Administrator or runs.write key only. Exact run IDs are required; confirm defaults to false for a non-mutating preview. Refuses active visibility or research work and any selected non-visibility run. Keeps queries, measurement plans, Agent Readiness audit scans, backlinks, schedules, audit history, and usage accounting. Back up stored evidence before confirming deletion.',
     parameters: [nameParameter],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ResultsClearRequest' } } } },
     responses: { 200: jsonResponse('Selected history previewed or cleared.', 'ResultsClearResponse'), 400: errorResponse('Invalid selection or unsupported run kind.'), 403: errorResponse('Administrator or runs.write scope required.'), 404: errorResponse('Project or selected run not found.'), 409: errorResponse('Visibility or research work is active.') },
@@ -2233,7 +2262,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Download historical answer-engine results',
     tags: ['exports'],
     description:
-      'Downloads one record per persisted answer-visibility query × provider observation. Citation and mention stay independent: `citationState` describes source-list attribution, while nullable `answerMentioned` describes answer-text presence. Excludes probe runs by default. JSON is a versioned portable artifact; CSV is its flat spreadsheet representation. Raw provider payloads, credentials, and local paths are never included.',
+      'Downloads one record per persisted answer-visibility query × provider observation. Citation and mention stay independent: `citationState` describes source-list attribution, while nullable `answerMentioned` describes answer-text presence. `citationState: not-measured` (with `cited` null, an empty CSV cell) marks an answer whose engine returns no sources, never a miss. Excludes probe runs by default. JSON is a versioned portable artifact; CSV is its flat spreadsheet representation. Raw provider payloads, credentials, and local paths are never included.',
     parameters: [
       nameParameter,
       {
@@ -2873,6 +2902,42 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/run-preview',
+    summary: 'Preview the next full manual sweep without spending',
+    description: 'Projects the default POST /projects/{name}/runs request from the same queue preparation and admission. '
+      + 'Simple uses the saved default location and configured engines; Advanced uses its published revision and deduplicated execution slots. '
+      + 'expectedRequestCount includes every planned answer slot; requestCount excludes unavailable engines and held provider accounts. '
+      + 'Query-class counts remain independent: one Advanced query can have assignments in more than one class. '
+      + 'No writes, reservations or provider calls. The launch rechecks current configuration and admission; this preview is not a price quote or a reservation.',
+    tags: ['runs'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Full manual sweep workload and admission returned.', 'RunPreviewDto'),
+      400: errorResponse('Published plan or saved location is invalid.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/setup',
+    summary: 'Get the project setup status',
+    description: 'The first-run setup tracker for one project, read from stored state only: no provider calls, crawls or writes. '
+      + 'Each track is the status of the latest non-probe run of its kind (`site-audit` for the Agent Readiness audit scan, '
+      + '`answer-visibility` for the AI Visibility check), or `not_started` when there is none; neither track gates the other. '
+      + 'A track reports stored progress while queued or running, its result once completed or partial, and its reason when failed. '
+      + 'AI Visibility `blockedBy` is the run preview\'s readiness (Simple and Advanced): `no_engine`, `no_queries`, `plan_unpublished` or `engines_failing`. '
+      + 'Its result keeps non-brand and branded query counts apart, exactly as the run detail reports them. '
+      + '`nextAction` is the server\'s suggested step, in row order: the audit scan, then the AI Visibility check, then `wait` while work is in progress, then `open_project`.',
+    tags: ['projects'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Setup status returned.', 'ProjectSetupDto'),
+      400: errorResponse('Published plan or saved location is invalid.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/run-admission',
     summary: 'Get whether the next sweep would be admitted',
     description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
@@ -2910,6 +2975,27 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/runs/attention',
+    summary: 'List the jobs that need attention',
+    description: "Overview's Activity across the projects the key can see: each job's latest run, kept when it failed, finished partly, "
+      + 'was cancelled, or is still queued or running, newest first, with its project. A job is one project, run kind, location and source, '
+      + 'with spot checks apart from full sweeps, so a run elsewhere never hides a failure. Probes and per-URL inspections are left out. '
+      + '`since` bounds the runs read (default 30 days ago); a job with no run since then is not listed. Runs come without their '
+      + 'measurement manifests. Stored read: no provider calls.',
+    tags: ['runs'],
+    parameters: [{
+      name: 'since',
+      in: 'query',
+      description: 'Read runs created at or after this ISO 8601 timestamp. Defaults to 30 days ago.',
+      schema: stringSchema,
+    }],
+    responses: {
+      200: jsonResponse('Jobs that need attention returned.', 'RunsAttentionDto'),
+      400: errorResponse('`since` is not a valid timestamp.'),
     },
   },
   {
@@ -3129,6 +3215,8 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/analytics/metrics',
     summary: 'Get citation trend analytics',
+    description:
+      'Citation and mention rates over time, overall and per provider. Mention reads every answer (total). Citation reads only the answers whose sources were checked: an answer from an engine that returns no sources (a local model) is counted in citationNotMeasured and left out, citedTotal carries that base (the answers whose sources were checked), and citationRate is null where no answer had sources, never 0.',
     tags: ['analytics'],
     parameters: [nameParameter, analyticsWindowParameter, metricsQueryClassParameter],
     responses: {
@@ -3154,7 +3242,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/analytics/sources',
     summary: 'Get source origin analytics',
     description:
-      'Cited domains ranked by how many answers cite them, read from each answer\'s stored source list (citedDomains plus citedUrls), so every provider is counted, Gemini included. A domain counts at most once per answer. Without runId the response pools every run in the window (runCount says how many); without queryClass it pools branded and non-brand answers. pooledAcrossRuns and runIds name the pooled runs; runId is the latest run in the window, not the scope of a pooled read. countUnits says which counts are answers, distinct domains or answer-domain pairs.',
+      'Cited domains ranked by how many answers cite them, read from each answer\'s stored source list (citedDomains plus citedUrls), so every provider is counted, Gemini included. A domain counts at most once per answer. Without runId the response pools every run in the window (runCount says how many); without queryClass it pools branded and non-brand answers. pooledAcrossRuns and runIds name the pooled runs; runId is the latest run in the window, not the scope of a pooled read. countUnits says which counts are answers, distinct domains or answer-domain pairs. Answers from an engine that returns no sources (a local model) cannot cite any domain, so they are excluded from every count, including answerTotal, and reported as citationNotMeasuredAnswers and providersCitationNotMeasured.',
     tags: ['analytics'],
     parameters: [
       nameParameter,
@@ -3175,7 +3263,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-stats',
     summary: 'Get aggregated mention/citation stats per query',
     description:
-      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. With no since/until/lastRuns, EVERY completed/partial answer-visibility run is pooled — `window.runCount` reports how many; bound the window with lastRuns, since/until, or month=YYYY-MM for a recent sample. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts, or shareOfVoice=1 to add share of voice vs tracked competitors (non-brand queries by default; set queryClass=branded for brand recall).',
+      'Per-query mention (answer-text) and citation (source-list) counts with a sample size, pooled across many answer-visibility runs (probe-excluded). Tri-state aware: `checked` counts only snapshots where answerMentioned was recorded (null = not checked is excluded). `citationNotMeasured` counts snapshots from an engine that returns no sources (a local model); `citedRate` is cited over `total - citationNotMeasured` and null when nothing was measured. Lets a consumer compute confidence-aware (e.g. Wilson) proportions without N+1 run fetches. With no since/until/lastRuns, EVERY completed/partial answer-visibility run is pooled — `window.runCount` reports how many; bound the window with lastRuns, since/until, or month=YYYY-MM for a recent sample. Set groupBy=provider for a per-provider breakdown whose counts sum to the pooled counts, or shareOfVoice=1 to add share of voice vs tracked competitors (non-brand queries by default; set queryClass=branded for brand recall). `totals` pools branded and non-brand queries; `byQueryClass` splits the same counts by each query\'s class (as the query list reports it), and each query carries `queryClass`. The `queryClass` parameter scopes share of voice only.',
     tags: ['analytics'],
     parameters: [
       nameParameter,
@@ -3198,7 +3286,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-compare',
     summary: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. An answer the provider wrote with no retrieval step at all (retrievalStatus of not-used) cites nothing by construction, so it also leaves the cited denominator and is counted in `excludedNoRetrieval`; it stays in the mention denominator, since brand recall does not need search. A silent upstream version bump under an unchanged configured id remains undetectable. competitorIdentityChangedAt is when the project\'s competitor names last changed (a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass or a write that moved a market-only competitor\'s learned names, or a published revision that renames a market pin). Share of voice reads both months with the tracked competitors\' current names only, so a comparison quoted before a change to those names was restated; a market pin or learned-name change moves the time without changing share of voice. A scoped comparison (a group, market or property scope, or a marketKey) reads frozen plan history and carries no competitorIdentityChangedAt.',
+      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. An answer the provider wrote with no retrieval step at all (retrievalStatus of not-used) cites nothing by construction, so it also leaves the cited denominator and is counted in `excludedNoRetrieval`; it stays in the mention denominator, since brand recall does not need search. An answer from an engine that returns no sources at all (citationState not-measured, a local model) leaves every cited figure, cited share of voice included, and is counted in `excludedNotMeasured`, never as unknown; it too stays in the mention denominator. A silent upstream version bump under an unchanged configured id remains undetectable. competitorIdentityChangedAt is when the project\'s competitor names last changed (a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass or a write that moved a market-only competitor\'s learned names, or a published revision that renames a market pin). Share of voice reads both months with the tracked competitors\' current names only, so a comparison quoted before a change to those names was restated; a market pin or learned-name change moves the time without changing share of voice. A scoped comparison (a group, market or property scope, or a marketKey) reads frozen plan history and carries no competitorIdentityChangedAt.',
     tags: ['analytics'],
     parameters: [
       nameParameter, compareFromQueryParameter, compareToQueryParameter,
@@ -3245,31 +3333,56 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/settings',
     summary: 'Get provider settings summary',
+    description: 'Install administrators also receive providerConnections, the credential-free connection list with project usage. When the host cannot build that list (for example config.yaml cannot be read), the response omits it and carries providerConnectionsUnavailable with a typed reason and message instead; provider status, the catalog, Google and Bing are still returned. A project whose saved measurement plan or draft cannot be read is reported under each connection\'s usage.unknown.',
     tags: ['settings'],
     responses: {
       200: jsonResponse('Settings returned.', 'SettingsDto'),
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/settings/providers/{name}',
+    summary: 'Inspect saved provider connection settings and usage',
+    description: 'Requires install administrator authority. Returns credential-free current settings, inherited defaults, host-managed options, mutation capabilities and saved Simple/Advanced project references. A stored-only read: no model discovery, provider check or spend. impactRevision guards a subsequent disconnect against changed configuration or references. usage.unknown lists projects whose saved measurement plan or draft could not be read, so their references are unknown.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    responses: {
+      200: jsonResponse('Provider connection settings and usage returned.', 'ProviderConnectionSettingsDto'),
+      400: errorResponse('The host could not read its saved provider configuration (error.details.reason config-unreadable).'),
+      403: errorResponse('Install administrator authority is required.'),
+      404: errorResponse('Unknown provider connection.'),
+      501: errorResponse('Provider connection details are not supported.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/settings/providers/{name}',
+    summary: 'Disconnect a provider while retaining project references and history',
+    description: 'Requires settings.write and install administrator authority. Removes the saved connection without deleting project selections, schedules, Advanced plans/drafts, or historical answers. Optional expectedImpactRevision is a concurrency precondition from the connection read (not execution tuning): a changed connection or saved dependency is refused. Outstanding provider batches and host-managed configuration can block removal.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    requestBody: { required: false, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProviderDisconnectRequest' } } } },
+    responses: {
+      200: jsonResponse('Provider disconnected; saved references and history retained.', 'ProviderConnectionSettingsDto'),
+      400: errorResponse('Invalid disconnect request.'),
+      403: errorResponse('Install administrator authority and settings.write are required.'),
+      404: errorResponse('Unknown provider connection.'),
+      409: errorResponse('Provider configuration, usage, or outstanding work prevents disconnection.'),
+      501: errorResponse('Provider disconnection is not supported.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/providers/{name}',
     summary: 'Update provider settings',
-    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. An unconfigured provider still requires its connection credentials.',
+    description: 'Requires settings.write. Already configured providers accept model or quota changes without resubmitting credentials. Omitted values preserve saved settings. reset removes a model, defaultable endpoint or quota override, or the optional local API key, and additionally requires install administrator authority. A field cannot be set and reset together. Browser endpoints keep using PUT /settings/cdp; browser quotas can be updated here when the host supports it. expectedRevision is an optional concurrency precondition from the connection read, not execution tuning. An unconfigured API provider still requires its connection credentials.',
     tags: ['settings'],
     parameters: [providerNameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              apiKey: stringSchema,
-              baseUrl: stringSchema,
-              model: stringSchema,
-              quota: objectSchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/ProviderSettingsUpdateRequest' },
         },
       },
     },
@@ -3277,6 +3390,7 @@ const routeCatalog: OpenApiOperation[] = [
       200: jsonResponse('Provider updated.', 'ProviderSummaryEntryDto'),
       400: errorResponse('Invalid provider settings.'),
       403: errorResponse('The credential lacks settings.write.'),
+      409: errorResponse('Provider configuration changed or outstanding work prevents this update.'),
       501: errorResponse('Provider updates are not supported.'),
     },
   },
@@ -3293,6 +3407,21 @@ const routeCatalog: OpenApiOperation[] = [
       403: errorResponse('Install administrator authority is required.'),
       409: errorResponse('Outstanding provider batch work requires the current registration. Quota-only changes remain available.'),
       501: errorResponse('Provider reload is not supported.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/settings/providers/{name}/test',
+    summary: 'Test a saved provider connection',
+    description: 'Requires settings.write and install administrator authority (an administrator account, or the install\'s full-access key; a key confined to a project or narrower than the wildcard is refused). Runs the saved connection\'s own healthcheck now: most answer engines answer one tiny prompt on the provider account, Local lists its models, OpenRouter reads its key, a browser connection reaches Chrome, and a search answer service with no free key check makes no request. Accepts no body or credentials and changes no saved settings. status connected means a live request succeeded with the saved settings; failed carries the provider\'s reason with credentials redacted, including a check that does not finish within 30 seconds; not-verified means the settings stay unproven until the first real request. ok is false exactly when status is failed. A check that stops waiting also stops retrying. A known connection that is not configured returns VALIDATION_ERROR with error.details.reason provider-not-configured. A test of a connection whose previous test is still running on this server returns OPERATION_IN_PROGRESS with error.details.reason provider-test-in-progress; wait for that result instead. Unsupported hosts return NOT_IMPLEMENTED.',
+    tags: ['settings'],
+    parameters: [providerNameParameter],
+    responses: {
+      200: jsonResponse('Connection test result, including a failed test.', 'ProviderConnectionTestResultDto'),
+      400: errorResponse('Unknown provider connection (error.details.validProviders), or one that is not configured (error.details.reason provider-not-configured).'),
+      403: errorResponse('Install administrator authority and settings.write are required.'),
+      409: errorResponse('A test of this connection is already running (error.details.reason provider-test-in-progress).'),
+      501: errorResponse('Provider connection tests are not supported.'),
     },
   },
   {
@@ -3504,6 +3633,149 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/users/invitations',
+    summary: 'List ChatGPT sign-in invitations',
+    description:
+      'Every invitation, newest first, with its status (`pending`, `accepted`, `revoked`, `expired`) and, once accepted, the account it created. Administrators only.',
+    tags: ['users'],
+    responses: {
+      200: jsonResponse('Invitations returned.', 'UserInvitationListDto'),
+      403: errorResponse('Not permitted to list invitations.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/users/invitations',
+    summary: 'Invite an email address to sign in with ChatGPT',
+    description:
+      'Lets the person whose ChatGPT account has this VERIFIED email address sign in with ChatGPT; their first sign-in creates their account with this role. Nothing is sent: tell them to open the dashboard and choose Continue with ChatGPT. Inviting the same address again replaces the pending invitation. Expires after 14 days. Never attaches to an existing account. Same authority as creating an account.',
+    tags: ['users'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CreateUserInvitationRequest' },
+        },
+      },
+    },
+    responses: {
+      201: jsonResponse('Invitation created.', 'UserInvitationDto'),
+      400: errorResponse('Invalid email or role, or a view-only first account.'),
+      403: errorResponse('Not permitted to invite.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/users/invitations/{id}',
+    summary: 'Revoke a pending invitation',
+    tags: ['users'],
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Invitation ID.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Invitation revoked.', 'UserInvitationDto'),
+      400: errorResponse('The invitation is no longer pending.'),
+      403: errorResponse('Not permitted to revoke invitations.'),
+      404: errorResponse('Invitation not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/status',
+    summary: 'Sign in with ChatGPT: what is on, and your connection',
+    description:
+      'Whether this install offers Sign in with ChatGPT and ChatGPT plan usage, and for the signed-in person whether a ChatGPT account is linked and their plan connected. Public; `account` is null when nobody is signed in.',
+    tags: ['auth'],
+    auth: false,
+    responses: {
+      200: jsonResponse('Status returned.', 'ChatGptStatusDto'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/start',
+    summary: 'Start Sign in with ChatGPT',
+    description:
+      'A browser navigation, not an API call: redirects to OpenAI. `intent=login` signs in an invited or already-linked person; `intent=connect` links the signed-in person\'s ChatGPT account and, where plan usage is on, asks to use their plan for Aero. Sets a short-lived HttpOnly cookie that only the browser which started the sign-in can return with.',
+    tags: ['auth'],
+    auth: false,
+    parameters: [
+      { name: 'intent', in: 'query', description: '`login` (default) or `connect`.', schema: stringSchema },
+      { name: 'returnTo', in: 'query', description: 'Dashboard path to return to afterwards. Anything outside the dashboard is ignored.', schema: stringSchema },
+    ],
+    responses: {
+      302: { description: 'Redirect to OpenAI, or back to the dashboard with `chatgpt_error` when it cannot start.' },
+      429: errorResponse('Too many sign-ins started from this address.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/callback',
+    summary: 'Finish Sign in with ChatGPT',
+    description:
+      'OpenAI\'s redirect back. Verifies the sign-in belongs to this browser, exchanges the code, verifies the ID token, then signs in or connects and redirects to the dashboard. On failure redirects with `chatgpt_error` set to one of: disabled, not-invited, denied, expired, already-linked, unverified-email, failed.',
+    tags: ['auth'],
+    auth: false,
+    parameters: [
+      { name: 'code', in: 'query', description: 'OAuth authorization code.', schema: stringSchema },
+      { name: 'state', in: 'query', description: 'OAuth state.', schema: stringSchema },
+      { name: 'error', in: 'query', description: 'OAuth error code.', schema: stringSchema },
+    ],
+    responses: {
+      302: { description: 'Redirect to the dashboard.' },
+      429: errorResponse('Too many sign-in callbacks from this address.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/auth/chatgpt/disconnect',
+    summary: 'Stop using your ChatGPT plan for Aero',
+    description:
+      'Deletes the signed-in person\'s stored plan grant, then revokes it at OpenAI. `revoked` is false when OpenAI could not confirm the revocation; the grant is gone here either way, and it can also be removed in ChatGPT settings. The ChatGPT link stays, so sign-in with ChatGPT keeps working.',
+    tags: ['auth'],
+    auth: false,
+    responses: {
+      200: rawJsonResponse('Disconnected.', looseObjectSchema),
+      401: errorResponse('Not signed in.'),
+      403: errorResponse('The request did not come from the dashboard.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/auth/chatgpt/models',
+    summary: 'Models your ChatGPT plan offers',
+    description:
+      'Reads the models the signed-in person\'s ChatGPT plan can use, in OpenAI\'s order, and which one Aero uses. Calls OpenAI with that person\'s plan token, refreshing it when needed.',
+    tags: ['auth'],
+    auth: false,
+    responses: {
+      200: jsonResponse('Models returned.', 'ChatGptModelListDto'),
+      401: errorResponse('Not signed in.'),
+      409: errorResponse('No plan connected, or it needs connecting again.'),
+      503: errorResponse('OpenAI did not answer.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/auth/chatgpt/model',
+    summary: 'Choose the model Aero uses on your ChatGPT plan',
+    tags: ['auth'],
+    auth: false,
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ChatGptModelSelectionRequest' },
+        },
+      },
+    },
+    responses: {
+      200: rawJsonResponse('Model chosen.', looseObjectSchema),
+      401: errorResponse('Not signed in.'),
+      403: errorResponse('Your plan does not offer that model, or the request did not come from the dashboard.'),
+      409: errorResponse('No plan connected, or it needs connecting again.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/snapshot',
     summary: 'Generate a one-shot AI perception snapshot',
@@ -3577,6 +3849,20 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/projects/{name}/schedule/preview',
+    summary: 'Preview schedule timing without enabling recurrence',
+    description: 'Computes the next run from the same timing validation as a saved schedule. Changes no configuration and performs no provider work. Timing and timezone are identity inputs; no work is reused.',
+    tags: ['schedules'],
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SchedulePreviewRequest' } } } },
+    responses: {
+      200: jsonResponse('Next occurrence returned.', 'SchedulePreviewDto'),
+      400: errorResponse('Invalid schedule timing.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/projects/{name}/schedule',
     summary: 'Create or update a schedule',
@@ -3598,6 +3884,17 @@ const routeCatalog: OpenApiOperation[] = [
               providers: stringArraySchema,
               enabled: booleanSchema,
               sourceId: stringSchema,
+              siteAudit: {
+                type: 'object',
+                nullable: true,
+                additionalProperties: false,
+                description: 'kind=site-audit only. What each scheduled scan checks; unset fields take the defaults (checkDeadLinks false, includeGeo false, includeAgentSkills true). Omit to keep the current checks; null resets them to the defaults.',
+                properties: {
+                  checkDeadLinks: booleanSchema,
+                  includeGeo: booleanSchema,
+                  includeAgentSkills: booleanSchema,
+                },
+              },
               expectedUpdatedAt: {
                 type: 'string',
                 format: 'date-time',
@@ -3612,7 +3909,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Schedule updated.', 'ScheduleDto'),
       201: jsonResponse('Schedule created.', 'ScheduleDto'),
-      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).'),
+      400: errorResponse('Invalid payload (e.g. sourceId missing for kind=traffic-sync, providers set for kind=traffic-sync, or siteAudit set for a kind other than site-audit).'),
       409: errorResponse('The schedule changed since the caller loaded it.'),
     },
   },
@@ -3702,6 +3999,27 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, notificationIdParameter],
     responses: {
       204: { description: 'Notification deleted.' },
+      404: errorResponse('Notification not found.'),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/api/v1/projects/{name}/notifications/{id}',
+    summary: 'Update a notification',
+    description: 'Changes an existing webhook in place: replaces its event list and/or turns it on or off. The URL and signing secret stay as they are; to send somewhere else, add a new webhook. Name at least one field.',
+    tags: ['notifications'],
+    parameters: [nameParameter, notificationIdParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/NotificationUpdateRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Notification updated.', 'NotificationDto'),
+      400: errorResponse('Invalid notification update.'),
       404: errorResponse('Notification not found.'),
     },
   },
@@ -3815,6 +4133,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       202: jsonResponse('UI event accepted.', 'TelemetryEventAcceptedDto'),
       400: errorResponse('Invalid UI telemetry event.'),
+      429: errorResponse('UI telemetry rate limit reached; try again later.'),
     },
   },
   {
@@ -4384,6 +4703,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google auth URL returned.', 'GoogleOAuthStartResponse'),
       400: errorResponse('Invalid Google connection request.'),
+      403: errorResponse('Selecting a Search Console or GA4 property or authorizing a shared Google connection requires an instance administrator.'),
     },
   },
   {
@@ -4394,7 +4714,10 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, googleTypeParameter],
     responses: {
       204: { description: 'Google connection deleted.' },
+      400: errorResponse('The connection belongs to another project that tracks the same domain; nothing was removed.'),
+      403: errorResponse('Removing a shared Search Console or GA4 connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Search Console sync or inspection is in progress.'),
     },
   },
   {
@@ -4406,6 +4729,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google properties returned.', 'GscSiteListResponseDto'),
       400: errorResponse('Google OAuth is not configured.'),
+      403: errorResponse('Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -4432,7 +4756,9 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Google property updated.', 'GoogleConnectionDto'),
       400: errorResponse('Invalid property request.'),
+      403: errorResponse('Selecting a Search Console or GA4 property on a shared OAuth connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Search Console sync or inspection is in progress.'),
     },
   },
   {
@@ -4827,6 +5153,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       204: { description: 'Disconnected.' },
+      400: errorResponse('The connection belongs to another project that tracks the same domain; nothing was removed.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -5731,26 +6058,23 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/bing/connect',
     summary: 'Connect Bing Webmaster Tools',
+    description: 'Supply an API key or, as an install administrator, use the Bing key saved in Settings. Returns the sites available for selection.',
     tags: ['bing'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['apiKey'],
-            properties: {
-              apiKey: stringSchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/BingConnectRequest' },
         },
       },
     },
     responses: {
       200: jsonResponse('Bing connection returned.', 'BingConnectResponseDto'),
       400: errorResponse('Invalid Bing connection request.'),
+      403: errorResponse('Using the saved Bing key or authorizing a shared Bing connection requires an install administrator.'),
       404: errorResponse('Project not found.'),
+      409: errorResponse('The project changed during credential verification.'),
     },
   },
   {
@@ -5761,7 +6085,9 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter],
     responses: {
       204: { description: 'Bing connection deleted.' },
+      403: errorResponse('Removing a shared Bing connection requires an instance administrator.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Bing sync or inspection is in progress.'),
     },
   },
   {
@@ -5779,11 +6105,13 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/bing/sites',
     summary: 'List Bing sites for the current connection',
+    description: 'Lists sites across the Bing account. Requires install administrator authority.',
     tags: ['bing'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Bing sites returned.', 'BingSitesResponseDto'),
       400: errorResponse('Bing is not configured for this project.'),
+      403: errorResponse('Listing account sites requires an install administrator.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -5791,6 +6119,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/bing/set-site',
     summary: 'Set the active Bing site',
+    description: 'Select a Bing site for the owning project. A project writer may select its exclusive canonical site with the exact scheme, host, port and path. Changing the site retires the previous site’s measurements.',
     tags: ['bing'],
     parameters: [nameParameter],
     requestBody: {
@@ -5809,8 +6138,10 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonResponse('Active Bing site updated.', 'BingSetSiteResponseDto'),
+      403: errorResponse('The credential cannot change this connection or select this domain.'),
       400: errorResponse('Invalid Bing site request.'),
       404: errorResponse('Project or connection not found.'),
+      409: errorResponse('A Bing sync or inspection is in progress.'),
     },
   },
   {
@@ -5933,13 +6264,252 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/bing/performance',
-    summary: 'Get Bing keyword performance',
+    summary: 'Get stored Bing query rows, one per query per week (prefer /bing/queries for window totals)',
     tags: ['bing'],
     parameters: [nameParameter, limitQueryParameter],
     responses: {
       200: jsonArrayResponse('Bing performance returned.', 'BingKeywordStatsDto'),
       400: errorResponse('Bing is not configured for this project.'),
       404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/bing/sync',
+    summary: 'Queue a full Bing data sync (search performance, crawl stats, sitemaps, site settings, keyword demand)',
+    tags: ['bing'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Bing sync run queued.', 'RunDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/bing/sitemaps',
+    summary: 'Ask Bing to read a sitemap (adds a new one, rereads a listed one)',
+    description: 'Calls Bing `SubmitFeed` for the selected site. Bing lists a new sitemap once it has read it, so it shows in `/bing/sitemaps` and `/sitemaps` after the next `bing-sync`.',
+    tags: ['bing'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: { type: 'object', required: ['sitemapUrl'], properties: { sitemapUrl: stringSchema } } } },
+    },
+    responses: {
+      200: jsonResponse('Bing accepted the sitemap.', 'BingSubmitSitemapResponseDto'),
+      400: errorResponse('Invalid sitemap URL, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling this key.'),
+      502: errorResponse('Bing refused the sitemap.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/sitemaps',
+    summary: 'Compare the site\'s sitemaps with what Google and Bing list',
+    description: 'Stored data only. `site.sitemaps` are the sitemap files the latest Agent Readiness audit scan read pages from. `google` and `bing` hold each engine\'s stored list (null when the engine is not connected or its list was never read) and `missing`: sitemaps the site declares, or someone submitted to the other engine, that this engine lacks. A file inside a missing index is left out; Google lists only sitemaps inside the connected property.',
+    tags: ['sitemaps'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Sitemap coverage returned.', 'SitemapCoverageResponseDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/traffic',
+    summary: 'Get stored daily Bing site clicks and impressions, with trend fits and a period comparison',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'window', in: 'query', description: 'Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } }],
+    responses: {
+      200: jsonResponse('Stored Bing traffic returned.', 'BingTrafficResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/queries',
+    summary: 'Get stored Bing query stats (weekly buckets summed over the window)',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'window', in: 'query', description: 'Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } }, { name: 'query', in: 'query', description: 'Filter on the query: a substring, or the whole query with match=exact.', schema: stringSchema }, { name: 'match', in: 'query', description: 'contains (default) or exact.', schema: { type: 'string', enum: ['contains', 'exact'] } }, { name: 'groupBy', in: 'query', description: 'query (default) or week.', schema: stringSchema }, limitQueryParameter, offsetQueryParameter],
+    responses: {
+      200: jsonResponse('Stored Bing query stats returned.', 'BingQueryTotalsResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/pages',
+    summary: 'Get stored Bing page stats (weekly buckets summed over the window)',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }, { name: 'window', in: 'query', description: 'Window ending at endDate or the newest stored day: 7d, 30d, 90d or all. Not allowed with startDate or days.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } }, { name: 'page', in: 'query', description: 'Filter on the page URL: a substring, or the whole URL with match=exact.', schema: stringSchema }, { name: 'match', in: 'query', description: 'contains (default) or exact.', schema: { type: 'string', enum: ['contains', 'exact'] } }, { name: 'groupBy', in: 'query', description: 'page (default) or week.', schema: stringSchema }, limitQueryParameter, offsetQueryParameter],
+    responses: {
+      200: jsonResponse('Stored Bing page stats returned.', 'BingPageTotalsResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/crawl-stats',
+    summary: 'Get stored daily Bingbot crawl stats',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'startDate', in: 'query', description: 'First day (YYYY-MM-DD). Wins over days.', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Last day (YYYY-MM-DD).', schema: stringSchema }, { name: 'days', in: 'query', description: 'Span in days ending at endDate, or at the newest stored day (default 28).', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Stored Bing crawl stats returned.', 'BingCrawlStatsResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/sitemaps',
+    summary: 'Get stored Bing sitemap status',
+    tags: ['bing'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('Stored Bing sitemaps returned.', 'BingSitemapsResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/site',
+    summary: 'Get stored Bing site settings (quotas, crawl settings, blocks, parameters, geo-targeting, fetches, roles)',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'kind', in: 'query', description: 'One setting kind; all kinds when omitted.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Stored Bing site settings returned.', 'BingSiteResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/keyword-demand',
+    summary: 'Get stored weekly Bing search volume for the tracked queries',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'query', in: 'query', description: 'A tracked query whose weekly history to include.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Stored Bing keyword demand returned.', 'BingKeywordDemandResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/query-pages',
+    summary: 'Read live from Bing: the pages that showed for one query',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'query', in: 'query', description: 'The search query.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Pages for the query returned.', 'BingQueryPagesResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/page-queries',
+    summary: 'Read live from Bing: the queries one page showed for',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'page', in: 'query', description: 'The page URL.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Queries for the page returned.', 'BingPageQueriesResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/query-history',
+    summary: 'Read live from Bing: one query per day, or per week on one page',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'query', in: 'query', description: 'The search query.', schema: stringSchema }, { name: 'page', in: 'query', description: 'Optional page URL; switches to weekly rows with position.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Query history returned.', 'BingQueryHistoryResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/url-traffic',
+    summary: 'Read live from Bing: clicks and impressions for a URL, optionally its children',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'url', in: 'query', description: 'The URL.', schema: stringSchema }, { name: 'children', in: 'query', description: 'true to include the URLs under it.', schema: stringSchema }, { name: 'page', in: 'query', description: '0-indexed page of children.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('URL traffic returned.', 'BingUrlTrafficResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/url-children',
+    summary: 'Read live from Bing: index details for the URLs under a directory',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'url', in: 'query', description: 'The directory URL.', schema: stringSchema }, { name: 'page', in: 'query', description: '0-indexed page.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Child URL details returned.', 'BingUrlChildrenResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/links',
+    summary: 'Read live from Bing: pages with inbound links, or the links to one URL',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'url', in: 'query', description: 'Optional page URL; lists the external pages linking to it.', schema: stringSchema }, { name: 'page', in: 'query', description: '0-indexed page.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Inbound links returned.', 'BingLinksResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/fetched-urls',
+    summary: 'Read live from Bing: Fetch as Bingbot history, or one result',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'url', in: 'query', description: 'Optional URL; returns what Bingbot received for it.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Fetch as Bingbot results returned.', 'BingFetchedUrlsResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/bing/keywords',
+    summary: 'Read live from Bing: search volume, weekly history and related keywords for any keyword',
+    tags: ['bing'],
+    parameters: [nameParameter, { name: 'keyword', in: 'query', description: 'The keyword to research.', schema: stringSchema }, { name: 'country', in: 'query', description: 'Market country (default: the project country).', schema: stringSchema }, { name: 'language', in: 'query', description: 'Market language tag such as en-US (default: from the project).', schema: stringSchema }, { name: 'startDate', in: 'query', description: 'Volume window start (YYYY-MM-DD).', schema: stringSchema }, { name: 'endDate', in: 'query', description: 'Volume window end (YYYY-MM-DD, default today).', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('Keyword research returned.', 'BingKeywordResearchResponseDto'),
+      400: errorResponse('Invalid request, or Bing is not connected or has no site selected for this project.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('Bing is throttling the account this key belongs to.'),
+      502: errorResponse('Bing refused or failed the read.'),
     },
   },
   {
@@ -6382,7 +6952,7 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `GaConnectResponse` Zod schema in contracts.
       200: rawJsonResponse('GA4 connection established.', looseObjectSchema),
       400: errorResponse('Invalid GA4 connection request.'),
-      403: errorResponse('Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.'),
+      403: errorResponse('Selecting a property on the saved OAuth grant requires an instance administrator. If Google refused the property, details.reason is ga4-permission-missing and details.nextCheckAt gives the next check time.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6413,12 +6983,13 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/properties',
     summary: 'List GA4 properties the connected account can read',
     description:
-      'Lists every GA4 property visible to the project\'s OAuth connection, so the numeric property id needed by ga/connect can be discovered without leaving canonry. Requires an OAuth GA4 connection; service-account connections already carry their property id.',
+      'Lists every GA4 property visible to the connected Google account, with numeric IDs for ga/connect. Requires an instance administrator and a GA4 OAuth connection. Service-account connections already specify a property ID.',
     tags: ['ga4'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('GA4 properties returned.', 'GA4PropertiesDto'),
       400: errorResponse('No OAuth GA4 connection for this project.'),
+      403: errorResponse('Listing all properties for the connected Google account requires an instance administrator. Google may also deny property discovery.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6497,7 +7068,7 @@ const routeCatalog: OpenApiOperation[] = [
       {
         name: 'window',
         in: 'query',
-        description: 'Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
+        description: 'Stored 7, 28, 90 or 180-day window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
         schema: { type: 'string', enum: [...gaSearchLandingWindowSchema.options], default: '28d' },
       },
       {
@@ -6552,7 +7123,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get GA4 landing page traffic, channel breakdown, and AI referral landing pages',
     description: 'Every figure is measured over one window (windowStart to windowEnd). Each AI and social referral row carries share, its fraction of that table\'s sessions, so a table\'s shares add up to 1; each top page carries organicShare, its organic sessions over its own sessions.',
     tags: ['ga4'],
-    parameters: [nameParameter, limitQueryParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, limitQueryParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonResponse('GA4 traffic data returned.', 'GaTrafficResponse'),
       400: errorResponse('GA4 is not connected.'),
@@ -6565,7 +7136,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get raw AI referral detail rows per day, landing page, and attribution dimension',
     description: 'Detail rows, not totals. One row per landing page per attribution dimension, so a single day of one source is many rows and each is commonly worth one session. Use /ga/ai-referral-daily for per-date or per-source session counts.',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonArrayResponse('AI referral history returned.', 'GA4AiReferralHistoryEntry'),
       400: errorResponse('GA4 is not connected.'),
@@ -6578,7 +7149,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Get AI referral sessions per day and per source',
     description: 'Sums landing pages within one attribution dimension and never across dimensions, so totalSessions equals the aiSessionsDeduped reported by /ga/traffic for the same window. Sessions only: GA counts users as a distinct count at the grain requested, so an AI-referral user total cannot be summed from these rows and no un-dimensioned AI-referral fetch exists to supply one.',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonResponse('AI referral daily series returned.', 'GA4AiReferralDailyDto'),
       400: errorResponse('GA4 is not connected.'),
@@ -6590,7 +7161,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/social-referral-history',
     summary: 'Get social media referral sessions per day grouped by source',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonArrayResponse('Social referral history returned.', 'GA4SocialReferralHistoryEntry'),
       400: errorResponse('GA4 is not connected.'),
@@ -6631,7 +7202,7 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [nameParameter, gaOverviewWindowParameter],
     responses: {
       200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
-      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d, 90d or 180d.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6640,7 +7211,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],
-    parameters: [nameParameter, analyticsWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
+    parameters: [nameParameter, gaTrafficWindowParameter, analyticsStartDateParameter, analyticsEndDateParameter],
     responses: {
       200: jsonArrayResponse('Session history returned.', 'GA4SessionHistoryEntry'),
       400: errorResponse('GA4 is not connected.'),
@@ -6749,7 +7320,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/health/latest',
     summary: 'Get latest health snapshot',
     description:
-      'Returns the latest health snapshot. Always 200 once the project exists: when no snapshot exists yet (newly-created project, or only failed runs), the response carries `status: "no-data"` with `reason: "no-runs-yet"` and zeroed metrics. Real snapshots carry `status: "ready"`.',
+      'Returns the latest health snapshot. Always 200 once the project exists: when no snapshot exists yet (newly-created project, or only failed runs), the response carries `status: "no-data"` with `reason: "no-runs-yet"` and zeroed metrics. Real snapshots carry `status: "ready"`. Cited rates are out of the pairs whose sources were checked (`totalPairs` minus `citationNotMeasuredPairs`: answers of an engine that returns no sources, such as a local model) and are null when none was. Snapshots stored before that count existed read as stored.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
@@ -6776,11 +7347,36 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/citations/visibility',
     summary: 'Citation visibility headline (citation + answer-mention, by engine + query)',
     description:
-      'Single-call read for the AI citation surface. Returns two parallel headline metrics (`providersCiting` = engines that cite the project in their grounding/source list, `providersMentioning` = engines that name the project in answer prose), per-query cross-tab buckets (`queriesCitedAndMentioned` / `queriesCitedOnly` / `queriesMentionedOnly` / `queriesInvisible` — mutually exclusive over queries that have at least one snapshot), per-query engine coverage rows from the latest snapshot per (query × provider) with both `cited` and `mentioned` flags, and a competitor-gap list (queries where the project is not cited but a configured competitor is). Status `no-data` with `reason: "no-runs-yet"` or `"no-queries"` when the project lacks the inputs.',
+      'Single-call read for the AI citation surface. Returns two parallel headline metrics (`providersCiting` = engines that cite the project in their grounding/source list, `providersMentioning` = engines that name the project in answer prose), per-query cross-tab buckets (`queriesCitedAndMentioned` / `queriesCitedOnly` / `queriesMentionedOnly` / `queriesInvisible` / `queriesCitationNotMeasured` — mutually exclusive over queries that have at least one snapshot), per-query engine coverage rows from the latest snapshot per (query × provider) with both `cited` and `mentioned` flags, and a competitor-gap list (queries where the project is not cited but a configured competitor is). An engine that returns no sources (a local model) has `citationState: "not-measured"` and `cited: null`: it is never counted as not cited, is left out of `providersCiting`, and is counted in `providersCitationNotMeasured`; a query none of whose answers carries sources lands in `queriesCitationNotMeasured`. Status `no-data` with `reason: "no-runs-yet"` or `"no-queries"` when the project lacks the inputs.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Citation visibility report or no-data sentinel returned.', 'CitationVisibilityResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/citations/urls',
+    summary: 'Cited pages, one row per page, with first and last sweep',
+    description:
+      'Every page the stored answers cite, grouped across the sweeps in scope (completed or partial, never probes, inside the window). Each row carries the answers citing it, how many mention the brand, the engines and queries behind it, its first and last sweep, and `newInLatest` when only the latest sweep cites it and an earlier sweep captured pages. Answers stored before page capture are left out (`answersPagesNotCaptured`). Filter by `domain` (host or subdomain), `category` (for example forum,social,video for discussion threads), `provider` and `queryClass`; `newInLatest=true` keeps only pages the latest sweep cited for the first time. Links are compared one way: https, no `www.`, no tracking parameters, and a Reddit thread by its id. "First" means within the window, so read `window=all` for all history.',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'window', in: 'query', description: 'Sweeps in scope: 7d, 30d, 90d or all (default).', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } },
+      { name: 'domain', in: 'query', description: 'Only pages on this host or its subdomains, e.g. reddit.com.', schema: stringSchema },
+      { name: 'category', in: 'query', description: 'Comma-separated source categories, e.g. forum,social,video.', schema: stringSchema },
+      { name: 'provider', in: 'query', description: 'Only answers from this engine, e.g. gemini or openai.', schema: stringSchema },
+      { name: 'queryClass', in: 'query', description: 'all (default), branded or non-brand, classified as the sources read does.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] } },
+      { name: 'newInLatest', in: 'query', description: 'true keeps only pages the latest sweep cited and no earlier sweep in scope did.', schema: { type: 'string', enum: ['true', 'false'] } },
+      { name: 'sort', in: 'query', description: 'answers (default): most citing answers first. newest: most recent first citation first.', schema: { type: 'string', enum: ['answers', 'newest'] } },
+      { name: 'limit', in: 'query', description: 'Pages per response, 1 to 1000 (default 100).', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'The previous response\'s nextCursor; repeat the same filters.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Cited pages returned.', 'CitationUrlsResponse'),
+      400: errorResponse('Invalid query parameters.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -7007,7 +7603,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:
-      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. Designed for the "how is project X doing?" question so agents can answer in one call.',
+      'Bundles project info, latest run, top undismissed insights, health, independent mention and citation coverage, query-basket comparability, and separate mention/citation movement over the shared query cohort. queryClassScope labels queryCounts, scores (except mentionShare), transitions and the movement fields as pooling branded and non-brand. Answers from an engine that returns no sources (a local model) are not measured for citation: every cited figure leaves them out of numerator and denominator and reports them in `citationNotMeasured` / `citationNotMeasuredQueries`, and a cited rate with nothing measured is null. whatChanged is the dashboard\'s "What changed": the queries that lost or gained a mention and those that lost or gained a citation in the latest check (each query once per direction, the two signals counted apart; a query can lose on one engine and gain on another), the AI Visibility runs in progress (probes excluded), and the rows the dashboard lists. Simple projects compare each engine\'s answer with its previous check of the same query and location; Advanced projects compare each Property\'s answer with the comparable previous sweep. Designed for the "how is project X doing?" question so agents can answer in one call.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
@@ -7330,24 +7926,14 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/connect/cloud-run',
     summary: 'Connect a Cloud Run traffic source',
     description:
-      'Stores the service-account JSON in `~/.canonry/config.yaml` and creates a `traffic_sources` row for the project. Reconnecting updates the existing active source rather than creating a duplicate.',
+      'Connects Cloud Run logs with the credential saved for this project and target. When a key is needed, the error includes the dashboard setup path and a link when the public origin is known. Set startFromNow to collect only new logs. The same target keeps its sync position. Changing targets archives the old source and starts a separate history.',
     tags: ['traffic'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['gcpProjectId', 'keyJson'],
-            properties: {
-              gcpProjectId: stringSchema,
-              serviceName: stringSchema,
-              location: stringSchema,
-              displayName: stringSchema,
-              keyJson: { ...stringSchema, description: 'Service-account JSON content.' },
-            },
-          },
+          schema: { $ref: '#/components/schemas/TrafficConnectCloudRunRequest' },
         },
       },
     },
@@ -7463,7 +8049,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonResponse(
-        'Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates.',
+        'Ingest acknowledged; droppedEvents includes normalization failures and durable-receipt duplicates. aiUserFetchBrowserNonPageHits counts browser-agent requests other than page loads, which no bucket holds.',
         'CloudflareWorkerIngestResponse',
       ),
       400: errorResponse('Invalid ingest payload.'),
@@ -7676,7 +8262,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/traffic/samples',
     summary: 'Read a stored sampled tail of server-side traffic evidence',
-    description: 'Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.',
+    description: 'Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. A browser agent\'s AI user fetch sample carries classifier.aiUserFetch.requestKind: unless it is likely fake, only a page sample was counted as an AI user fetch. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -7773,16 +8359,20 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/events',
     summary: 'List rolled-up crawler hits, AI user-fetch hits, and AI-referral sessions within a window',
     description:
-      'Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true pre-limit row count.',
+      'Returns full-window hourly or daily chart series plus newest-first detail rows from `crawler_events_hourly`, `ai_user_fetch_events_hourly`, and `ai_referral_events_hourly`. Defaults to the last 24h. Totals and `series.points` reflect the full window; only the `events` array is capped by `limit` (default 500, max 5000). `eventRows` reports the true row count, and `eventRows.nextCursor` reads the next page. `path` and `agent` narrow totals, series, rows and groups alike. `groupBy` adds totals per agent, path, status or source over the whole filtered window, so one call can answer which bots read a page.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
       { name: 'since', in: 'query', description: 'ISO-8601 window start (defaults to 24h ago).', schema: stringSchema },
       { name: 'until', in: 'query', description: 'ISO-8601 window end (defaults to now).', schema: stringSchema },
-      { name: 'kind', in: 'query', description: 'Filter to "crawler", "ai-user-fetch", "ai-referral", or "all" (default).', schema: stringSchema },
+      { name: 'kind', in: 'query', description: 'Filter to "crawler", "ai-user-fetch", "ai-referral", a comma-separated list of them (e.g. "ai-user-fetch,ai-referral"), or "all" (default). Rows, totals and series cover only the kinds asked for.', schema: stringSchema },
       { name: 'limit', in: 'query', description: 'Max newest combined detail rows in the events array (default 500, max 5000).', schema: stringSchema },
       { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
-      { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default) or "day".', schema: { type: 'string', enum: ['hour', 'day'] } },
+      { name: 'granularity', in: 'query', description: 'Full-window series bucket size: "hour" (default), "day" or "month" (UTC calendar months).', schema: { type: 'string', enum: ['hour', 'day', 'month'] } },
+      { name: 'path', in: 'query', description: 'A page and the pages under it: `/faq` matches `/faq` and `/faq/x`, never `/faqs`; case counts. The fetched path, or the landing path on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'agent', in: 'query', description: 'Exact bot ID (for example openai-searchbot), or the AI product on AI-referral rows. Totals, series, rows and groups all honor it.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'The previous page\'s `eventRows.nextCursor`. Repeat the first page\'s kind, sourceId, path and agent; the cursor keeps the first page\'s window.', schema: stringSchema },
+      { name: 'groupBy', in: 'query', description: 'Comma-separated totals over the whole filtered window: agent, path, status, source. Groups are always split by kind, sorted most hits first and capped by `limit`.', schema: stringSchema },
     ],
     responses: {
       200: jsonResponse('Events returned with windowed totals.', 'TrafficEventsResponse'),
@@ -7868,8 +8458,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/discover/sessions/{id}/harvest',
     summary: 'Harvest issued search queries (grounding fan-out) from a session',
-    description:
-      "Reads the search queries the answer engine actually issued to answer each probe (Gemini's `groundingMetadata.webSearchQueries` fan-out) back out of the session's stored probe payloads, then runs a mandatory quality gate and returns the survivors as candidate seeds, ranked by how many distinct probes issued each one. The gate drops navigational/phone lookups, over-specific outliers, off-subject acronym collisions, exact already-tracked matches, and — via an embedding cosine pass over the project's tracked queries — semantic duplicates (paraphrases/synonyms an exact match can't see). `semanticNoveltyApplied` reports whether that embedding pass ran (it falls back to exact-match when embeddings are unavailable). These are a THIRD signal — *issued retrieval queries* — distinct from `mention` (answer text) and `cited` (source list); they carry no demand of their own. Read-only and derived: nothing is probed, tracked, or promoted. `minProbeHits` raises the recurrence floor; `anchor=false` disables the subject anchor for new-subject discovery on a well-scoped project. `stats` carries the raw count and a per-reason rejection tally. Issue #713.",
+    description: 'Ranks search queries from stored probe results by how many probes issued each query. The novelty check can send candidate and tracked query text to the configured embedding provider. Requires a signed-in administrator or wildcard (*) API key, subject to project access. `semanticNoveltyApplied` reports whether the embedding check ran. If embeddings are unavailable, novelty uses exact matches. Issued search queries are retrieval evidence, separate from mentions and citations. The route returns candidates for review without tracking or promoting them.',
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -7879,6 +8468,7 @@ const routeCatalog: OpenApiOperation[] = [
     ],
     responses: {
       200: jsonResponse('Harvested candidate seeds + gate stats returned.', 'DiscoveryHarvestDto'),
+      403: errorResponse('Administrator access or wildcard API key scope is required.'),
       404: errorResponse('Project or session not found.'),
     },
   },
@@ -7946,27 +8536,27 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo',
-    summary: 'Get the Technical AEO scorecard for a project',
+    path: '/api/v1/projects/{name}/agent-readiness',
+    summary: 'Get the Agent Readiness scorecard for a project',
     description:
       'runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the scan a default read returned just before this one was recorded. A default read whose preferred crawl audited no page falls back to the preferred scored crawl. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Technical AEO scorecard returned.', 'SiteAuditScoreDto'),
+      200: jsonResponse('Agent Readiness scorecard returned.', 'SiteAuditScoreDto'),
       404: errorResponse('Project or site-audit run not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/pages',
+    path: '/api/v1/projects/{name}/agent-readiness/pages',
     summary: 'List audited pages from a site-audit run',
     description:
       'Returns the per-page breakdown of the latest completed/partial site-audit run, or the historical audit selected by `runId` (paginated). Filter to `status=error` to surface unreachable pages; sort `score-asc` (default) to surface the worst-scoring pages first.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest audit.', schema: stringSchema },
@@ -7982,25 +8572,44 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/trend',
-    summary: 'Get the Technical AEO aggregate-score trend',
+    path: '/api/v1/projects/{name}/agent-readiness/trend',
+    summary: 'Get the Agent Readiness score trend',
     description: 'Returns historical aggregate scores across completed/partial site-audit runs, oldest-first, for the trend chart.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'limit', in: 'query', description: 'Max data points returned (most recent runs). Default 30.', schema: integerSchema },
     ],
     responses: {
-      200: jsonResponse('Technical AEO trend returned.', 'SiteAuditTrendResponseDto'),
+      200: jsonResponse('Agent Readiness trend returned.', 'SiteAuditTrendResponseDto'),
       404: errorResponse('Project not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/crawl',
-    summary: 'Get persisted Technical AEO crawl metadata',
+    path: '/api/v1/projects/{name}/trends',
+    summary: 'Get a dashboard trend card: figures, their readings over a window, and each change',
+    description: 'Stored readings only; nothing calls a provider. `index-coverage` returns Google and Bing indexed and not-indexed pages, `site-health` the site score and pages checked per scan, `backlinks` referring domains, total linking hosts and top-10 concentration per Common Crawl release, with crawler and proxy hosts left out as on the Backlinks tab. Every figure is a level: its value is the latest reading in the window and its change runs from the first reading in the window (`change.basis`). The window ends on the surface\'s latest reading; pass `startDate`/`endDate` instead to read your own calendar range. A Common Crawl release reads at its window\'s last month, in crawl order, and carries its window as `label`. Readings before a figure\'s `recordedFrom` were never recorded. Groups never recorded (for example Bing not connected) are left out.',
+    tags: ['trends'],
+    parameters: [
+      nameParameter,
+      { name: 'surface', in: 'query', required: true, description: 'Which card to read.', schema: { type: 'string', enum: ['index-coverage', 'site-health', 'backlinks'] } },
+      { name: 'window', in: 'query', description: 'Window ending on the latest reading. Defaults to 90d for index-coverage and all for site-health and backlinks. Any other value is rejected with 400. Not allowed with startDate or endDate.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } },
+      { name: 'startDate', in: 'query', description: 'First calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range starts at the earliest reading.', schema: { type: 'string', format: 'date' } },
+      { name: 'endDate', in: 'query', description: 'Last calendar day (YYYY-MM-DD) of your own range instead of a window. Left out, the range ends at the latest reading.', schema: { type: 'string', format: 'date' } },
+    ],
+    responses: {
+      200: jsonResponse('Trend card returned. `window` is null for a date range.', 'TrendsResponseDto'),
+      400: errorResponse('Missing or unknown surface, an unknown window, an invalid date, a start after the end, or a window and a date range together.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/agent-readiness/crawl',
+    summary: 'Get persisted Agent Readiness crawl metadata',
     description: 'Returns a non-probe site-audit crawl on the requested UTC date, the selected run, or the latest scan date. Prefer complete scans, then the largest page sample, then the latest scan on that date. runSelection records same-date ambiguity; inventorySummary reports exact whole-snapshot eligibility and disjoint excluded reasons. `complete` and `termination` qualify budget-limited evidence. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates to resolve an omitted year; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8014,10 +8623,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/graph',
-    summary: 'Get a persisted Site Health graph projection',
+    path: '/api/v1/projects/{name}/agent-readiness/graph',
+    summary: 'Get a persisted Agent Readiness graph projection',
     description: 'Returns the deterministic graph projection computed once when the latest or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8026,16 +8635,16 @@ const routeCatalog: OpenApiOperation[] = [
       linkKindParameter,
     ],
     responses: {
-      200: jsonResponse('Bounded Site Health graph projection returned.', 'SiteCrawlGraphResponseDto'),
+      200: jsonResponse('Bounded Agent Readiness graph projection returned.', 'SiteCrawlGraphResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/subgraph',
-    summary: 'Get a bounded canonical Site Health neighborhood',
+    path: '/api/v1/projects/{name}/agent-readiness/subgraph',
+    summary: 'Get a bounded canonical Agent Readiness neighborhood',
     description: 'Agent-oriented canonical crawl neighborhood around one page. Reads full crawl page/link rows rather than the sampled visualization, excludes layout coordinates, and returns snapshot completeness/termination. When a hard bound is reached, countAccuracy=lower-bound makes totalNodes, totalEdges, omittedNodes, and omittedEdges explicit minimums rather than false exact totals.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8046,16 +8655,16 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'maxEdges', in: 'query', description: 'Maximum canonical edges. Defaults to 50; maximum 500.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
     ],
     responses: {
-      200: jsonResponse('Bounded canonical Site Health neighborhood returned.', 'SiteHealthSubgraphResponseDto'),
+      200: jsonResponse('Bounded canonical Agent Readiness neighborhood returned.', 'SiteHealthSubgraphResponseDto'),
       404: errorResponse('Project, crawl-bearing run, or focus page not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/path',
+    path: '/api/v1/projects/{name}/agent-readiness/path',
     summary: 'Find a directed internal-link path between pages',
     description: 'Returns the shortest directed path over followable internal anchor links. The source defaults to the crawl root; the target must be identified by toNodeKey or toUrl. Exploration is bounded to 5,000 nodes and returns an explicit unreachable or truncated state. Snapshot complete and termination provenance prevents an unreachable result from a selected partial crawl being mistaken for a site-wide claim.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8073,10 +8682,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/changes',
-    summary: 'Compare canonical Site Health snapshots',
+    path: '/api/v1/projects/{name}/agent-readiness/changes',
+    summary: 'Compare canonical Agent Readiness snapshots',
     description: 'Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. A crawl stopped at its budget is never compared: when every crawl is partial, the result is `partial-not-comparable` with the newest crawl as `toRunId`, and `no-crawl` means no scan published a crawl. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'fromRunId', in: 'query', description: 'Baseline complete crawl. Omit for the complete crawl immediately before the target.', schema: stringSchema },
@@ -8087,22 +8696,23 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'limit', in: 'query', description: 'Maximum change records. Defaults to 25; maximum 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
-      200: jsonResponse('Canonical Site Health snapshot comparison returned.', 'SiteHealthChangesResponseDto'),
+      200: jsonResponse('Canonical Agent Readiness snapshot comparison returned.', 'SiteHealthChangesResponseDto'),
       400: errorResponse('Invalid filters, run direction, or cursor context.'),
       404: errorResponse('Project or selected crawl-bearing run not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/issues',
+    path: '/api/v1/projects/{name}/agent-readiness/issues',
     summary: 'List stored audit issue groups and representative URLs',
-    description: 'Read-only retained evidence, without provider calls. Includes coded findings and independent critical defects at every page score and retained cross-page groups; mirrored duplicate annotations appear once. Returns stored run/date/attempt, crawl completeness, and separate page-finding/cross-page coverage so legacy absence and malformed evidence cannot imply a clean site. Disposition is a prioritization hint, not permission to edit or proof of score impact. Recommendations distinguish whole-factor guidance from independently issue-scoped critical-defect guidance. Page-finding identities use factor/code/type; duplicate metadata identities use the full exact metadata value. Unknown cross-page identities are run-local. Reads fail explicitly above 128 MiB evidence or 4096 groups; they never sample an apparently complete total.',
-    tags: ['technical-aeo'],
+    description: 'Read-only retained evidence, without provider calls. Includes coded findings and independent critical defects at every page score and retained cross-page groups; mirrored duplicate annotations appear once. Returns stored run/date/attempt, crawl completeness, and separate page-finding/cross-page coverage so legacy absence and malformed evidence cannot imply a clean site. Disposition is a prioritization hint, not permission to edit or proof of score impact. Recommendations distinguish whole-factor guidance from independently issue-scoped critical-defect guidance. Page-finding identities use factor/code/type; duplicate metadata identities use the full exact metadata value. Unknown cross-page identities are run-local. Reads fail explicitly above 512 MiB evidence or 4096 groups; they never sample an apparently complete total.',
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
       { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
       { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+      { name: 'site', in: 'query', description: 'Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.', schema: { type: 'string', maxLength: 253 } },
     ],
     responses: {
       200: jsonResponse('Stored issue groups and coverage returned.', 'SiteAuditIssuesResponseDto'),
@@ -8112,16 +8722,17 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages',
+    path: '/api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages',
     summary: 'List affected URLs for one stored audit issue',
     description: 'Read-only bounded membership of one issue in the selected published audit attempt. Preserve runId from the issue list when following historical evidence. Messages and factor-scoped recommendations expose explicit truncation; URLs are preserved. Missing legacy evidence remains unavailable, never a measured empty result.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
       { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
       { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
       { name: 'issueId', in: 'path', required: true, description: 'Exact issue ID from the stored issue list.', schema: stringSchema },
+      { name: 'site', in: 'query', description: 'Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.', schema: { type: 'string', maxLength: 253 } },
     ],
     responses: {
       200: jsonResponse('Stored affected page evidence and coverage returned.', 'SiteAuditIssuePagesResponseDto'),
@@ -8131,10 +8742,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/crawl/pages/audit',
+    path: '/api/v1/projects/{name}/agent-readiness/crawl/pages/audit',
     summary: 'Get exact audit evidence for one persisted crawl page',
     description: 'Returns one page score with the exact weighted-factor findings, recommendations, applicability, and independent critical defects persisted for the selected crawl. Exactly one of nodeKey or url is required. The discriminated state preserves crawl completeness and termination provenance, distinguishes a page that was not audited from one that was not found, and marks legacy score-only rows without fabricating missing evidence. This one-page read keeps verbose evidence out of the bounded interactive graph projection.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8149,10 +8760,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/crawl/pages',
-    summary: 'List persisted Technical AEO crawl pages',
+    path: '/api/v1/projects/{name}/agent-readiness/crawl/pages',
+    summary: 'List persisted Agent Readiness crawl pages',
     description: 'Cursor-paged canonical crawl nodes for the requested UTC date, latest scan date, or selected crawl. inventorySummary gives whole-snapshot eligibility and excluded reasons independent of paging and filters; healthReasonCounts sums the filtered list before paging. Dated no-data reads expose `availableScanDates` for an explicit retry on a known date, never an automatic fallback. Unknown indexability never means canonical-away. `inventoryEligible` is Canonry technical-inventory eligibility, not a statement about actual Google index state.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8161,43 +8772,46 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'fetchState', in: 'query', description: 'Filter by persisted fetch state.', schema: stringSchema },
       { name: 'indexabilityState', in: 'query', description: 'Filter by crawler-derived indexability state; this is not Google index coverage.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.', schema: stringSchema },
-      { name: 'healthState', in: 'query', description: 'Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.', schema: { type: 'string', enum: ['eligible', 'hidden', 'resource', 'redirect', 'failed', 'unchecked'] } },
+      { name: 'healthState', in: 'query', description: 'Filter by the derived page state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.', schema: { type: 'string', enum: ['eligible', 'hidden', 'resource', 'redirect', 'failed', 'unchecked'] } },
       { name: 'auditState', in: 'query', description: 'Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.', schema: stringSchema },
       { name: 'urlVersions', in: 'query', description: 'URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.', schema: { type: 'string', enum: ['include', 'exclude', 'only'] } },
       { name: 'sort', in: 'query', description: 'Sort order. Defaults to `url`.', schema: { type: 'string', enum: ['url', 'path', 'score-asc', 'score-desc'] } },
+      { name: 'site', in: 'query', description: 'Limit the result to one site the scan covered: the main domain or an owned domain the scan included (any form, such as `www.example.com` or `https://shop.example.com/`). A site the scan did not cover is a 400 that names the sites it did. The crawl summary lists them in `sites`.', schema: { type: 'string', maxLength: 253 } },
       crawlCursorParameter,
       crawlLimitParameter,
     ],
     responses: {
-      400: errorResponse('Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.'),
+      400: errorResponse('Invalid date, conflicting runId/date, invalid urlVersions, a site the scan did not cover, or invalid cursor identity.'),
       200: jsonResponse('Crawl pages returned.', 'SiteCrawlPagesResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/structure',
-    summary: 'List one level of Technical AEO crawl structure',
-    description: 'Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree.',
-    tags: ['technical-aeo'],
+    path: '/api/v1/projects/{name}/agent-readiness/structure',
+    summary: 'List one level of Agent Readiness crawl structure',
+    description: 'Returns immediate children under `parentPath` only. It is deliberately bounded and never emits a full site tree. Paths never include a host, so one read covers one site: the main domain unless `site` names another site the scan covered; `site` in the response says which.',
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
+      { name: 'site', in: 'query', description: 'The site whose folders to list: an owned domain the scan included, or the main domain (the default). A site the scan did not cover is a 400 that names the sites it did.', schema: { type: 'string', maxLength: 253 } },
       { name: 'parentPath', in: 'query', description: 'Parent URL path. Defaults to `/`.', schema: stringSchema },
       crawlCursorParameter,
       { name: 'limit', in: 'query', description: 'Maximum immediate children. Defaults to 50; maximum 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
       200: jsonResponse('Immediate crawl children returned.', 'SiteCrawlStructureResponseDto'),
+      400: errorResponse('A site the scan did not cover.'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/internal-links',
+    path: '/api/v1/projects/{name}/agent-readiness/internal-links',
     summary: 'List persisted internal crawl links',
     description: 'Cursor-paged internal edges for the latest or selected crawl. Optional source/target/followability/link-kind filters remain project-, run-, and attempt-scoped. `total` counts exactly what the requested filters match, `templateDetection` says whether nav and footer links could be told apart for this scan and by which rule, and the `templateSource` plus `placementOccurrences` on each edge show the evidence behind its own classification.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8215,10 +8829,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/internal-links/neighbors',
+    path: '/api/v1/projects/{name}/agent-readiness/internal-links/neighbors',
     summary: 'Get a bounded internal-link neighborhood',
     description: 'Returns bounded inbound and outbound internal edges for one `nodeKey` or URL; this is not a full graph traversal.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8235,10 +8849,10 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/dead-links',
+    path: '/api/v1/projects/{name}/agent-readiness/dead-links',
     summary: 'List dead-link findings when checks were enabled',
     description: 'Returns a discriminated `disabled`, `complete`, `partial`, or `unavailable` state. A disabled check is never returned as an empty zero-result list.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
@@ -8252,58 +8866,58 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/runs',
-    summary: 'List Site Health scan history',
+    path: '/api/v1/projects/{name}/agent-readiness/runs',
+    summary: 'List Agent Readiness audit scan history',
     description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404. `preferredRunId` identifies the default persisted scan shared by score/crawl reads, independently of the history page limit; an explicit selected run stays authoritative.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'limit', in: 'query', description: 'Max scans returned (most recent first). Defaults to 20; max 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
     ],
     responses: {
-      200: jsonResponse('Site Health scan history returned.', 'SiteHealthScansResponseDto'),
+      200: jsonResponse('Agent Readiness audit scan history returned.', 'SiteHealthScansResponseDto'),
       404: errorResponse('Project not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/runs/{runId}/progress',
-    summary: 'Get exact stored Site Health run progress',
+    path: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/progress',
+    summary: 'Get exact stored Agent Readiness audit scan progress',
     description:
       'Returns durable run, crawl-attempt, and terminal graph-layout state for one exact non-probe site-audit run. It performs no network work and intentionally returns raw counters instead of a completion percentage.',
-    tags: ['technical-aeo'],
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'path', required: true, description: 'Exact site-audit run ID.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Exact stored Site Health progress returned.', 'SiteAuditRunProgressDto'),
+      200: jsonResponse('Exact stored Agent Readiness audit scan progress returned.', 'SiteAuditRunProgressDto'),
       404: errorResponse('Project or non-probe site-audit run not found.'),
     },
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',
-    summary: 'Get a bounded, provisional Page Health preview',
+    path: '/api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview',
+    summary: 'Get a bounded, provisional Agent Readiness score preview',
     description:
-      'Returns a small durable, provisional preview for one exact non-probe site-audit run while it is running: the count of audited pages plus at most 12 actionable low-score examples without finding prose. Queued scans return waiting. Terminal scans return no examples so callers use the immutable Page Health results instead. It performs no network work.',
-    tags: ['technical-aeo'],
+      'Returns a small durable, provisional preview for one exact non-probe site-audit run while it is running: the count of audited pages plus at most 12 actionable low-score examples without finding prose. Queued scans return waiting. Terminal scans return no examples so callers use the immutable Agent Readiness results instead. It performs no network work.',
+    tags: ['agent-readiness'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'path', required: true, description: 'Exact site-audit run ID.', schema: stringSchema },
     ],
     responses: {
-      200: jsonResponse('Bounded provisional Page Health preview returned.', 'SiteAuditLivePageHealthDto'),
+      200: jsonResponse('Bounded provisional Agent Readiness score preview returned.', 'SiteAuditLivePageHealthDto'),
       404: errorResponse('Project or non-probe site-audit run not found.'),
     },
   },
   {
     method: 'post',
-    path: '/api/v1/projects/{name}/technical-aeo/runs',
-    summary: 'Trigger a Technical AEO site-audit run',
+    path: '/api/v1/projects/{name}/agent-readiness/runs',
+    summary: 'Start an Agent Readiness audit scan (a site-audit run)',
     description:
-      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.',
-    tags: ['technical-aeo'],
+      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links, on the main domain and on each owned domain the scan includes (`sites`, else the project\'s saved `siteAuditDomains`). An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, sites, and optional factor selections match exactly; a semantic mismatch returns 409.',
+    tags: ['agent-readiness'],
     parameters: [nameParameter],
     requestBody: {
       required: false,
@@ -8320,6 +8934,12 @@ const routeCatalog: OpenApiOperation[] = [
               checkDeadLinks: { ...booleanSchema, default: false, description: 'Enable dead-link checking. Defaults to false.' },
               includeGeo: { ...booleanSchema, default: false, description: 'Opt in to geographic signals for location and service-area businesses. Part of scan identity.' },
               includeAgentSkills: { ...booleanSchema, default: true, description: 'Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.' },
+              sites: {
+                type: 'array',
+                maxItems: 21,
+                items: { type: 'string', minLength: 1, maxLength: 253 },
+                description: 'Owned domains this scan covers besides the main domain, which every scan covers. Each must be one of the project\'s owned domains; naming the main domain changes nothing. When omitted, the project\'s saved siteAuditDomains apply; [] scans the main domain only. The page budget is shared across every site. Part of scan identity.',
+              },
             },
           },
         },
@@ -8327,7 +8947,7 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: jsonResponse('Site-audit run queued (or the in-flight run returned).', 'SiteAuditRunResponseDto'),
-      400: errorResponse('Invalid site-audit request.'),
+      400: errorResponse('Invalid site-audit request, or a site that is not one of the project\'s owned domains.'),
       409: errorResponse('A crawl with different effective options is already queued or running.'),
       422: errorResponse('The site-audit executor is unavailable on this deployment.'),
       404: errorResponse('Project not found.'),
@@ -8529,9 +9149,9 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   // Api-routes' shared contract test builds the app without the local Aero
   // plugin, so we don't want to surface those entries in that path. canonry's
   // real `buildOpenApiDocument` call passes `includeCanonryLocal: true`.
-  const fullCatalog = info.includeCanonryLocal
+  const fullCatalog = withLegacyAgentReadinessOperations(info.includeCanonryLocal
     ? [...routeCatalog, ...canonryLocalRouteCatalog]
-    : routeCatalog
+    : routeCatalog)
   const paths = fullCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
     // Strip the hardcoded prefix from the route path, then prepend the configured prefix
     const subpath = route.path.startsWith(BASE_PREFIX) ? route.path.slice(BASE_PREFIX.length) : route.path
@@ -8548,6 +9168,7 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
     if (route.parameters) operation.parameters = route.parameters
     if (route.requestBody) operation.requestBody = route.requestBody
     if (route.auth === false) operation.security = []
+    if (route.deprecated) operation.deprecated = true
 
     const pathItem = acc[fullPath] ?? {}
     pathItem[route.method] = operation
@@ -8593,8 +9214,28 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   }
 }
 
+/**
+ * Every Agent Readiness route also answers at its earlier `technical-aeo`
+ * path. The spec lists that path as a deprecated twin of the canonical
+ * operation, with the same parameters and response, so generated clients and
+ * agents move to the canonical name while existing callers keep working.
+ */
+function withLegacyAgentReadinessOperations(catalog: readonly OpenApiOperation[]): OpenApiOperation[] {
+  return catalog.flatMap((route) => {
+    const legacyPath = legacyAgentReadinessPath(route.path)
+    if (!legacyPath) return [route]
+    return [route, {
+      ...route,
+      path: legacyPath,
+      deprecated: true,
+      summary: `${route.summary} (deprecated path)`,
+      description: `Deprecated alias of \`${route.method.toUpperCase()} ${route.path}\`, with the same parameters and response. Use the canonical path.`,
+    }]
+  })
+}
+
 export async function openApiRoutes(app: FastifyInstance, opts: OpenApiInfo = {}) {
-  app.get('/openapi.json', async (_request, reply) => {
+  app.get('/openapi.json', { config: { skipInstanceAuth: true } }, async (_request, reply) => {
     return reply.type('application/json').send(buildOpenApiDocument(opts))
   })
 }

@@ -54,6 +54,7 @@ export const VISIBILITY_STATS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['visibility-stats'],
     usage: USAGE,
+    help: 'Per-question mention and citation counts from stored sweeps. TOTAL pools branded and non-brand questions; the lines under it split it by question class (JSON: byQueryClass, and queryClass on each row). --query-class picks the class for --share-of-voice only; it does not filter the counts.',
     options: {
       since: stringOption(),
       until: stringOption(),

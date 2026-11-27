@@ -195,3 +195,13 @@ test('unsafe captured source URLs remain readable without becoming links', () =>
   expect(screen.getByText(unsafeUrl, { exact: true }).closest('a')).toBeNull()
   expect(screen.queryByRole('link', { name: unsafeUrl })).toBeNull()
 })
+
+test('a citation preview for an engine without sources says why there are none', () => {
+  renderPreview({ provider: 'local', citationState: 'not-measured', citedDomains: [], evidenceUrls: [], groundingSources: [] })
+
+  expect(screen.getByText('Sources', { selector: 'p' })).toBeTruthy()
+  expect(screen.getByText('The engine returns no sources, so whether it cites you is not measured.')).toBeTruthy()
+  expect(screen.queryByText('No cited sources captured for this run.')).toBeNull()
+  // The answer text is still there to read.
+  expect(answerDisclosure()).toBeTruthy()
+})

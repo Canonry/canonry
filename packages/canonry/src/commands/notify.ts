@@ -1,7 +1,7 @@
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { isMachineFormat, usageError } from '../cli-error.js'
-import { notificationEventSchema } from '@canonry/canonry-contracts'
+import { NOTIFICATION_EVENT_DESCRIPTIONS, notificationEventSchema, type NotificationEvent } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -75,6 +75,30 @@ export async function removeNotification(project: string, id: string, format?: s
   console.log(`Notification ${id} removed from "${project}"`)
 }
 
+export async function updateNotification(project: string, id: string, opts: {
+  events?: string[]
+  addEvents?: string[]
+  removeEvents?: string[]
+  enabled?: boolean
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const result = await client.updateNotification(project, id, {
+    ...(opts.events ? { events: opts.events as NotificationEvent[] } : {}),
+    ...(opts.addEvents ? { addEvents: opts.addEvents as NotificationEvent[] } : {}),
+    ...(opts.removeEvents ? { removeEvents: opts.removeEvents as NotificationEvent[] } : {}),
+    ...(opts.enabled !== undefined ? { enabled: opts.enabled } : {}),
+  })
+
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`Notification ${id} updated for "${project}":`)
+  printNotification(result)
+}
+
 export async function testNotification(project: string, id: string, format?: string): Promise<void> {
   const client = getClient()
   const result = await client.testNotification(project, id) as { status: number; ok: boolean }
@@ -89,30 +113,20 @@ export async function testNotification(project: string, id: string, format?: str
   }
 }
 
-const EVENT_DESCRIPTIONS: Record<string, string> = {
-  'citation.lost': 'A query lost its citation status',
-  'citation.gained': 'A query gained citation status',
-  'run.completed': 'An AEO sweep completed successfully',
-  'run.failed': 'An AEO sweep failed',
-  'insight.critical': 'A critical-severity insight was generated',
-  'insight.high': 'A high-severity insight was generated',
-  'health.degraded': 'A scheduled health check found the measurement degraded, daily data stopped arriving, or the website stopped answering (sent when a check starts failing or gets worse, not every pass)',
-  'health.recovered': 'A degraded health check is passing again, or a website that was paged as down answers again',
-  'health.urgent': 'An urgent problem started: the website is down, GA4 or Search Console data is stale, or a sync keeps failing. A webhook that lists this receives only the health events it lists, so it is not sent routine warnings',
-  'health.urgent-resolved': 'The urgent problems that were reported have cleared (the website check and the scheduled health pass each send their own)',
-  'review.negative': "A new or edited Google review at or below the project's negative-review threshold, 3 stars by default (Business Profile reviews, or the public listing when Google has not enabled review access)",
-  'review.rating-dropped': "A location's public Google rating fell (sent for locations without Business Profile review access)",
-  'traffic.agent.discovered': 'A bot or agent no Canonry rule recognizes showed up in server-side traffic (first seen in the last 7 days, at least 3 hits, after the first week of recorded traffic), once per name',
-}
-
 export function listEvents(format?: string, target = 'local'): void | Promise<void> {
   if (target === 'server') return getClient().listNotificationEvents().then(events => printEvents(events, format))
   if (target !== 'local') throw usageError('--target must be local or server')
   printEvents(notificationEventSchema.options, format)
 }
 
+/** An event the server knows and this CLI does not (an older CLI) is listed without a description. */
+function describeEvent(event: string): string {
+  const known = notificationEventSchema.safeParse(event)
+  return known.success ? NOTIFICATION_EVENT_DESCRIPTIONS[known.data] : ''
+}
+
 function printEvents(events: readonly string[], format?: string): void {
-  const catalog = events.map(e => ({ event: e, description: EVENT_DESCRIPTIONS[e] ?? '' }))
+  const catalog = events.map(e => ({ event: e, description: describeEvent(e) }))
   if (format === 'json') {
     console.log(JSON.stringify(catalog, null, 2))
     return
@@ -123,8 +137,9 @@ function printEvents(events: readonly string[], format?: string): void {
     return
   }
   console.log('Available notification events:\n')
-  for (const event of events) {
-    console.log(`  ${event.padEnd(20)}  ${EVENT_DESCRIPTIONS[event] ?? ''}`)
+  const width = Math.max(0, ...events.map(event => event.length))
+  for (const { event, description } of catalog) {
+    console.log(`  ${event.padEnd(width)}  ${description}`)
   }
 }
 

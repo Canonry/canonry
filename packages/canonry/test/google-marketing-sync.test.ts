@@ -571,7 +571,7 @@ test('reports a Google Ads sync with its campaigns and metric rows after the evi
 
   expect(outcomes()).toEqual([[
     {
-      feature: 'google_ads', operation: 'sync', trigger: 'manual', status: 'succeeded',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'google_ads', operation: 'sync', trigger: 'manual', status: 'succeeded',
       durationBucket: 'under_1s', counts: { campaigns: 2, rows: 0 },
     },
     undefined,
@@ -623,7 +623,7 @@ test('reports a Google Ads sync by reason: no selected customer, an expired gran
     const runtime = testCase.arrange(db)
     await expect(executeGoogleAdsMarketingSync(db, runtime, 'ads_run', 'project_1')).rejects.toThrow()
     expect(outcomes()).toEqual([[
-      { feature: 'google_ads', operation: 'sync', trigger: 'manual', ...testCase.outcome, durationBucket: 'under_1s' },
+      { operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'google_ads', operation: 'sync', trigger: 'manual', ...testCase.outcome, durationBucket: 'under_1s' },
       { errorCode: testCase.outcome.reasonCode },
     ]])
   }
@@ -666,7 +666,7 @@ test('reports a GTM sync with the tags in the published container', async () => 
 
   expect(outcomes()).toEqual([[
     {
-      feature: 'gtm', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gtm', operation: 'sync', trigger: 'scheduled', surface: 'system', status: 'succeeded',
       durationBucket: 'under_1s', counts: { items: 3 },
     },
     undefined,
@@ -691,7 +691,7 @@ test('reports GTM evidence that failed our own consistency check as internal', a
 
   expect(outcomes()).toEqual([[
     {
-      feature: 'gtm', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'INTERNAL',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/), feature: 'gtm', operation: 'sync', trigger: 'manual', status: 'failed', reasonCode: 'INTERNAL',
       errorName: 'Error', durationBucket: 'under_1s',
     },
     { errorCode: 'INTERNAL' },

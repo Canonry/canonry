@@ -4,6 +4,7 @@ import { TrafficEventKinds, VerificationStatuses, type TrafficEventEntry } from 
 import {
   bucketForChartClick,
   bucketKeyFor,
+  bucketTimeRange,
   filterTrafficEvents,
   identityOf,
   pathOf,
@@ -66,11 +67,37 @@ describe('bucketKeyFor', () => {
     expect(bucketKeyFor('2026-05-07T02:00:00.000Z', 'hour')).toBe('2026-05-07T02:00:00.000Z')
   })
 
-  test('reduces to local YYYY-MM-DD at day granularity', () => {
-    // Construct a known timestamp; the helper uses local-time getters intentionally
-    // so this assertion holds across TZs only when the input local date matches.
-    const iso = new Date(2026, 4, 7, 14, 0, 0).toISOString() // May 7, 14:00 local
-    expect(bucketKeyFor(iso, 'day')).toBe('2026-05-07')
+  test('reduces to the UTC date at day granularity, as the server buckets days', () => {
+    // The server's day bucket is `substr(ts_hour, 1, 10)`. A local date put an
+    // evening hour west of UTC under the previous day's bar.
+    expect(bucketKeyFor('2026-05-07T14:00:00.000Z', 'day')).toBe('2026-05-07')
+    expect(bucketKeyFor('2026-05-07T23:00:00.000Z', 'day')).toBe('2026-05-07')
+    expect(bucketKeyFor('2026-05-08T00:00:00.000Z', 'day')).toBe('2026-05-08')
+  })
+})
+
+describe('bucketTimeRange', () => {
+  test('an hour bucket is its own hour, matched exactly by since and until', () => {
+    expect(bucketTimeRange('2026-05-07T02:00:00.000Z', 'hour')).toEqual({
+      since: '2026-05-07T02:00:00.000Z',
+      until: '2026-05-07T02:00:00.000Z',
+    })
+  })
+
+  test('a day bucket spans that whole UTC day', () => {
+    const range = bucketTimeRange('2026-05-07', 'day')
+    expect(range).toEqual({ since: '2026-05-07T00:00:00.000Z', until: '2026-05-07T23:59:59.999Z' })
+    // Every hour of the day falls inside it, and no hour of the next day does.
+    expect('2026-05-07T00:00:00.000Z' >= range.since && '2026-05-07T23:00:00.000Z' <= range.until).toBe(true)
+    expect('2026-05-08T00:00:00.000Z' <= range.until).toBe(false)
+    expect('2026-05-06T23:00:00.000Z' >= range.since).toBe(false)
+  })
+
+  test('each hour row lands in the day range its day key names', () => {
+    for (const tsHour of ['2026-05-07T00:00:00.000Z', '2026-05-07T13:00:00.000Z', '2026-05-07T23:00:00.000Z']) {
+      const range = bucketTimeRange(bucketKeyFor(tsHour, 'day'), 'day')
+      expect(tsHour >= range.since && tsHour <= range.until).toBe(true)
+    }
   })
 })
 

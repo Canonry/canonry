@@ -189,6 +189,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
       citedQueries: 2,
       notCitedQueries: 0,
       citedRate: 1,
+      citationNotMeasuredQueries: 0,
       mentionedQueries: 2,
       notMentionedQueries: 0,
       mentionRate: 1,
@@ -582,7 +583,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     })
     expect(body.health).toBeNull()
     expect(body.topInsights).toEqual([])
-    expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 })
+    expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, citationNotMeasuredQueries: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 })
     expect(body.providers).toEqual([])
     expect(body.transitions).toEqual({ since: null, gained: 0, lost: 0, emerging: 0 })
     expect(body.scores.mentionShare.scope).toBe('non-brand')
@@ -968,6 +969,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
       citedQueries: 2,
       notCitedQueries: 0,
       citedRate: 1,
+      citationNotMeasuredQueries: 0,
       mentionedQueries: 2,
       notMentionedQueries: 0,
       mentionRate: 1,
@@ -1029,6 +1031,132 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.suggestedQueries.totalCandidates).toBe(2)
     expect(body.suggestedQueries.skippedAlreadyTracked).toBe(1)
     expect(body.suggestedQueries.rows[0]?.reason).toMatch(/1\.8K impressions.*#12/)
+
+    await app.close()
+  })
+})
+
+// Local (a model with no web access) returns no sources, so whether it cites
+// the project is never measured. Its answers leave every cited figure,
+// numerator and denominator, and still count for mention.
+describe('GET /api/v1/projects/:name/overview with an engine that returns no sources', () => {
+  function seedNotMeasured(name: string, providers: string[]) {
+    const { app, db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId, name, displayName: name, canonicalDomain: `${name}.example`,
+      country: 'US', language: 'en', ownedDomains: [], tags: [], providers,
+      createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+    }).run()
+    const query = (text: string) => {
+      const id = crypto.randomUUID()
+      db.insert(queries).values({ id, projectId, query: text, createdAt: '2026-11-01T00:00:00.000Z' }).run()
+      return id
+    }
+    const run = (createdAt: string, trigger: 'manual' | 'probe' = 'manual') => {
+      const id = crypto.randomUUID()
+      db.insert(runs).values({ id, projectId, kind: 'answer-visibility', status: 'completed', trigger, createdAt, finishedAt: createdAt }).run()
+      return id
+    }
+    const answer = (runId: string, queryId: string, provider: string, citationState: 'cited' | 'not-cited' | 'not-measured', answerMentioned: boolean, retrievalStatus: 'used' | 'not-applicable') => ({
+      id: crypto.randomUUID(), runId, queryId, provider, model: provider === 'local' ? 'llama3' : 'gemini-3',
+      citationState, answerMentioned, retrievalStatus,
+      citedDomains: citationState === 'cited' ? [`${name}.example`] : [],
+      competitorOverlap: [], recommendedCompetitors: [], answerText: null, createdAt: '2026-11-02T00:00:00.000Z',
+    })
+    return { app, db, query, run, answer }
+  }
+
+  it('leaves Local answers out of the cited figures across engines, a stored older row and a probe run', async () => {
+    const { app, db, query, run, answer } = seedNotMeasured('mixed', ['gemini', 'local'])
+    const q1 = query('crm for agencies')
+    const q2 = query('best crm')
+    const q3 = query('crm pricing')
+    const previous = run('2026-11-02T00:00:00.000Z')
+    const latest = run('2026-11-03T00:00:00.000Z')
+    // Newer than both and fully uncited: if a probe leaked in it would be "latest".
+    const probe = run('2026-11-04T00:00:00.000Z', 'probe')
+    db.insert(querySnapshots).values([
+      answer(previous, q1, 'gemini', 'cited', false, 'used'),
+      // Written before `not-measured` existed: Local stored a miss.
+      answer(previous, q1, 'local', 'not-cited', false, 'not-applicable'),
+      answer(previous, q2, 'gemini', 'cited', false, 'used'),
+      answer(previous, q2, 'local', 'not-measured', false, 'not-applicable'),
+      answer(previous, q3, 'local', 'not-measured', false, 'not-applicable'),
+      answer(latest, q1, 'gemini', 'cited', false, 'used'),
+      answer(latest, q1, 'local', 'not-cited', true, 'not-applicable'),
+      answer(latest, q2, 'gemini', 'not-cited', false, 'used'),
+      answer(latest, q2, 'local', 'not-measured', false, 'not-applicable'),
+      answer(latest, q3, 'local', 'not-measured', true, 'not-applicable'),
+      answer(probe, q1, 'gemini', 'not-cited', false, 'used'),
+      answer(probe, q2, 'gemini', 'not-cited', false, 'used'),
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/mixed/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = projectOverviewDtoSchema.parse(JSON.parse(res.payload)) as ProjectOverviewDto
+
+    // q1 cited (Gemini), q2 not cited (Gemini checked), q3 answered only by Local.
+    expect(body.queryCounts).toMatchObject({
+      totalQueries: 3,
+      citedQueries: 1,
+      notCitedQueries: 1,
+      citationNotMeasuredQueries: 1,
+      citedRate: 0.5,
+      // Mention keeps every query: q1 and q3 were named by Local.
+      mentionedQueries: 2,
+      mentionRate: 0.6667,
+    })
+    expect(body.providers).toEqual([
+      { provider: 'gemini', cited: 1, total: 2, citationNotMeasured: 0, citedRate: 0.5 },
+      { provider: 'local', cited: 0, total: 3, citationNotMeasured: 3, citedRate: null },
+    ])
+    expect(body.providerScores.map(({ trend: _trend, ...score }) => score)).toEqual([
+      { provider: 'gemini', model: 'gemini-3', score: 50, cited: 1, total: 2, citationNotMeasured: 0 },
+      { provider: 'local', model: 'llama3', score: null, cited: 0, total: 3, citationNotMeasured: 3 },
+    ])
+    expect(body.providerScores.find(score => score.provider === 'local')?.trend).toBeUndefined()
+    expect(body.scores.visibility).toMatchObject({ value: '50.0%', progress: 50, delta: '1 of 2 queries cited', trend: [100, 50] })
+    // Only q2 moved: Gemini cited it before and does not now. Local never moves.
+    expect(body.transitions).toMatchObject({ gained: 0, lost: 1, emerging: 0 })
+    expect(body.citationMovement).toMatchObject({ gained: 0, lost: 1 })
+    expect(body.runHistory.map(point => ({ cited: point.citedCount, total: point.totalCount, notMeasured: point.citationNotMeasuredCount, rate: point.citationRate }))).toEqual([
+      { cited: 2, total: 3, notMeasured: 1, rate: 100 },
+      { cited: 1, total: 3, notMeasured: 1, rate: 50 },
+    ])
+
+    await app.close()
+  })
+
+  it('reads a Local-only project as not measured everywhere citation is shown, never 0%', async () => {
+    const { app, db, query, run, answer } = seedNotMeasured('local-only', ['local'])
+    const q1 = query('crm for agencies')
+    const q2 = query('best crm')
+    const latest = run('2026-11-03T00:00:00.000Z')
+    db.insert(querySnapshots).values([
+      answer(latest, q1, 'local', 'not-measured', true, 'not-applicable'),
+      answer(latest, q2, 'local', 'not-cited', false, 'not-applicable'),
+    ]).run()
+    db.insert(healthSnapshots).values({
+      id: crypto.randomUUID(), projectId: db.select().from(projects).get()!.id, runId: latest,
+      overallCitedRate: '0', overallMentionRate: '0.5', totalPairs: 2, citedPairs: 0, mentionedPairs: 1,
+      providerBreakdown: { local: { citedRate: null, mentionRate: 0.5, cited: 0, mentioned: 1, total: 2, citationNotMeasured: 2 } },
+      createdAt: '2026-11-03T00:01:00.000Z',
+    }).run()
+    await app.ready()
+
+    const body = projectOverviewDtoSchema.parse(JSON.parse((await app.inject({ method: 'GET', url: '/api/v1/projects/local-only/overview' })).payload)) as ProjectOverviewDto
+
+    expect(body.queryCounts).toMatchObject({ totalQueries: 2, citedQueries: 0, notCitedQueries: 0, citationNotMeasuredQueries: 2, citedRate: null, mentionedQueries: 1, mentionRate: 0.5 })
+    expect(body.providers).toEqual([{ provider: 'local', cited: 0, total: 2, citationNotMeasured: 2, citedRate: null }])
+    expect(body.providerScores).toEqual([{ provider: 'local', model: 'llama3', score: null, cited: 0, total: 2, citationNotMeasured: 2 }])
+    expect(body.scores.visibility).toMatchObject({ value: 'Not measured', tone: 'neutral', trend: [] })
+    expect(body.scores.visibility.progress).toBeUndefined()
+    expect(body.scores.gapQueries.value).toBe('Not measured')
+    expect(body.runHistory.map(point => point.citationRate)).toEqual([null])
+    expect(body.health).toMatchObject({ overallCitedRate: null, citationNotMeasuredPairs: 2, overallMentionRate: 0.5 })
 
     await app.close()
   })

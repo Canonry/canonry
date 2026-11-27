@@ -5,8 +5,8 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, ga4AiReferralHistoryEntrySchema, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema, type GA4AiReferralHistoryEntry } from '@canonry/canonry-contracts'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
+import { calendarDateRange, percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, ga4AiReferralHistoryEntrySchema, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema, type GA4AiReferralHistoryEntry } from '@canonry/canonry-contracts'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaSyncCoverage, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 import { dailyTotals as dailyTotalsFixture, unknownWindowMetrics } from './ga-sync-fixtures.js'
@@ -298,7 +298,7 @@ describe('GA4 routes', () => {
     expect(summaries[0]!.totalSessions).toBe(80)
     expect(summaries[0]!.totalOrganicSessions).toBe(30)
 
-    // Verify per-window summaries were written (one row per 7d/30d/90d).
+    // Verify per-window summaries were written (one row per 7d/30d/90d/180d).
     // Drives the deduplicated totalUsers headline when a window filter is
     // active in /ga/traffic — summing snapshots overcounts users who land
     // on multiple pages.
@@ -306,7 +306,7 @@ describe('GA4 routes', () => {
       .where(eq(gaTrafficWindowSummaries.projectId, projectId))
       .all()
       .sort((a, b) => a.windowKey.localeCompare(b.windowKey))
-    expect(windowSummaries.map((r) => r.windowKey)).toEqual(['30d', '7d', '90d'])
+    expect(windowSummaries.map((r) => r.windowKey)).toEqual(['180d', '30d', '7d', '90d'])
     const byKey = Object.fromEntries(windowSummaries.map((r) => [r.windowKey, r]))
     expect(byKey['7d']!.totalUsers).toBe(15)
     expect(byKey['30d']!.totalUsers).toBe(55)
@@ -940,11 +940,11 @@ describe('GA4 routes', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
 
-      // Combined deduped total is the cross-lens MAX, unchanged by the split.
-      expect(body.aiSessionsDeduped).toBe(30)
-      // The winning (larger) lens is the organic first_user row.
-      expect(body.paidAiSessionsDeduped).toBe(0)
-      expect(body.organicAiSessionsDeduped).toBe(30)
+      // AI sessions count the session lens only, as GA4's own channel report
+      // does: the paid session row, not the larger organic first_user one.
+      expect(body.aiSessionsDeduped).toBe(20)
+      expect(body.paidAiSessionsDeduped).toBe(20)
+      expect(body.organicAiSessionsDeduped).toBe(0)
       // Invariant: the class split always partitions the deduped total.
       expect(body.paidAiSessionsDeduped + body.organicAiSessionsDeduped).toBe(body.aiSessionsDeduped)
       // Session-lens-only totals are disjoint by class, so the paid session row stands.
@@ -1884,8 +1884,9 @@ describe('GA4 routes', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
       // Pre-existing chatgpt.com row contributes 17 to both lenses.
-      // claude.ai contributes: dedup MAX(6, 14) = 14, bySession only the 6.
-      expect(body.aiSessionsDeduped).toBe(17 + 14)
+      // claude.ai contributes its session lens, 6: the 14 returning first_user
+      // visits arriving through other channels are not AI sessions.
+      expect(body.aiSessionsDeduped).toBe(17 + 6)
       expect(body.aiSessionsBySession).toBe(17 + 6)
     } finally {
       db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [sessionRowId, firstUserRowId])).run()
@@ -2003,14 +2004,15 @@ describe('GA4 routes', () => {
         sessions: 4,
       })
 
-      // Two rows seeded for claude.ai → one winning-dimension row.
+      // Two rows seeded for claude.ai → one row, from the session lens (3),
+      // not the larger first_user lens (9).
       const claudeRows = body.aiReferrals.filter((r: { source: string }) => r.source === 'dedup-claude.ai')
       expect(claudeRows).toHaveLength(1)
       expect(claudeRows[0]).toMatchObject({
         source: 'dedup-claude.ai',
         medium: 'referral',
-        sourceDimension: 'first_user',
-        sessions: 9,
+        sourceDimension: 'session',
+        sessions: 3,
       })
 
       // Landing-page table dedupes per (source, medium, landingPage).
@@ -2031,15 +2033,15 @@ describe('GA4 routes', () => {
       expect(claudeLanding).toHaveLength(1)
       expect(claudeLanding[0]).toMatchObject({
         source: 'dedup-claude.ai',
-        sourceDimension: 'first_user',
-        sessions: 9,
+        sourceDimension: 'session',
+        sessions: 3,
       })
 
-      // Output is sorted by sessions descending — the claude.ai winner (9)
-      // ranks above the chatgpt.com winner (4).
+      // Output is sorted by sessions descending — chatgpt.com (4) ranks above
+      // claude.ai (3).
       const dedupRows = body.aiReferrals.filter((r: { source: string }) => r.source.startsWith('dedup-'))
-      expect(dedupRows[0].source).toBe('dedup-claude.ai')
-      expect(dedupRows[1].source).toBe('dedup-chatgpt.com')
+      expect(dedupRows[0].source).toBe('dedup-chatgpt.com')
+      expect(dedupRows[1].source).toBe('dedup-claude.ai')
     } finally {
       db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, seededIds)).run()
       credentials.delete('test-project')
@@ -2245,10 +2247,9 @@ describe('GA4 routes', () => {
         // Organic sessions with no session count behind them: a share nobody can know.
         { landingPage: '/ghost', sessions: 0, organicSessions: 3 },
       ].map(row => ({ id: crypto.randomUUID(), projectId: sharesProjectId, date: D1, users: row.sessions, syncedAt: now, ...row }))).run()
-      // chatgpt.com flips lens across the two days: the session lens wins D1
-      // (5 vs 3) and first_user wins D2 (4 vs 1), while first_user wins the
-      // window (7 vs 6). The table keeps first_user's 7; `aiSessionsDeduped`
-      // keeps each day's winner, 5 + 4, and so runs above what the rows add up to.
+      // chatgpt.com's lenses disagree each day (session 5 vs first_user 3 on
+      // D1, 1 vs 4 on D2). Only the session lens counts, so the table row and
+      // `aiSessionsDeduped` agree: chatgpt.com 5 + 1, perplexity.ai 3.
       db.insert(gaAiReferrals).values([
         { date: D1, source: 'chatgpt.com', sourceDimension: 'session', sessions: 5 },
         { date: D1, source: 'chatgpt.com', sourceDimension: 'first_user', sessions: 3 },
@@ -2268,13 +2269,13 @@ describe('GA4 routes', () => {
       const body = JSON.parse(res.payload)
       expect(gaTrafficResponseSchema.safeParse(body).success).toBe(true)
 
-      // AI table: each row over the rows' own sum (7 + 3 = 10), not over aiSessionsDeduped (12).
-      expect(body.aiSessionsDeduped).toBe(12)
-      expect(body.aiReferrals).toEqual([
-        { source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', sourceDimension: 'first_user', sessions: 7, share: 0.7 },
-        { source: 'perplexity.ai', medium: 'referral', trafficClass: 'organic', sourceDimension: 'session', sessions: 3, share: 0.3 },
+      // AI table: each row over the rows' own sum (6 + 3 = 9), which now equals aiSessionsDeduped.
+      expect(body.aiSessionsDeduped).toBe(9)
+      expect(body.aiReferrals.map((row: { source: string; sourceDimension: string; sessions: number }) => [row.source, row.sourceDimension, row.sessions])).toEqual([
+        ['chatgpt.com', 'session', 6],
+        ['perplexity.ai', 'session', 3],
       ])
-      expect(body.aiReferrals.map((row: { share: number }) => formatPercent(row.share))).toEqual(['70.0%', '30.0%'])
+      expect(body.aiReferrals.map((row: { share: number }) => formatPercent(row.share))).toEqual(['66.7%', '33.3%'])
       expect(body.aiReferrals.reduce((sum: number, row: { share: number }) => sum + row.share, 0)).toBeCloseTo(1, 12)
 
       // Social table: the rows partition socialSessions, so each share is the row over that total.
@@ -2887,8 +2888,8 @@ describe('GA4 routes', () => {
     expect(byDate.get('2026-03-06')!.sessions).toBe(35)
     expect(byDate.get('2026-03-05')!.sessions).toBe(18)
     expect(byDate.get('2026-03-03')!.sessions).toBe(1)
-    // The winning lens for the disagreeing source, not the sum and not the loser.
-    expect(byDate.get('2026-03-02')!.sessions).toBe(11)
+    // The session lens for the disagreeing source: not the sum, not the larger lens.
+    expect(byDate.get('2026-03-02')!.sessions).toBe(3)
     expect(byDate.get('2026-03-06')!.bySource).toEqual([
       expect.objectContaining({ source: 'chatgpt', sessions: 35 }),
     ])
@@ -2902,11 +2903,109 @@ describe('GA4 routes', () => {
     expect(trafficRes.statusCode).toBe(200)
     const traffic = JSON.parse(trafficRes.payload) as { aiSessionsDeduped: number }
     expect(daily.totalSessions).toBe(traffic.aiSessionsDeduped)
-    expect(daily.totalSessions).toBe(65)
+    expect(daily.totalSessions).toBe(57)
     expect(daily.days.reduce((sum, d) => sum + d.sessions, 0)).toBe(daily.totalSessions)
 
     db.delete(gaAiReferrals).where(eq(gaAiReferrals.projectId, projectId)).run()
     credentials.delete('test-project')
+  })
+
+  it('GET /ga/ai-referral-daily months start where the AI sync reached, not where site totals do', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+    const clear = () => {
+      db.delete(gaSyncCoverage).where(eq(gaSyncCoverage.projectId, projectId)).run()
+      db.delete(gaAiReferrals).where(eq(gaAiReferrals.projectId, projectId)).run()
+      db.delete(gaDailyTotals).where(eq(gaDailyTotals.projectId, projectId)).run()
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, projectId)).run()
+    }
+    clear()
+    const runId = crypto.randomUUID()
+    // A failed expectation must not leave rows or the connection behind for
+    // the tests after this one.
+    try {
+      // GA4 site totals for January through April, as the daily-totals sync
+      // keeps them; the AI sync reached back only to March 18.
+      for (const date of calendarDateRange('2026-01-01', '2026-04-30')) {
+        db.insert(gaDailyTotals).values({ id: crypto.randomUUID(), projectId, date, sessions: 100, users: 90, syncedAt: now, createdAt: now }).run()
+      }
+      for (const date of ['2026-03-18', '2026-04-02', '2026-04-20']) {
+        db.insert(gaAiReferrals).values({
+          id: crypto.randomUUID(), projectId, date, source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session',
+          channelGroup: 'Referral', trafficClass: 'organic', landingPage: '/', landingPageNormalized: '/', sessions: 5, users: 5, syncedAt: now,
+        }).run()
+      }
+      const months = async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/projects/test-project/ga/ai-referral-daily?startDate=2026-01-01&endDate=2026-04-30',
+        })
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.payload) as { months: Array<{ month: string; sessions: number | null; complete: boolean }> }
+        return body.months.map(m => [m.month, m.sessions, m.complete])
+      }
+
+      // With nothing else to go on, the first stored AI row is as far back as the
+      // sync is known to have reached: January and February were never fetched,
+      // and March only from the 18th.
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, false],
+        ['2026-04', 10, true],
+      ])
+
+      // A receipt proves the AI sync fetched all of March, so March is whole.
+      // The same sync pass keeps a traffic receipt for the same days.
+      db.insert(runs).values({ id: runId, projectId, kind: RunKinds['ga-sync'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: now }).run()
+      const receipt = (component: string, from: string, to: string) => {
+        for (const date of calendarDateRange(from, to)) {
+          db.insert(gaSyncCoverage).values({ projectId, component, syncRunId: runId, date, propertyId: '999888', definition: 'v1', settled: true, syncedAt: now }).run()
+        }
+      }
+      receipt('ai', '2026-03-01', '2026-03-31')
+      receipt('traffic', '2026-03-01', '2026-03-31')
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
+
+      // Before receipts were kept, one sync fetched landing-page traffic and AI
+      // referrals for the same days: traffic from February 1 means February was
+      // read, and it had no AI visits.
+      db.insert(gaTrafficSnapshots).values({
+        id: crypto.randomUUID(), projectId, date: '2026-02-01', landingPage: '/', sessions: 40, organicSessions: 10, users: 35, syncedAt: now,
+      }).run()
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', 0, true],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
+
+      // Once receipts are kept, a traffic day proves nothing about AI: a sync
+      // run with `--only social` refreshed February's traffic without AI.
+      receipt('traffic', '2026-02-01', '2026-02-28')
+      expect(await months()).toEqual([
+        ['2026-01', null, false],
+        ['2026-02', null, false],
+        ['2026-03', 5, true],
+        ['2026-04', 10, true],
+      ])
+    } finally {
+      clear()
+      db.delete(runs).where(eq(runs.id, runId)).run()
+      credentials.delete('test-project')
+    }
   })
 
   it('GET /ga/social-referral-history returns error when no connection', async () => {
@@ -3154,11 +3253,11 @@ describe('GA4 routes', () => {
       const { body, windowArgs, dailyTotalsArgs } = await syncWithDays(500, 'ga-clamp-over')
 
       expect(body.synced).toBe(true)
-      expect(body.days).toBe(90)
+      expect(body.days).toBe(180)
       expect(body.requestedDays).toBe(500)
       expect(body.clamped).toBe(true)
       // The fetch layer got the bounded window, not the raw request.
-      expect(windowArgs).toEqual([90])
+      expect(windowArgs).toEqual([180])
       expect(dailyTotalsArgs).toEqual([undefined])
     })
 
@@ -3172,10 +3271,10 @@ describe('GA4 routes', () => {
     })
 
     it('treats the cap itself as an exact, unclamped window', async () => {
-      const { body } = await syncWithDays(90, 'ga-clamp-boundary')
+      const { body } = await syncWithDays(180, 'ga-clamp-boundary')
 
-      expect(body.days).toBe(90)
-      expect(body.requestedDays).toBe(90)
+      expect(body.days).toBe(180)
+      expect(body.requestedDays).toBe(180)
       expect(body.clamped).toBe(false)
     })
 

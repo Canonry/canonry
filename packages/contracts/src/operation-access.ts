@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withLegacyAgentReadinessPaths } from './technical-aeo.js'
 
 export const operationAccessSchema = z.enum(['stored', 'live', 'write'])
 export type OperationAccess = z.infer<typeof operationAccessSchema>
@@ -17,8 +18,15 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/gbp/reviews/live',
   'GET /api/v1/projects/{name}/ga/properties',
   'GET /api/v1/projects/{name}/bing/sites',
-  // Performance reads query Bing directly rather than the local snapshot.
-  'GET /api/v1/projects/{name}/bing/performance',
+  // Bing drill-downs and keyword research: one call to Bing per request.
+  'GET /api/v1/projects/{name}/bing/query-pages',
+  'GET /api/v1/projects/{name}/bing/page-queries',
+  'GET /api/v1/projects/{name}/bing/query-history',
+  'GET /api/v1/projects/{name}/bing/url-traffic',
+  'GET /api/v1/projects/{name}/bing/url-children',
+  'GET /api/v1/projects/{name}/bing/links',
+  'GET /api/v1/projects/{name}/bing/fetched-urls',
+  'GET /api/v1/projects/{name}/bing/keywords',
   'GET /api/v1/projects/{name}/doctor',
   'GET /api/v1/doctor',
   'GET /api/v1/backlinks/latest-release',
@@ -44,10 +52,13 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/cdp/status',
   'POST /api/v1/apply/preview',
   'POST /api/v1/projects/{name}/measurement-discovery',
+  // Runs the saved connection's healthcheck: usually one small request on the provider account.
+  'POST /api/v1/settings/providers/{name}/test',
 ])
 
 /** POST previews that calculate from supplied or draft data without persistence. */
 export const READ_SEMANTIC_OPERATIONS: ReadonlySet<string> = new Set([
+  'POST /api/v1/projects/{name}/schedule/preview',
   'POST /api/v1/projects/{name}/seo/refresh-intents',
   'POST /api/v1/projects/{name}/measurement-plan/compile-preview',
   'POST /api/v1/projects/{name}/measurement-plan/diff-preview',
@@ -63,6 +74,12 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/session',
   'GET /api/v1/auth/session',
   'GET /api/v1/auth/sessions',
+  // Sign in with ChatGPT: each renews the sign-in session, and start,
+  // callback and models also write sign-in state or refresh a plan token.
+  'GET /api/v1/auth/chatgpt/status',
+  'GET /api/v1/auth/chatgpt/start',
+  'GET /api/v1/auth/chatgpt/callback',
+  'GET /api/v1/auth/chatgpt/models',
   'GET /api/v1/google/callback',
   'GET /api/v1/projects/{name}/google/callback',
   'GET /api/v1/google-marketing/callback',
@@ -70,7 +87,7 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
 ])
 
 /** Stored reads and pure previews that retain write-scope authorization. */
-export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
+export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set(withLegacyAgentReadinessPaths([
   'GET /api/v1/seo/operator/tasks/{id}',
   'GET /api/v1/projects/{name}/seo/context',
   'GET /api/v1/projects/{name}/seo/status',
@@ -79,6 +96,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/seo/runs',
   'GET /api/v1/projects/{name}/seo/runs/{id}',
   'GET /api/v1/projects/{name}/seo/overview',
+  'GET /api/v1/projects/{name}/seo/trends',
   'GET /api/v1/projects/{name}/seo/keyword-metrics',
   'GET /api/v1/projects/{name}/seo/domain-intelligence',
   'GET /api/v1/projects/{name}/seo/ranked-keywords',
@@ -89,7 +107,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/gbp/local-post-attempt',
   'GET /api/v1/openapi.json',
   'GET /api/v1/screenshots/{snapshotId}',
-  'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',
+  'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/page-health-preview',
   'POST /api/v1/projects/{name}/competitor-changes/preview',
   'POST /api/v1/projects/{name}/queries/replace-preview',
   'GET /api/v1/projects/{name}/ga/acquisition',
@@ -149,7 +167,10 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/runs',
   'GET /api/v1/projects/{name}/runs/latest',
   'GET /api/v1/projects/{name}/run-admission',
+  'GET /api/v1/projects/{name}/run-preview',
+  'GET /api/v1/projects/{name}/setup',
   'GET /api/v1/runs',
+  'GET /api/v1/runs/attention',
   'GET /api/v1/runs/{id}',
   'GET /api/v1/runs/{id}/completeness',
   'GET /api/v1/projects/{name}/history',
@@ -163,9 +184,11 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/visibility-compare',
   'GET /api/v1/projects/{name}/snapshots/diff',
   'GET /api/v1/settings',
+  'GET /api/v1/settings/providers/{name}',
   'GET /api/v1/keys',
   'GET /api/v1/keys/self',
   'GET /api/v1/users',
+  'GET /api/v1/users/invitations',
   'GET /api/v1/projects/{name}/schedules',
   'GET /api/v1/projects/{name}/schedule',
   'GET /api/v1/notifications/events',
@@ -211,6 +234,15 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/bing/status',
   'GET /api/v1/projects/{name}/bing/coverage/history',
   'GET /api/v1/projects/{name}/bing/inspections',
+  'GET /api/v1/projects/{name}/bing/performance',
+  'GET /api/v1/projects/{name}/bing/traffic',
+  'GET /api/v1/projects/{name}/bing/queries',
+  'GET /api/v1/projects/{name}/bing/pages',
+  'GET /api/v1/projects/{name}/bing/crawl-stats',
+  'GET /api/v1/projects/{name}/bing/sitemaps',
+  'GET /api/v1/projects/{name}/bing/site',
+  'GET /api/v1/projects/{name}/bing/keyword-demand',
+  'GET /api/v1/projects/{name}/sitemaps',
   'GET /api/v1/projects/{name}/traffic/sources',
   'GET /api/v1/projects/{name}/traffic/status',
   'GET /api/v1/projects/{name}/traffic/analytics',
@@ -240,6 +272,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/health/latest',
   'GET /api/v1/projects/{name}/health/history',
   'GET /api/v1/projects/{name}/citations/visibility',
+  'GET /api/v1/projects/{name}/citations/urls',
   'GET /api/v1/projects/{name}/overview',
   'GET /api/v1/projects/{name}/search',
   'GET /api/v1/mcp/profile',
@@ -260,25 +293,26 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/discover/sessions',
   'GET /api/v1/projects/{name}/discover/sessions/{id}',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/promote',
-  'GET /api/v1/projects/{name}/technical-aeo',
-  'GET /api/v1/projects/{name}/technical-aeo/pages',
-  'GET /api/v1/projects/{name}/technical-aeo/trend',
-  'GET /api/v1/projects/{name}/technical-aeo/crawl',
-  'GET /api/v1/projects/{name}/technical-aeo/subgraph',
-  'GET /api/v1/projects/{name}/technical-aeo/path',
-  'GET /api/v1/projects/{name}/technical-aeo/changes',
-  'GET /api/v1/projects/{name}/technical-aeo/graph',
-  'GET /api/v1/projects/{name}/technical-aeo/crawl/pages',
-  'GET /api/v1/projects/{name}/technical-aeo/crawl/pages/audit',
-  'GET /api/v1/projects/{name}/technical-aeo/issues',
-  'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages',
-  'GET /api/v1/projects/{name}/technical-aeo/structure',
-  'GET /api/v1/projects/{name}/technical-aeo/internal-links',
-  'GET /api/v1/projects/{name}/technical-aeo/internal-links/neighbors',
-  'GET /api/v1/projects/{name}/technical-aeo/dead-links',
-  'GET /api/v1/projects/{name}/technical-aeo/runs',
-  'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/progress',
-])
+  'GET /api/v1/projects/{name}/agent-readiness',
+  'GET /api/v1/projects/{name}/agent-readiness/pages',
+  'GET /api/v1/projects/{name}/agent-readiness/trend',
+  'GET /api/v1/projects/{name}/trends',
+  'GET /api/v1/projects/{name}/agent-readiness/crawl',
+  'GET /api/v1/projects/{name}/agent-readiness/subgraph',
+  'GET /api/v1/projects/{name}/agent-readiness/path',
+  'GET /api/v1/projects/{name}/agent-readiness/changes',
+  'GET /api/v1/projects/{name}/agent-readiness/graph',
+  'GET /api/v1/projects/{name}/agent-readiness/crawl/pages',
+  'GET /api/v1/projects/{name}/agent-readiness/crawl/pages/audit',
+  'GET /api/v1/projects/{name}/agent-readiness/issues',
+  'GET /api/v1/projects/{name}/agent-readiness/issues/{issueId}/pages',
+  'GET /api/v1/projects/{name}/agent-readiness/structure',
+  'GET /api/v1/projects/{name}/agent-readiness/internal-links',
+  'GET /api/v1/projects/{name}/agent-readiness/internal-links/neighbors',
+  'GET /api/v1/projects/{name}/agent-readiness/dead-links',
+  'GET /api/v1/projects/{name}/agent-readiness/runs',
+  'GET /api/v1/projects/{name}/agent-readiness/runs/{runId}/progress',
+]))
 
 /**
  * Classify an operation. Unknown GETs fail closed as live provider work so a

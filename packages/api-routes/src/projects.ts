@@ -21,6 +21,8 @@ import {
   projectUpsertRequestSchema,
   projectRevisionConflict,
   resolveProjectQualifiedAliases,
+  requireSiteAuditDomains,
+  resolveSiteAuditDomains,
   findDuplicateLocationLabels,
   hasLocationLabel,
   DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
@@ -173,6 +175,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const qualifiedAliases = body.qualifiedAliases === undefined
       ? []
       : requireQualifiedAliases({ displayName: body.displayName, aliases: nextAliases }, body.qualifiedAliases, [])
+    const siteAuditDomains = requireSiteAuditDomains(
+      { canonicalDomain, ownedDomains: body.ownedDomains ?? [] },
+      body.siteAuditDomains ?? [],
+      'siteAuditDomains',
+    )
     const inserted = app.db.transaction((tx) => {
       const result = tx.insert(projects).values({
         id,
@@ -194,6 +201,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: body.autoExtractBacklinks ?? false,
         siteAuditMaxPages: body.siteAuditMaxPages ?? null,
+        siteAuditDomains,
         competitorAutoAliases: body.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
@@ -228,6 +236,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     nextDefaultLocation: string | null
     nextAutoExtractBacklinks: boolean
     nextSiteAuditMaxPages: number | null
+    nextSiteAuditDomains: string[]
     nextCompetitorAutoAliases: CompetitorAutoAliasMode
     nextNegativeReviewMaxStars: number | null
     nextMeasurement: MeasurementConfig
@@ -283,6 +292,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ? body.autoExtractBacklinks
       : existing?.autoExtractBacklinks ?? false
     const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
+    // Omitted keeps the stored list, minus any domain this write stops owning
+    // (or makes the main domain). An explicit list must be owned domains only.
+    const siteAuditDomainOwner = { canonicalDomain: body.canonicalDomain, ownedDomains: body.ownedDomains ?? [] }
+    const nextSiteAuditDomains = body.siteAuditDomains !== undefined
+      ? requireSiteAuditDomains(siteAuditDomainOwner, body.siteAuditDomains, 'siteAuditDomains')
+      : resolveSiteAuditDomains(siteAuditDomainOwner, existing?.siteAuditDomains ?? []).domains
     const nextCompetitorAutoAliases = body.competitorAutoAliases
       ?? existing?.competitorAutoAliases
       ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
@@ -317,6 +332,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       nextDefaultLocation,
       nextAutoExtractBacklinks,
       nextSiteAuditMaxPages,
+      nextSiteAuditDomains,
       nextCompetitorAutoAliases,
       nextNegativeReviewMaxStars,
       nextMeasurement,
@@ -367,6 +383,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: prepared.nextDefaultLocation,
         autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
         siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
+        siteAuditDomains: prepared.nextSiteAuditDomains,
         competitorAutoAliases: prepared.nextCompetitorAutoAliases,
         ...(options.preserveConfigSource ? {} : { configSource: body.configSource ?? 'api' }),
         configRevision: existing.configRevision + 1,
@@ -430,6 +447,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       autoExtractBacklinks?: boolean
       negativeReviewMaxStars?: number | null
       siteAuditMaxPages?: number | null
+      siteAuditDomains?: string[]
       competitorAutoAliases?: CompetitorAutoAliasMode
       configSource?: string
       providerModels?: Record<string, string>
@@ -478,6 +496,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         defaultLocation: prepared.nextDefaultLocation,
         autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
         siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
+        siteAuditDomains: prepared.nextSiteAuditDomains,
         competitorAutoAliases: prepared.nextCompetitorAutoAliases,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
@@ -553,6 +572,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       ...(patch.qualifiedAliases !== undefined ? { qualifiedAliases: patch.qualifiedAliases } : {}),
       ...(patch.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: patch.negativeReviewMaxStars } : {}),
       ...(patch.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: patch.siteAuditMaxPages } : {}),
+      ...(patch.siteAuditDomains !== undefined ? { siteAuditDomains: patch.siteAuditDomains } : {}),
       ...(patch.competitorAutoAliases !== undefined ? { competitorAutoAliases: patch.competitorAutoAliases } : {}),
     }
     const prepared = prepareProjectUpdate(request, body, existing)
@@ -847,6 +867,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
         ...(project.siteAuditMaxPages !== null ? { siteAuditMaxPages: project.siteAuditMaxPages } : {}),
+        ...(project.siteAuditDomains.length > 0 ? { siteAuditDomains: project.siteAuditDomains } : {}),
         // Only a mode other than the default, so a preview project's export is unchanged.
         ...(project.competitorAutoAliases !== DEFAULT_COMPETITOR_AUTO_ALIAS_MODE ? { competitorAutoAliases: project.competitorAutoAliases } : {}),
         notifications: notificationRows.map((row) => {
@@ -1004,6 +1025,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
     siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    siteAuditDomains: row.siteAuditDomains,
     competitorAutoAliases: row.competitorAutoAliases,
     answerFieldsRecompute: row.answerFieldsRecompute,
     configSource: row.configSource,

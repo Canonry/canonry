@@ -7,6 +7,7 @@ import { createClient, migrate, apiKeys, projects, runs, users, type DatabaseCli
 import { hashUserPassword } from '@canonry/canonry-api-routes'
 import { RunKinds } from '@canonry/canonry-contracts'
 import { createServer } from '../src/server.js'
+import { PACKAGE_VERSION } from '../src/package-version.js'
 import type { CanonryConfig } from '../src/config.js'
 
 const FIXTURE_HTML =
@@ -14,13 +15,17 @@ const FIXTURE_HTML =
 
 const EMBED_ENV = [
   'CANONRY_EMBED',
+  'CANONRY_RUNTIME_MODE',
+  'CANONRY_COMMIT',
   'CANONRY_EMBED_ORIGINS',
   'CANONRY_EMBED_VIEWS',
   'CANONRY_EMBED_PROJECT_TABS',
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD',
   'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
+  'CANONRY_DASHBOARD_SHOW_FEEDBACK',
   'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP',
   'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION',
+  'CANONRY_DASHBOARD_WHATS_NEW_ONLY',
   'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_RESEARCH_ALLOW_VIEWERS',
   'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
@@ -28,6 +33,14 @@ const EMBED_ENV = [
   'CANONRY_ONBOARDING_MODE',
   'CANONRY_DASHBOARD_BRAND_MARK',
 ] as const
+
+function injectedConfig(html: string): Record<string, unknown> {
+  const script = html.match(/<script>window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]
+  if (!script) throw new Error('Dashboard HTML is missing its bootstrap script')
+  return JSON.parse(script) as Record<string, unknown>
+}
+
+const defaultBuild = { version: PACKAGE_VERSION }
 
 interface Built {
   app: Awaited<ReturnType<typeof createServer>>
@@ -174,15 +187,29 @@ describe('server embed mode (#716)', () => {
     }
   })
 
-  it('OFF: no CSP header and the injected config is byte-for-byte the default', async () => {
-    const { app, cleanup } = await buildServer()
+  it.each([
+    { basePath: undefined, commit: undefined },
+    { basePath: '/console', commit: "build<&>-$'" },
+  ])('bootstraps the running build on dashboard documents at $basePath', async ({ basePath, commit }) => {
+    if (commit) process.env.CANONRY_COMMIT = commit
+    const { app, cleanup } = await buildServer(undefined, true, { basePath })
     try {
-      const res = await app.inject({ method: 'GET', url: '/' })
-      expect(res.headers['content-security-policy']).toBeUndefined()
-      expect(res.headers['x-frame-options']).toBeUndefined()
-      // Default injection is exactly `{}` (no basePath, no embed key).
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
-      expect(res.body).not.toContain('embed')
+      const expectedBuild = { version: PACKAGE_VERSION, ...(commit ? { commit } : {}) }
+      const health = await app.inject({ method: 'GET', url: '/health' })
+      expect(health.json()).toMatchObject(expectedBuild)
+      if (!commit) expect(health.json()).not.toHaveProperty('commit')
+      // Build identity is fixed at startup even on the environment fallback.
+      process.env.CANONRY_COMMIT = 'different-after-startup'
+      const prefix = basePath ?? ''
+      for (const page of ['/', '/index.html', '/projects/acme']) {
+        const res = await app.inject({ method: 'GET', url: prefix + page })
+        expect(res.statusCode).toBe(200)
+        expect(res.headers['content-security-policy']).toBeUndefined()
+        expect(res.headers['x-frame-options']).toBeUndefined()
+        expect(res.headers['cache-control']).toBe('no-cache, must-revalidate')
+        if (commit) expect(res.body).not.toContain(commit)
+        expect(injectedConfig(res.body)).toEqual({ build: expectedBuild, ...(prefix ? { basePath: prefix + '/' } : {}) })
+      }
     } finally {
       await cleanup()
     }
@@ -194,7 +221,7 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={"research":{"allowViewers":true,"viewerDailyRunLimit":7}}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, research: { allowViewers: true, viewerDailyRunLimit: 7 } })
     } finally {
       await cleanup()
     }
@@ -208,7 +235,7 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await enabled.app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={"research":{"allowViewers":true,"viewerDailyRunLimit":9}}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, research: { allowViewers: true, viewerDailyRunLimit: 9 } })
     } finally {
       await enabled.cleanup()
     }
@@ -219,7 +246,7 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await disabled.app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild })
     } finally {
       await disabled.cleanup()
     }
@@ -269,10 +296,19 @@ describe('server embed mode (#716)', () => {
     try {
       for (const url of ['/', '/projects/acme']) {
         const res = await app.inject({ method: 'GET', url })
-        expect(res.body).toContain(
-          '<script>window.__CANONRY_CONFIG__={"dashboard":{"showResourceLinks":false}}</script>',
-        )
+        expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { showResourceLinks: false } })
       }
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('identifies managed instances to the dashboard even when resource links are enabled', async () => {
+    process.env.CANONRY_RUNTIME_MODE = 'cloud'
+    const { app, cleanup } = await buildServer(undefined, true, { dashboard: { showResourceLinks: true } })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/' })
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { managedInstance: true, whatsNewOnly: true } })
     } finally {
       await cleanup()
     }
@@ -285,9 +321,22 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain(
-        '<script>window.__CANONRY_CONFIG__={"dashboard":{"showResourceLinks":false}}</script>',
-      )
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { showResourceLinks: false } })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    { configured: false, env: undefined, expected: { showFeedback: false } },
+    { configured: true, env: '0', expected: { showFeedback: false } },
+    { configured: false, env: '1', expected: undefined },
+  ])('serves the feedback form setting on direct Settings visits with config=$configured env=$env', async ({ configured, env, expected }) => {
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_SHOW_FEEDBACK = env
+    const { app, cleanup } = await buildServer(undefined, true, { dashboard: { showFeedback: configured } })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/settings' })
+      expect(injectedConfig(res.body).dashboard).toEqual(expected)
     } finally {
       await cleanup()
     }
@@ -309,14 +358,15 @@ describe('server embed mode (#716)', () => {
       dashboard: { ...(configured === undefined ? {} : { showLocalAgentSetup: configured }) },
     })
     try {
-      const expectedConfig = JSON.stringify({
+      const expectedConfig = {
+        build: defaultBuild,
         basePath: '/console/',
         ...(!expected ? { dashboard: { showLocalAgentSetup: false } } : {}),
-      })
+      }
       for (const url of ['/console/', '/console/agent-setup']) {
         const response = await app.inject({ method: 'GET', url })
         expect(response.statusCode).toBe(200)
-        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]).toBe(expectedConfig)
+        expect(injectedConfig(response.body)).toEqual(expectedConfig)
       }
     } finally {
       await cleanup()
@@ -345,8 +395,7 @@ describe('server embed mode (#716)', () => {
       for (const url of ['/', '/projects/acme']) {
         const response = await app.inject({ method: 'GET', url })
         expect(response.statusCode).toBe(200)
-        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1])
-          .toBe(JSON.stringify(icon ? { dashboard: { brandMark: 'icon' } } : {}))
+        expect(injectedConfig(response.body)).toEqual({ build: defaultBuild, ...(icon ? { dashboard: { brandMark: 'icon' } } : {}) })
         const hrefs = [...response.body.matchAll(/<link rel="(?:icon|apple-touch-icon)"[^>]*href="\.\/([^"]+)"/g)].map(match => match[1])
         expect(hrefs).toEqual(icon
           ? ['canonry-icon-favicon.svg', 'canonry-icon-32.png', 'canonry-icon-touch.png']
@@ -368,9 +417,7 @@ describe('server embed mode (#716)', () => {
     try {
       for (const url of ['/', '/projects/acme']) {
         const res = await app.inject({ method: 'GET', url })
-        expect(res.body).toContain(
-          '<script>window.__CANONRY_CONFIG__={"dashboard":{"showUpdateNotification":false}}</script>',
-        )
+        expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { showUpdateNotification: false } })
       }
     } finally {
       await cleanup()
@@ -384,9 +431,42 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain(
-        '<script>window.__CANONRY_CONFIG__={"dashboard":{"showUpdateNotification":false}}</script>',
-      )
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { showUpdateNotification: false } })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    { mode: 'standalone', env: undefined, configured: undefined, expected: {} },
+    { mode: 'standalone', env: undefined, configured: true, expected: { whatsNewOnly: true } },
+    { mode: 'standalone', env: '0', configured: true, expected: {} },
+    { mode: 'standalone', env: 'YES', configured: false, expected: { whatsNewOnly: true } },
+    { mode: 'standalone', env: 'invalid', configured: true, expected: { whatsNewOnly: true } },
+    { mode: 'cloud', env: 'false', configured: false, expected: { managedInstance: true, whatsNewOnly: true } },
+  ])('resolves the installed-only update mode for $mode with env=$env and config=$configured', async ({ mode, env, configured, expected }) => {
+    process.env.CANONRY_RUNTIME_MODE = mode
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_WHATS_NEW_ONLY = env
+    const { app, cleanup } = await buildServer(undefined, true, { dashboard: { whatsNewOnly: configured } })
+    try {
+      const response = await app.inject({ method: 'GET', url: '/' })
+      expect(injectedConfig(response.body)).toEqual({ build: defaultBuild, ...(Object.keys(expected).length ? { dashboard: expected } : {}) })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    { mode: 'cloud', configured: false, expected: { managedInstance: true, showUpdateNotification: false, whatsNewOnly: true } },
+    { mode: 'standalone', configured: true, expected: { showUpdateNotification: false, whatsNewOnly: true } },
+  ])('preserves the $mode display mode when the notification master switch is off', async ({ mode, configured, expected }) => {
+    process.env.CANONRY_RUNTIME_MODE = mode
+    const { app, cleanup } = await buildServer(undefined, true, {
+      dashboard: { showUpdateNotification: false, whatsNewOnly: configured },
+    })
+    try {
+      const response = await app.inject({ method: 'GET', url: '/' })
+      expect(injectedConfig(response.body)).toEqual({ build: defaultBuild, dashboard: expected })
     } finally {
       await cleanup()
     }
@@ -407,13 +487,14 @@ describe('server embed mode (#716)', () => {
       dashboard: { showResourceLinks: false, ...(configured === undefined ? {} : { managedSweeps: configured }) },
     })
     try {
-      const expectedConfig = JSON.stringify({ basePath: '/console/', dashboard: {
-        showResourceLinks: false, ...(expected ? { managedRunKinds: ['answer-visibility'] } : {}),
-      } })
+      const expectedConfig = {
+        build: defaultBuild,
+        basePath: '/console/',
+        dashboard: { showResourceLinks: false, ...(expected ? { managedRunKinds: ['answer-visibility'] } : {}) },
+      }
       for (const url of ['/console/', '/console/projects/example']) {
         const response = await app.inject({ method: 'GET', url })
-        const injected = response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]
-        expect(injected).toBe(expectedConfig)
+        expect(injectedConfig(response.body)).toEqual(expectedConfig)
       }
     } finally {
       await cleanup()
@@ -446,12 +527,14 @@ describe('server embed mode (#716)', () => {
       },
     })
     try {
-      const expectedConfig = JSON.stringify({ basePath: '/console/', dashboard: {
-        showResourceLinks: false, ...(expected.length ? { managedRunKinds: expected } : {}),
-      } })
+      const expectedConfig = {
+        build: defaultBuild,
+        basePath: '/console/',
+        dashboard: { showResourceLinks: false, ...(expected.length ? { managedRunKinds: expected } : {}) },
+      }
       for (const url of ['/console/', '/console/projects/example']) {
         const response = await app.inject({ method: 'GET', url })
-        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]).toBe(expectedConfig)
+        expect(injectedConfig(response.body)).toEqual(expectedConfig)
       }
     } finally {
       await cleanup()
@@ -481,9 +564,7 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain(
-        '<script>window.__CANONRY_CONFIG__={"dashboard":{"onboardingMode":"platform"}}</script>',
-      )
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { onboardingMode: 'platform' } })
     } finally {
       await cleanup()
     }
@@ -496,9 +577,7 @@ describe('server embed mode (#716)', () => {
     })
     try {
       const res = await app.inject({ method: 'GET', url: '/' })
-      expect(res.body).toContain(
-        '<script>window.__CANONRY_CONFIG__={"dashboard":{"onboardingMode":"auto"}}</script>',
-      )
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild, dashboard: { onboardingMode: 'auto' } })
     } finally {
       await cleanup()
     }
@@ -515,7 +594,7 @@ describe('server embed mode (#716)', () => {
       expect(root.body).toContain('"embed":{"enabled":true')
       expect(root.body).toContain('"projectTabs":["overview"]')
       // No 'unsafe-inline' is forced — the inline config script still ships.
-      expect(root.body).toContain('window.__CANONRY_CONFIG__')
+      expect(injectedConfig(root.body)).not.toHaveProperty('build')
       expect(root.headers['content-security-policy']).not.toContain('unsafe-inline')
 
       // A deep-linked embed (/projects/x) is served by the notFound fallback,
@@ -523,6 +602,7 @@ describe('server embed mode (#716)', () => {
       const deep = await app.inject({ method: 'GET', url: '/projects/acme' })
       expect(deep.statusCode).toBe(200)
       expect(deep.headers['content-security-policy']).toBe('frame-ancestors https://host.example')
+      expect(injectedConfig(deep.body)).not.toHaveProperty('build')
     } finally {
       await cleanup()
     }
@@ -645,17 +725,17 @@ describe('server embed mode (#716)', () => {
       projectTabs: ['overview', 'technical-aeo'],
     })
     try {
-      // No header => the boot-wide projectTabs.
+      // No header => the boot-wide projectTabs, with the renamed technical-aeo grant read as agent-readiness.
       const boot = await app.inject({ method: 'GET', url: '/' })
-      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo"]')
+      expect(boot.body).toContain('"projectTabs":["overview","agent-readiness"]')
 
       // Header => THIS request's projectTabs, normalized; the boot value is replaced.
       const scoped = await app.inject({
         method: 'GET',
         url: '/',
-        headers: { 'x-canonry-embed-tabs': 'technical-aeo' },
+        headers: { 'x-canonry-embed-tabs': 'Agent-Readiness' },
       })
-      expect(scoped.body).toContain('"projectTabs":["technical-aeo"]')
+      expect(scoped.body).toContain('"projectTabs":["agent-readiness"]')
       expect(scoped.body).not.toContain('"projectTabs":["overview"')
 
       // The deep-link fallback (the embedded route) honors the header too.
@@ -670,7 +750,7 @@ describe('server embed mode (#716)', () => {
     }
   })
 
-  it('OFF: the X-Canonry-Embed-Tabs header is ignored (no embed block, byte-for-byte default)', async () => {
+  it('OFF: the X-Canonry-Embed-Tabs header is ignored (no embed block)', async () => {
     const { app, cleanup } = await buildServer()
     try {
       const res = await app.inject({
@@ -678,7 +758,7 @@ describe('server embed mode (#716)', () => {
         url: '/',
         headers: { 'x-canonry-embed-tabs': 'overview' },
       })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild })
       expect(res.body).not.toContain('embed')
     } finally {
       await cleanup()
@@ -768,7 +848,7 @@ describe('server embed mode (#716)', () => {
     const { app, cleanup } = await buildServer()
     try {
       const res = await app.inject({ method: 'GET', url: '/', headers: { 'x-canonry-embed-query-limit': '10' } })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild })
     } finally {
       await cleanup()
     }
@@ -782,7 +862,7 @@ describe('server embed mode (#716)', () => {
         url: '/',
         headers: { 'x-canonry-embed-render-token': 'render.jwt.token' },
       })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild })
       expect(res.body).not.toContain('renderToken')
     } finally {
       await cleanup()
@@ -804,7 +884,7 @@ describe('server embed mode (#716)', () => {
     }
   })
 
-  it('OFF: the X-Canonry-Embed-Theme header is ignored (no embed block, byte-for-byte default)', async () => {
+  it('OFF: the X-Canonry-Embed-Theme header is ignored (no embed block)', async () => {
     const { app, cleanup } = await buildServer()
     try {
       const res = await app.inject({
@@ -812,7 +892,7 @@ describe('server embed mode (#716)', () => {
         url: '/',
         headers: { 'x-canonry-embed-theme': '{"mode":"light"}' },
       })
-      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+      expect(injectedConfig(res.body)).toEqual({ build: defaultBuild })
       expect(res.body).not.toContain('embed')
     } finally {
       await cleanup()
@@ -1035,6 +1115,7 @@ describe('server embed mode (#716)', () => {
         `/api/v1/projects/${name}/runs?kind=site-audit`,
         `/api/v1/projects/${name}/technical-aeo/runs/run_embed_site_audit/progress`,
         `/api/v1/projects/${name}/technical-aeo/runs/run_embed_site_audit/page-health-preview`,
+        `/api/v1/projects/${name}/trends?surface=site-health`,
       ]) {
         const res = await app.inject({ method: 'GET', url, headers })
         expect(res.statusCode, `${url} should be reachable for technical-AEO embed data`).not.toBe(403)
@@ -1045,6 +1126,9 @@ describe('server embed mode (#716)', () => {
         `/api/v1/projects/${name}/runs?kind=content-recommendation`,
         `/api/v1/projects/${otherProjectName}/technical-aeo/runs/run_embed_site_audit/progress`,
         `/api/v1/projects/${otherProjectName}/technical-aeo/runs/run_embed_site_audit/page-health-preview`,
+        // The trends read serves other tabs too; the Agent Readiness tab reaches only its own surface.
+        `/api/v1/projects/${name}/trends?surface=backlinks`,
+        `/api/v1/projects/${name}/trends`,
       ]) {
         const res = await app.inject({ method: 'GET', url, headers })
         expect(res.statusCode, `${url} should be hidden from a technical-AEO embed viewer`).toBe(403)

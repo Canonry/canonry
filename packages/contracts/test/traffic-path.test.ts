@@ -85,6 +85,7 @@ describe('classifyTrafficPath', () => {
       '/favicon.ico',
       '/font.woff',
       '/font.woff2',
+      '/site.webmanifest',
     ]) {
       expect(classifyTrafficPath(p)).toBe('asset')
     }

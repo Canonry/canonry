@@ -16,6 +16,7 @@ import {
   type MeasurementOverviewResponse,
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
+  type ProjectOverviewDto,
   type VisibilityReportRate,
   type VisibilityReportResponse,
 } from '@canonry/canonry-contracts'
@@ -251,6 +252,110 @@ afterEach(async () => {
 })
 
 describe('visibility report route', () => {
+  it('keeps overview non-brand coverage separate from branded recall and ignores newer unfinished and probe sweeps', async () => {
+    const tracked = [
+      { queryId: 'category-a', queryText: 'Best category service' },
+      { queryId: 'category-b', queryText: 'Find a nearby service' },
+      { queryId: 'brand', queryText: 'Is Northstar reliable?' },
+    ]
+    const definition = buildSimpleMeasurementDefinition({
+      capturedAt: FIRST,
+      identity: { displayName: 'Northstar', aliases: [], canonicalDomain: 'northstar.example', ownedDomains: [] },
+      country: 'US', language: 'en', location: null,
+      engines: [{ provider: 'openai', requestedModel: 'test-model' }], competitors: [],
+      queries: tracked.map(query => ({ ...query, provenance: 'manual' })),
+    })
+    db.insert(queries).values(tracked.map(query => ({ id: query.queryId, projectId, query: query.queryText, createdAt: FIRST }))).run()
+    for (const [id, status, trigger, capturedAt] of [
+      ['complete', RunStatuses.completed, RunTriggers.manual, FIRST],
+      ['unfinished', RunStatuses.running, RunTriggers.manual, SECOND],
+      ['probe', RunStatuses.completed, RunTriggers.probe, THIRD],
+    ] as const) {
+      db.insert(runs).values({ id, projectId, kind: RunKinds['answer-visibility'], status, trigger, createdAt: capturedAt, finishedAt: status === RunStatuses.running ? null : capturedAt }).run()
+      db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, definition, checksum: crypto.createHash('sha256').update(canonicalSimpleMeasurementDefinitionJson(definition)).digest('hex'), capturedAt }).run()
+      db.insert(querySnapshots).values(tracked.map(query => ({
+        id: crypto.randomUUID(), runId: id, queryId: query.queryId, queryText: query.queryText, provider: 'openai', model: 'test-model',
+        citationState: 'not-cited', answerMentioned: id !== 'complete' || query.queryId === 'brand',
+        answerText: id !== 'complete' || query.queryId === 'brand' ? 'Northstar is recommended.' : 'An alternative is recommended.',
+        citedDomains: [], createdAt: capturedAt,
+      }))).run()
+    }
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toMatchObject({ mode: 'simple', queryClass: 'all', run: { id: 'complete' }, measurement: { state: 'measured' } })
+    expect(overview.mentionCoverage?.populations).toEqual([
+      { queryClass: 'branded', queryCount: 1, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } },
+      { queryClass: 'non-brand', queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 0, denominator: 2, rate: 0 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0 } },
+      { queryClass: 'unknown', queryCount: 0, answerCount: 0, mentionCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'no-population' } },
+    ])
+    // The old field remains byte-compatible for callers that still ask for it.
+    expect(overview.scores.mention.value).toBe('33.3%')
+    expect(overview.queryCounts).toMatchObject({ totalQueries: 3, mentionedQueries: 1 })
+  })
+
+  it('reports zero measured answers for saved Advanced assignments until their first sweep', async () => {
+    activate(seedVersion(1, capturePlan()))
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toMatchObject({ mode: 'advanced', measurement: { state: 'not-measured', activeRevision: 1 } })
+    expect(overview.mentionCoverage?.populations.map(population => [population.queryClass, population.queryCount, population.answerCount, population.mentionCoverage])).toEqual([
+      ['branded', 0, 0, { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+      ['non-brand', 0, 0, { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+      ['unknown', 0, 0, { numerator: null, denominator: null, rate: null, reason: 'no-population' }],
+    ])
+  })
+
+  it('uses Advanced frozen Property identities and class scope for overview coverage', async () => {
+    const { currentId } = seedCaptureSeries()
+    // Current project identity cannot reinterpret an Advanced Property's answer.
+    db.update(projects).set({ displayName: 'Different project', canonicalDomain: 'different.example' }).where(eq(projects.id, projectId)).run()
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toMatchObject({ mode: 'advanced', run: { id: currentId }, revision: 1, scope: { kind: 'project' } })
+    expect(overview.mentionCoverage?.populations.find(population => population.queryClass === 'non-brand')).toMatchObject({
+      queryCount: 1, answerCount: 3,
+      mentionCoverage: { numerator: 3, denominator: 3, rate: 1 },
+      citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 },
+    })
+    expect(overview.mentionCoverage?.populations.find(population => population.queryClass === 'branded')?.mentionCoverage).toEqual({ numerator: 0, denominator: 3, rate: 0 })
+  })
+
+  it.each(['simple', 'advanced'] as const)('keeps %s overview coverage on the canonical sweep without reconstructing unselected history', async mode => {
+    let selectedId: string
+    let unselectedId: string
+    if (mode === 'simple') {
+      seedSimpleRun('historical', FIRST, true)
+      seedSimpleRun('selected', SECOND, true)
+      selectedId = 'selected'
+      unselectedId = 'historical'
+    } else {
+      const selectedPlan = plan()
+      const selectedVersion = seedVersion(1, selectedPlan)
+      activate(selectedVersion)
+      selectedId = seedAdvancedRun({ versionId: selectedVersion, frozenPlan: selectedPlan, createdAt: FIRST })
+      // The active revision's compatible result wins over a newer result
+      // from a different revision, even when no history is materialized.
+      const otherPlan = plan({ queryText: 'Different execution query' })
+      const otherVersion = seedVersion(2, otherPlan)
+      unselectedId = seedAdvancedRun({ versionId: otherVersion, frozenPlan: otherPlan, createdAt: SECOND })
+    }
+    const canonical = await read<VisibilityReportResponse>('visibility-report', 'queryClass=all&limit=1')
+    expect(canonical.selection.run.id).toBe(selectedId)
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.selection).toEqual(canonical.selection)
+    expect(overview.mentionCoverage?.populations.find(population => population.queryClass === 'non-brand')).toMatchObject({
+      queryCount: 1, answerCount: mode === 'simple' ? 1 : 2,
+      mentionCoverage: { numerator: mode === 'simple' ? 1 : 2, denominator: mode === 'simple' ? 1 : 2, rate: 1 },
+    })
+    expect(overview.mentionCoverage?.populations).toEqual(canonical.populations.map(({ queryClass, summary }) => ({
+      queryClass, queryCount: summary.queryCount, answerCount: summary.answerCount,
+      mentionCoverage: summary.mentionCoverage, citationCoverage: summary.citationCoverage,
+    })))
+    // Invalid frozen evidence proves the summary path never reconstructs an
+    // unrelated sweep merely to discard its trend and detail collections.
+    db.update(querySnapshots).set({ queryText: 'Does not match its frozen query' }).where(eq(querySnapshots.runId, unselectedId)).run()
+    expect((await report(`runId=${unselectedId}&queryClass=all`)).status).toBe(500)
+    const unchanged = await read<ProjectOverviewDto>('overview', '')
+    expect(unchanged.mentionCoverage).toEqual(overview.mentionCoverage)
+  })
+
   it('rejects a market refinement against a legacy/simple definition without market edges', async () => {
     const result = await report('scope=project&marketKey=harbor-market&queryClass=non-brand')
     expect(result.status).toBe(400)
@@ -685,6 +790,12 @@ function seedCaptureRun(input: {
   frozenPlan: MeasurementPlanV2
   createdAt: string
   unchecked?: readonly string[]
+  /**
+   * Answers stored the way a sweep stored a local model's answer before
+   * `not-measured` existed: `not-cited`, no retrieval step, no URL capture and
+   * an empty raw source list.
+   */
+  noSources?: readonly string[]
   /** Answers whose captured links name Harbor; defaults to `CITING`. */
   citing?: ReadonlySet<string>
   status?: typeof RunStatuses[keyof typeof RunStatuses]
@@ -710,7 +821,8 @@ function seedCaptureRun(input: {
   }).run()
   for (const slot of manifest.expectedSlots) {
     const key = `${slot.executionId}:${slot.provider}`
-    const cites = (input.citing ?? CITING).has(key)
+    const noSources = input.noSources?.includes(key) === true
+    const cites = !noSources && (input.citing ?? CITING).has(key)
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId: id,
@@ -724,6 +836,12 @@ function seedCaptureRun(input: {
       citedDomains: cites ? ['northstar.example', 'challenger.example'] : [],
       citedUrls: cites ? ['https://northstar.example/locations/harbor/details'] : [],
       captureStatus: input.unchecked?.includes(key) ? 'partial' : 'complete',
+      ...(noSources ? {
+        retrievalStatus: 'not-applicable' as const,
+        citedUrls: null,
+        captureStatus: 'unsupported' as const,
+        rawResponse: JSON.stringify({ groundingSources: [], searchQueries: [], apiResponse: {} }),
+      } : {}),
       recommendedCompetitors: [],
       location: HARBOR_CONTEXT.label,
       measurementExecutionId: slot.executionId,
@@ -957,5 +1075,141 @@ describe('visibility report citation coverage with incomplete source capture', (
       .toEqual([['challenger.example', { numerator: 1, denominator: 1, rate: 1 }]])
     const legacy = population(await read<VisibilityReportResponse>('visibility-report', 'mode=simple&runId=simple-legacy&queryClass=all'), 'unknown')
     expect(legacy.summary.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+})
+
+describe('visibility report multi-location Simple sweeps', () => {
+  const TRACKED = [
+    { queryId: 'category-a', queryText: 'Best category service' },
+    { queryId: 'category-b', queryText: 'Find a nearby service' },
+  ]
+  const BERLIN = { label: 'Berlin', city: 'Berlin', region: 'BE', country: 'DE' }
+  const MUNICH = { label: 'Munich', city: 'Munich', region: 'BY', country: 'DE' }
+
+  /** One location's run of an `--all-locations` sweep: sibling runs share `createdAt`. */
+  function seedLocationRun(id: string, capturedAt: string, location: typeof BERLIN, mentioned: readonly string[]): void {
+    db.insert(queries).values(TRACKED.map(query => ({ id: query.queryId, projectId, query: query.queryText, createdAt: FIRST }))).onConflictDoNothing().run()
+    const definition = buildSimpleMeasurementDefinition({
+      capturedAt,
+      identity: { displayName: 'Northstar', aliases: [], canonicalDomain: 'northstar.example', ownedDomains: [] },
+      country: 'US', language: 'en', location,
+      engines: [{ provider: 'openai', requestedModel: 'test-model' }], competitors: [],
+      queries: TRACKED.map(query => ({ ...query, provenance: 'manual' })),
+    })
+    db.insert(runs).values({ id, projectId, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.manual, location: location.label, createdAt: capturedAt, finishedAt: capturedAt }).run()
+    db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, definition, checksum: crypto.createHash('sha256').update(canonicalSimpleMeasurementDefinitionJson(definition)).digest('hex'), capturedAt }).run()
+    db.insert(querySnapshots).values(TRACKED.map(query => ({
+      id: crypto.randomUUID(), runId: id, queryId: query.queryId, queryText: query.queryText, provider: 'openai', model: 'test-model',
+      citationState: 'not-cited', answerMentioned: mentioned.includes(query.queryId),
+      answerText: mentioned.includes(query.queryId) ? 'Northstar is recommended.' : 'An alternative is recommended.',
+      citedDomains: [], location: location.label, createdAt: capturedAt,
+    }))).run()
+  }
+
+  function seedTwoSweeps(): void {
+    seedLocationRun('sweep1-berlin', FIRST, BERLIN, [])
+    seedLocationRun('sweep1-munich', FIRST, MUNICH, ['category-a'])
+    seedLocationRun('sweep2-berlin', SECOND, BERLIN, ['category-a'])
+    seedLocationRun('sweep2-munich', SECOND, MUNICH, ['category-a', 'category-b'])
+  }
+
+  it('reads an all-locations sweep as one result and compares it with the sweep before it, not a sibling', async () => {
+    seedTwoSweeps()
+    const whole = await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand')
+    expect(whole.selection.run.id).toBe('sweep2-munich')
+    // Berlin 1 of 2 plus Munich 2 of 2: one sweep of two locations, two queries, four answers.
+    expect(population(whole, 'non-brand').summary).toMatchObject({
+      queryCount: 2, answerCount: 4, mentionCoverage: { numerator: 3, denominator: 4, rate: 0.75 },
+    })
+    expect(population(whole, 'non-brand').comparison).toMatchObject({
+      state: 'available',
+      previousRun: { id: 'sweep1-munich', createdAt: FIRST },
+      mentionCoverage: { state: 'available', previous: { numerator: 1, denominator: 4, rate: 0.25 }, delta: 0.5 },
+    })
+
+    const overview = await read<ProjectOverviewDto>('overview', '')
+    expect(overview.mentionCoverage?.populations.find(row => row.queryClass === 'non-brand')).toMatchObject({
+      queryCount: 2, answerCount: 4, mentionCoverage: { numerator: 3, denominator: 4, rate: 0.75 },
+    })
+  })
+
+  it('reads one location from its own runs, whichever sibling has the newest id', async () => {
+    seedTwoSweeps()
+    const berlin = await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand&location=Berlin')
+    expect(berlin.selection.run.id).toBe('sweep2-berlin')
+    expect(population(berlin, 'non-brand').summary).toMatchObject({ queryCount: 2, answerCount: 2, mentionCoverage: { numerator: 1, denominator: 2, rate: 0.5 } })
+    expect(population(berlin, 'non-brand').comparison).toMatchObject({
+      state: 'available',
+      previousRun: { id: 'sweep1-berlin' },
+      mentionCoverage: { previous: { numerator: 0, denominator: 2, rate: 0 }, delta: 0.5 },
+    })
+    const munich = await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand&location=Munich')
+    expect(population(munich, 'non-brand').summary).toMatchObject({ mentionCoverage: { numerator: 2, denominator: 2, rate: 1 } })
+  })
+
+  it('keeps the latest sweep that measured a location when a newer sweep skipped it', async () => {
+    seedTwoSweeps()
+    seedLocationRun('sweep3-berlin', THIRD, BERLIN, ['category-a', 'category-b'])
+    const munich = await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand&location=Munich')
+    expect(munich.selection.run.id).toBe('sweep2-munich')
+    expect(population(munich, 'non-brand').summary).toMatchObject({ answerCount: 2, mentionCoverage: { numerator: 2, denominator: 2, rate: 1 } })
+    const overview = await read<ProjectOverviewDto>('overview', 'location=Munich')
+    expect(overview.mentionCoverage?.populations.find(row => row.queryClass === 'non-brand')).toMatchObject({
+      answerCount: 2, mentionCoverage: { numerator: 2, denominator: 2, rate: 1 },
+    })
+    // Unfiltered, the newest sweep is the Berlin-only one.
+    const latest = await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand')
+    expect(latest.selection.run.id).toBe('sweep3-berlin')
+    expect(population(latest, 'non-brand').summary).toMatchObject({ answerCount: 2, mentionCoverage: { numerator: 2, denominator: 2, rate: 1 } })
+  })
+})
+
+describe('visibility report beside an engine that returns no sources', () => {
+  it('reads the same stored answers as not measured on the report, overview and portfolio reads', async () => {
+    const frozenPlan = capturePlan()
+    const versionId = seedVersion(1, frozenPlan)
+    activate(versionId)
+    seedCaptureRun({ versionId, frozenPlan, createdAt: SECOND, noSources: ['exec-nearby:gemini', 'exec-brand:gemini'] })
+
+    // Openai cites Harbor, claude cites nothing, gemini returned no sources:
+    // 1 of the 2 answers that could cite, with gemini counted on its own.
+    const nonBrand = population(await read<VisibilityReportResponse>('visibility-report', 'queryClass=non-brand'), 'non-brand')
+    const checked = { numerator: 1, denominator: 2, rate: 0.5, citationNotMeasured: 1 }
+    expect(nonBrand.summary).toMatchObject({ answerCount: 3, citationCoverage: checked })
+    expect(nonBrand.summary.mentionCoverage).toEqual({ numerator: 3, denominator: 3, rate: 1 })
+    // Unlike a partly saved list, no sources cannot hide a citation: both
+    // Properties have a measured citation outcome, and none reads not measured.
+    expect(nonBrand.summary.outcomes).toMatchObject({ bothSignals: 1, notMeasured: 0, total: 2 })
+    expect(nonBrand.summary).not.toHaveProperty('notMeasuredUnchecked')
+    expect(nonBrand.queries.items.map(row => [row.provider, row.citationCoverage, row.uncheckedSources])).toEqual([
+      ['claude', { numerator: 0, denominator: 1, rate: 0 }, undefined],
+      ['gemini', { numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' }, undefined],
+      ['openai', { numerator: 1, denominator: 1, rate: 1 }, undefined],
+    ])
+
+    const wire = { state: 'available', value: 0.5, numerator: 1, denominator: 2, citationNotMeasured: 1 }
+    const overview = await read<MeasurementOverviewResponse>('measurement-overview', 'scope=all&queryClass=non-brand')
+    expect(overview.metrics.citationCoverage).toEqual(wire)
+    expect(overview.outcomes).toEqual(nonBrand.summary.outcomes)
+    expect(overview.properties.items.find(row => row.targetKey === 'harbor')!.providers.map(row => [row.provider, row.citationCoverage])).toEqual([
+      ['claude', { state: 'available', value: 0, numerator: 0, denominator: 1 }],
+      ['gemini', { state: 'unavailable', reason: 'citation_not_measured' }],
+      ['openai', { state: 'available', value: 1, numerator: 1, denominator: 1 }],
+    ])
+    const portfolio = await read<MeasurementPortfolioSummaryResponse>('measurement-portfolio-summary', 'queryClass=non-brand')
+    expect(portfolio.metrics.citationCoverage).toEqual(wire)
+  })
+
+  it('reads a Simple run of the same stored answer as not measured, as the Advanced path does', async () => {
+    seedSimpleRun('simple-local', THIRD, false)
+    db.update(querySnapshots).set({
+      provider: 'local', citationState: 'not-cited', retrievalStatus: 'not-applicable', answerMentioned: true,
+      citedDomains: [], citedUrls: null, captureStatus: 'unsupported',
+    }).run()
+
+    const legacy = population(await read<VisibilityReportResponse>('visibility-report', 'mode=simple&runId=simple-local&queryClass=all'), 'unknown')
+    expect(legacy.summary.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'citation-not-measured' })
+    expect(legacy.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+    expect(legacy.summary.notMeasuredNoSources).toBe(1)
   })
 })

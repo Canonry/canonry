@@ -1,4 +1,4 @@
-# Portable Agent Plugin with Codex and Claude Code adapters
+# Portable Agent Plugin for Hermes, Codex, and Claude Code
 
 Canonry's plugin targets the [Agent Plugins 1.0.0 format](https://agent-plugins.org/). The portable core is `plugins/canonry/plugin.json`, `skills/`, and `mcp.json`. It bundles the Canonry and Aero playbooks and launches the existing `canonry-mcp` stdio adapter. It does not add a second API, execution path, or credential store.
 
@@ -69,7 +69,7 @@ cnry bootstrap
 
 `cnry bootstrap` creates the local configuration, SQLite database, and default
 API key. The command is safe to run again and preserves existing settings.
-Provider credentials are optional, so Page Health works before you add one.
+Provider credentials are optional, so Agent Readiness works before you add one.
 
 The command prints a new full-access API key once. Run it in a private terminal.
 Never paste the output into an agent chat or shared log. Add provider credentials
@@ -94,8 +94,28 @@ claude plugin marketplace add Canonry/canonry
 claude plugin install canonry@canonry
 ```
 
-Both clients install from their own marketplace manifest in this repository.
-Those catalogs point at the same portable plugin directory.
+Codex and Claude Code install from their own marketplace manifest in this
+repository. Those catalogs point at the same portable plugin directory.
+
+## Install for Hermes
+
+Hermes loads the portable `plugin.json`, both skills, and `mcp.json` directly.
+Choose a reviewed full 40-character commit SHA from the Canonry repository:
+
+```bash
+hermes plugins install 'Canonry/canonry#plugins/canonry' --ref <full-commit-sha> --enable
+hermes plugins list
+```
+
+The configured Canonry runtime must be installed separately, with `canonry-mcp`
+on Hermes's `PATH`. Direct Git installation runs Hermes's plugin security scan.
+Installing by catalog name requires a merged entry in the
+[Hermes plugin catalog](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugin-catalog).
+The catalog pins the same monorepo subdirectory to a reviewed commit; no
+separate MCP server or plugin repository is needed.
+
+## Verify the runtime
+
 Ensure Canonry's local daemon is running, then verify the live advisory plugin
 check:
 
@@ -105,12 +125,11 @@ cnry start
 cnry doctor --check 'agent.skills.*' --format json
 ```
 
-`cnry start` waits for the health endpoint before returning and refuses to
-start over a live tracked daemon. A successful doctor JSON response confirms
-transport; inspect each check's status separately because provider or
-integration checks may legitimately return `warn` or `fail` on a fresh setup.
-The agent-skills check also warns when a client cache manifest version does not
-match the running Canonry version; update the runtime and plugin in lockstep.
+`cnry start` waits for the health endpoint. Inspect each `agent.skills.*` check's
+status. Doctor checks user-level Codex and Claude Code caches on the host
+running the daemon and compares verified plugin versions with the running
+Canonry version. For Hermes, use `hermes plugins list`. For project-specific
+installs, inspect the configuration in the client that owns the project.
 
 Restart or reload the client after installation if it does not discover the
 plugin immediately.

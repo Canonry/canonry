@@ -298,7 +298,7 @@ describe('snapshot command', () => {
   it('formats markdown with all report sections', () => {
     const md = formatSnapshotMarkdown(SNAPSHOT_FIXTURE)
     expect(md).toContain('# AI Perception Snapshot: Acme Corp')
-    expect(md).toContain('**AEO Audit Score:** 58/100')
+    expect(md).toContain('**Agent Readiness score:** 58/100')
     expect(md).toContain('## Visibility Gap (Citations + Mentions)')
     expect(md).toContain('Acme Corp was mentioned in 1/2 provider responses')
     expect(md).toContain('## Competitors AI Recommends Instead')

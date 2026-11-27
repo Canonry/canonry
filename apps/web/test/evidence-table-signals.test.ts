@@ -130,3 +130,44 @@ test('source competitor tagging consumes cited competitors only', () => {
   expect(isCitedCompetitorDomain(citationOnly, 'rival.example')).toBe(true)
   expect(isCitedCompetitorDomain(mentionOnly, 'rival.example')).toBe(false)
 })
+
+test('a latest run without sources reads citation not measured, never a lost or missing citation', () => {
+  const history = [
+    point({ runId: 'r1', createdAt: '2026-06-01T00:00:00Z', citationState: 'cited', answerMentioned: true }),
+    point({ runId: 'r2', createdAt: '2026-06-02T00:00:00Z', citationState: 'not-measured', answerMentioned: true }),
+  ]
+
+  expect(summarizeSignalHistory(history, 'citations')).toEqual({ key: 'citations', label: 'Citation not measured', tone: 'neutral' })
+  // The mention is measured on the same answers and moves on its own.
+  expect(summarizeSignalHistory(history, 'mentions')).toMatchObject({ label: 'Still mentioned' })
+})
+
+test.each([
+  { name: 'a citation on both sides of a run without sources is still cited', states: ['cited', 'not-measured', 'cited'], label: 'Still cited', tone: 'neutral' },
+  { name: 'a miss before a run without sources makes a later citation new', states: ['not-cited', 'not-measured', 'cited'], label: 'New citation', tone: 'positive' },
+  { name: 'a citation after runs without sources is the first one checked', states: ['not-measured', 'cited'], label: 'First citation', tone: 'positive' },
+  { name: 'a miss after a citation is lost across a run without sources', states: ['cited', 'not-measured', 'not-cited'], label: 'Lost citation', tone: 'negative' },
+] as const)('$name', ({ states, label, tone }) => {
+  const history = states.map((citationState, index) => point({ runId: `r${index}`, createdAt: `2026-06-0${index + 1}T00:00:00Z`, citationState }))
+  expect(summarizeSignalHistory(history, 'citations')).toEqual({ key: 'citations', label, tone })
+})
+
+test('an engine without sources does not decide the query citation signal', () => {
+  const local = item([
+    point({ runId: 'r1', createdAt: '2026-06-01T00:00:00Z', citationState: 'not-measured', answerMentioned: true }),
+    point({ runId: 'r2', createdAt: '2026-06-02T00:00:00Z', citationState: 'not-measured', answerMentioned: true }),
+  ], { provider: 'local', citationState: 'not-measured' })
+  const gemini = item([
+    point({ runId: 'r1', createdAt: '2026-06-01T00:00:00Z', citationState: 'not-cited', answerMentioned: false }),
+    point({ runId: 'r2', createdAt: '2026-06-02T00:00:00Z', citationState: 'cited', answerMentioned: false }),
+  ])
+
+  expect(summarizeSignalsForItems([local, gemini])).toEqual([
+    { key: 'mentions', label: 'Still mentioned', tone: 'neutral' },
+    { key: 'citations', label: 'New citation', tone: 'positive' },
+  ])
+  expect(summarizeSignalsForItems([local])).toEqual([
+    { key: 'mentions', label: 'Still mentioned', tone: 'neutral' },
+    { key: 'citations', label: 'Citation not measured', tone: 'neutral' },
+  ])
+})

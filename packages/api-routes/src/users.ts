@@ -30,6 +30,7 @@ import {
 } from './auth.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
 import { hashUserPassword } from './user-password.js'
+import type { ChatGptAccounts } from './chatgpt-accounts.js'
 
 // The scope tokens live in `auth.ts` beside the gate that reads them, so the
 // gate and the routes can never disagree about what grants what.
@@ -67,7 +68,12 @@ function refuseProjectScopedKey(request: Parameters<typeof requireAdminSession>[
   )
 }
 
-export async function userRoutes(app: FastifyInstance) {
+export interface UserRoutesOptions {
+  /** Sign in with ChatGPT, so deleting an account also withdraws its plan grant at OpenAI. */
+  chatgptAccounts?: ChatGptAccounts
+}
+
+export async function userRoutes(app: FastifyInstance, opts: UserRoutesOptions = {}) {
   // Listing accounts tells you who can reach this install, which is not a
   // view-only concern — an admin (or an API key) only.
   app.get('/users', async (request) => {
@@ -163,6 +169,11 @@ export async function userRoutes(app: FastifyInstance) {
       )
     }
 
+    // The account's ChatGPT plan grant would vanish with the row (cascade),
+    // but OpenAI would keep listing it for up to 30 days. Withdraw it there
+    // first; a revocation OpenAI does not confirm does not block the delete.
+    const chatgpt = await opts.chatgptAccounts?.disconnect(row.id)
+
     app.db.transaction((tx) => {
       // Sessions cascade with the row, but delete them explicitly so the intent
       // is legible: removing an account ends access now, not at expiry.
@@ -173,7 +184,11 @@ export async function userRoutes(app: FastifyInstance) {
         action: 'user.deleted',
         entityType: 'user',
         entityId: row.id,
-        diff: { name: row.name, role: row.role },
+        diff: {
+          name: row.name,
+          role: row.role,
+          ...(chatgpt?.disconnected ? { chatgptPlanRevokedAtOpenAI: chatgpt.revoked } : {}),
+        },
       }))
     })
 

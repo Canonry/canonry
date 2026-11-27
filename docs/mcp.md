@@ -16,8 +16,10 @@ New public API/CLI capabilities should get MCP parity by default. If a capabilit
 
 Connected agents start with initialization guidance and `canonry_help`, not a
 skill installation. Call `canonry_help({intent: "status"})`, or use `diagnose`,
-`measurement`, `integrations`, `reports`, or a short task description. The
-default response is a compact route, not the full catalog:
+`prospecting`, `measurement`, `integrations`, `reports`, `seo`, `operations`,
+`start`, or a short task description. Use `start` when the user is new or unsure
+what to ask: it routes to the first-run setup read and the `getting-started`
+playbook. The default response is a compact route, not the full catalog:
 
 Operation boundaries are visible without executing a tool. REST responses carry
 `x-canonry-access: stored|live|write`, CLI help and the machine catalog show the
@@ -52,7 +54,7 @@ When a newer canonry is published, both stdio and hosted MCP tell the agent with
   "scope": "read-only",
   "workflow": "status",
   "next": ["canonry_projects_list", "canonry_project_overview"],
-  "workflows": ["status", "diagnose", "measurement", "integrations", "reports"],
+  "workflows": ["seo", "operations", "status", "diagnose", "prospecting", "measurement", "integrations", "reports", "start"],
   "approvalBoundary": ["provider reads", "sweeps", "writes"],
   "operationsGuideUrl": "https://github.com/Canonry/canonry/blob/main/docs/agent-operations/v1.md"
 }
@@ -134,14 +136,42 @@ canonry mcp install --client cursor --read-only
 canonry mcp config  --client codex            # print snippet for clients without auto-install
 ```
 
-`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 148 read API tools, `--dry-run` (install only), and `--format json` for machine-readable output.
+`install` merges the server entry into the config for Claude Desktop, Claude Code, or Cursor. Before changing an existing file, it backs it up to `<config>.canonry.bak`. An identical entry needs no update. For Codex CLI, `install` prints a TOML snippet. The `config` helper prints the selected client's snippet without changing files. Both helpers accept `--name <server>`, `--read-only`, and `--format json`. Only `install` accepts `--dry-run`.
 
 ## Auth
 
 Operational settings support uses the same API permissions: `canonry_telemetry_update`
 and `canonry_provider_settings_update` require `settings.write`. The provider tool
-accepts only model/quota changes for an existing configuration; credentials,
-base URLs, and token creation/rotation remain in the operator setup flow.
+accepts model/quota changes and explicit resets for an existing configuration,
+including restoring a built-in endpoint or removing an optional Local key. Setting credentials, base URLs and
+credential rotation remain in the operator setup flow. Resets require install
+administrator authority. `canonry_provider_settings_get` is a stored, credential-free
+administrator read of defaults, overrides, capabilities, host-managed settings,
+blockers and project usage (including Advanced plans/drafts). Pass its `revision`
+as `expectedRevision` when updating to reject stale edits.
+
+`canonry_provider_disconnect` requires explicit operator approval, install
+administrator authority and `settings.write`. Inspect the connection first and
+show its impact; its `impactRevision` is required as `expectedImpactRevision`.
+Stale previews and outstanding work block removal. Disconnect preserves project
+selections and historical results and does not revoke the vendor key. Provider
+updates, disconnect and reload are excluded from native Aero.
+`canonry_provider_test` mirrors `canonry settings provider test <name>` and
+`POST /settings/providers/{name}/test`: after explicit operator approval it runs
+one saved connection's own healthcheck against the provider (usually one tiny
+prompt on the operator's account) and returns `status` `connected`, `failed` or
+`not-verified`, with the provider's redacted message and the model checked. A
+failed check is a normal result with `ok: false`, not a tool error. The result is
+kept as `lastTest` on the connection (`canonry_provider_settings_get`, and
+`providerConnections` in `canonry_settings_get`) until its key, endpoint, model,
+Vertex project, region or credentials, or CDP endpoint changes, or the
+connection is disconnected, so read it before testing again. Request-limit,
+batch and pricing edits keep it. It accepts no credentials, changes no
+saved settings, requires install administrator authority plus `settings.write`
+(project, narrow, viewer and read-only credentials are refused), and is excluded
+from native Aero and read-only or stored-only catalogs. A check the server stops
+waiting for also stops retrying, and a second test of a connection whose test is
+still running returns `OPERATION_IN_PROGRESS`.
 `canonry_providers_reload` mirrors `canonry settings reload-providers`: after
 explicit operator approval it reloads the connected host's saved provider
 credentials, models, quotas and batch settings without restarting the server.
@@ -157,8 +187,8 @@ or an executing sweep that can still submit or cancel one, returns
 `OPERATION_IN_PROGRESS` until that work settles; quota-only changes remain
 available. This preserves dispatch, polling, result ingestion and cancellation.
 Native Aero excludes this operator action.
-`canonry_logs_list` requires instance-wide `logs.read` (or wildcard), and an admin
-role for user sessions. It returns redacted application and HTTP runtime events
+`canonry_logs_list` requires a host-approved direct bearer key with
+instance-wide `logs.read` or wildcard authority. It returns redacted application and HTTP runtime events
 with identity/time filters, retention limits, and loss counters. File-backed
 hosts retain up to 10,000 events for seven days across restarts; in-memory hosts
 report process retention. This is separate from durable audit history.
@@ -167,8 +197,8 @@ The tool asks for it with the `x-canonry-log-fields: provider` request header;
 the API leaves it out for callers that do not ask, so an older `canonry-mcp`
 keeps reading pages. The tool drops context keys it does not know instead of
 rejecting the page.
-Project-scoped keys cannot access it, even with a project filter. See the
-[operations guide](agent-operations/v1.md#agent-operations).
+See the [operations guide](agent-operations/v1.md#agent-operations) for the
+operator allowlist and credential boundary.
 
 `canonry-mcp` inherits the normal local config at `~/.canonry/config.yaml` through `createApiClient()`.
 
@@ -292,8 +322,11 @@ marketplace add Canonry/canonry` and `claude plugin install
 canonry-remote@canonry`; the page does not show those commands yet. Claude on
 the web, desktop and mobile uses the same gateway as a custom connector: add
 `https://mcp.canonry.ai/mcp`, choose **Use your own OAuth client**, enter
-`canonry-claude` and leave the secret blank. Direct connection stays available
-under **Connect directly** for Claude and other MCP clients.
+`canonry-claude` and leave the secret blank. Claude keeps one connector per URL,
+so to connect a second workspace add it at its own address,
+`https://mcp.canonry.ai/mcp/<workspace>`; its sign-in asks for that workspace
+only. Direct connection stays available under **Connect directly** for Claude and
+other MCP clients.
 
 The operator sets this once per instance, after registering the instance with
 the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):
@@ -337,15 +370,25 @@ For the host operator:
   shared-session deployment. The separate `apps/api` REST service does not
   serve remote MCP.
 
-Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: core, monitoring, setup, GSC, Bing, GA, GBP, OpenAI ads, Google Ads, GTM, conversion tracking, traffic, agent, and discovery. Use `/api/v1/mcp/readonly` to force stored-evidence tools even with a write-capable credential. Every `/readonly` segment also enforces stored-only policy in its API client: live provider reads, research execution and mutations are refused before the inner HTTP request, independently of tool annotations. A read-only credential retains the existing read-only catalog on the default endpoint.
+Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: all toolkits allowed by the endpoint and credential. Use `/api/v1/mcp/readonly` to force stored-evidence tools even with a write-capable credential. Every `/readonly` segment also enforces stored-only policy in its API client: live provider reads, research execution and mutations are refused before the inner HTTP request, independently of tool annotations. A read-only credential retains the existing read-only catalog on the default endpoint.
 
-The default connection includes visibility reports, Property rankings, stored question results and competitors, changes, data quality, and all integration and setup tools. Listing tools does not execute them or grant new permissions; each call still uses the caller’s existing authority. The full catalog includes provider-spending and write operations, subject to the approval and access rules below.
+The default connection includes visibility reports, Property rankings, stored query results and competitors, changes, data quality, and all integration and setup tools. Listing tools does not execute them or grant new permissions; each call still uses the caller’s existing authority. The full catalog includes provider-spending and write operations, subject to the approval and access rules below.
 
 The hosted inventory has one optional Markdown resource, `canonry://agent-operations/v1`, and no prompts or resource templates. Tools publish explicit read-only, idempotency, destructive and open-world annotations; OAuth discovery and the HTTP bearer challenge define their authorization boundary.
 
 Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<toolkit>/readonly`, exposing core plus that toolkit. Hosted catalogs are fixed by the endpoint and current credential and do not offer `canonry_load_toolkit`. After upgrading the server, refresh or re-import the connector's tools and reconnect so the client sees the expanded catalog.
 
 ## Tool Surface
+
+`canonry_seo_trends` requires a saved `profileId` and accepts `days` (30, 90 or
+180, default 180), ending on the latest observation. It reads comparable SEO refreshes with exact observation
+dates, source scope, nullable readings and a server-calculated change basis.
+Domain metrics are provider estimates. Market counts track non-brand query
+assignments across matching markets and search settings. Each point's `runId`
+opens its saved evidence. For ranked-keywords profiles, `keyword` selects one
+search, and the response includes suggested `rankedKeywords` and its organic
+positions. A missing position indicates no usable rank in the saved sample.
+The tool is available to stored-only readers.
 
 The `seo` toolkit exposes provider-neutral saved keyword metrics, ranked keywords, organic competitors (`canonry_seo_competitors`), keyword gaps (`canonry_seo_keyword_gaps`), domain intelligence, market rankings (the site's Google position for its tracked queries by market, with `canonry_seo_market_summary` counting them by outcome), profile management and explicit refreshes. Start with `canonry_seo_context` and `canonry_seo_overview`. A refresh uses `canonry_seo_refresh_intent` followed by `canonry_seo_sync` with an idempotency key. Preparation has no provider side effects; submission requires `seo.run`. Profile writes require `seo.write`. Host financial controls stay internal, and operator receipt tools require separate host authority. Competitor discovery and gaps compare whole domains in project scope for Simple and Advanced portfolios. Discovery does not pin rivals; gap reads preserve explicit comparison domains and locale. `kind=shared` includes outranked searches, `missing` means no target rank in the source comparison, and `outranked` means the rival ranks higher. `rankGap` is target minus rival position, null without both. Both research tools accept `sort` to order all matching saved rows before pagination; a leading minus descends, missing values stay last, and omission retains source order. Sorting is read-only tuning; keep run ID, filters and sort fixed across pages. See [SEO data](seo-data.md).
 
@@ -367,15 +410,72 @@ This paid operation remains write-only and never changes tracking.
 The matching CLI is `canonry research batch <project> <json-file|-> [--wait] --format json|jsonl`.
 The browser offers the same [reviewed Research workflow](query-visibility.md#repeat-research-across-destinations).
 
-The catalog is curated for client usability: 291 API tools (197 read before operator-authority filtering) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers stored instance status (`canonry_status`), projects, project-overview and search composites, project and instance-wide change history (`canonry_project_history`, `canonry_history_global`), citation/mention trend analytics (`canonry_analytics_metrics`), cited-source rankings (`canonry_analytics_sources`: the full ranked + per-provider + classified cited-domain surface), aggregated per-query mention/citation stats with sample size (`canonry_visibility_stats`: confidence-aware proportions, optional per-provider), statistically honest month-over-month AEO comparison (`canonry_visibility_compare`: share-of-voice-led, Wilson intervals, within-noise verdict, drift-aware), config apply and preview, versioned Target measurement plans (`canonry_measurement_plan_get`, `_versions`, `_version_get`, `_compile_preview`, `_diff_preview`, `_publish`, `_segment_retire`), one Property's paged evidence (`canonry_measurement_property_evidence`: `shape=sources` for one row per cited URL, `shape=answers` for one row per measured answer with its cited URLs nested, which is the only shape that shows the answers a Property was not cited in, `shape=other-queries` for answers to queries assigned only to other Properties that still cited its pages, kept out of its rates), runs, snapshots, insights, health, query generation and replacement, legacy keyword aliases, competitor add/remove, stored evidence suggestions (`canonry_competitors_suggest`), curated competitor aliases (`canonry_competitors_aliases_set`) and answer-derived auto aliases (`canonry_competitors_auto_aliases_detect` dry run, `canonry_competitors_auto_aliases_apply`, `canonry_competitors_aliases_block` / `_unblock`), schedules, settings, safe key identity, telemetry status, and supported notification event names, GSC reads plus the sitemap-submission write tool (`canonry_gsc_sitemaps_submit`, explicit URLs or `indexes` / `all-files` modes; all-files omits parent indexes), stored Bing index coverage (`canonry_bing_coverage` in the `bing` toolkit), GA reads including GA4's overview for a window against the period before it (`canonry_ga_overview`), per-day AI referral sessions (`canonry_ga_ai_referral_daily`), native-channel/lead/search-demand measurement analysis, and GA4's Search Console landing-page report (`canonry_ga_search_landing_pages`: stored 7/28/90-day snapshots with GA4's own Total), GBP local-AEO reads (incl. `canonry_gbp_attributes`: owner-set Business Profile attributes across categories, `canonry_gbp_places`: the Places rendered-listing cross-reference, and `canonry_gbp_reviews`: stored reviews with each location's review access, rating, and webhook alert state), live GBP reads for one selected location (`canonry_gbp_local_posts`, `canonry_gbp_local_post`, `canonry_gbp_reviews_live`) and the saved post-attempt read (`canonry_gbp_local_post_attempt`; publishing itself is not an MCP tool), Google Ads and GTM conversion evidence plus stored contract integrity, server-side traffic analytics (`canonry_traffic_analytics`: complete 7/14/30/90-day stored totals and breakdowns), AI visitor journeys (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`), traffic ingestion (Cloud Run / WordPress / Vercel connect/sync + async backfill + crawler/AI-referral rollup reads, and `canonry_traffic_declare_gap` to record a skipped span that cannot be recovered), OpenAI ads live account/integrity state, geo target lookup, conversion pixels/event settings, stored ads snapshot-provenance/configuration diagnostics plus historical campaign activity (never a provider serving or eligibility verdict), the bounded live provider read with a stored-snapshot delta (`canonry_ads_live_delivery`), paid-surface snapshots/rollups, sync, durable operation receipts, unresolved-receipt listing, safe provider-state reconciliation, exact-executor activation recovery, image upload, paused campaign/ad-group/ad create/update/pause lifecycle, and exact-grant campaign-tree activation, the doctor health-check, Site Health scans and canonical graph semantics (`canonry_site_health_overview`, exact page audit evidence via `canonry_site_health_page_audit`, focused subgraphs, directed shortest paths, cursor-paged scan changes, page inventory, structure, links, neighbors, and opt-in dead links), run trigger/cancel, schedule updates, insight dismiss, content gap/target/source analysis, the winnabilityClass gate (`canonry_content_map`: per-domain cited-surface classifications) and structured brief synthesis (`canonry_content_brief`, gated to ownable targets), source-aware backlinks (`canonry_backlinks_domains` reads either Common Crawl or Bing Webmaster via `source`; `canonry_backlinks_sources` reports per-source availability), durable Aero memory (list/set/forget), agent transcript clear, agent webhook attach/detach, the tracked-basket discovery pipeline, and saved free-form research batches (`canonry_research_run_start`, `canonry_research_runs_list`, `canonry_research_run_get`) that return model answers and sources without adding a query to tracking.
+`canonry_discover_harvest` ranks search queries from saved discovery probes.
+It can send candidate and tracked query text to Gemini to check for paraphrases.
+Get approval before calling it. Over MCP, use a bearer key with `*` scope and
+access to the project. The hosted OAuth grants do not authorize harvest. A
+signed-in administrator can also use the REST route. Stored-only connections
+exclude harvest. Use `canonry_discover_session_get` for saved
+probes and `canonry_discover_promote_preview` to review promotion candidates.
 
-`canonry_site_health_issues` and `canonry_site_health_issue_pages` read retained
-technical findings without crawling or calling a provider. The issue list
+The catalog includes API tools, `canonry_help`, and [deprecated Agent Readiness aliases](#agent-readiness-tools). Progressive stdio also offers `canonry_load_toolkit`. The API tools cover stored instance status (`canonry_status`), projects, project-overview and search composites, project and instance-wide change history (`canonry_project_history`, `canonry_history_global`), citation/mention trend analytics (`canonry_analytics_metrics`), the stored figures a dashboard tab's trend card leads with (`canonry_trends`: index coverage, the Agent Readiness score and Common Crawl backlinks, each with its readings and its change since the window's first reading), cited-source rankings (`canonry_analytics_sources`: the full ranked + per-provider + classified cited-domain surface), aggregated per-query mention/citation stats with sample size (`canonry_visibility_stats`: confidence-aware proportions, optional per-provider), statistically honest month-over-month AEO comparison (`canonry_visibility_compare`: share-of-voice-led, Wilson intervals, within-noise verdict, drift-aware), config apply and preview, versioned Target measurement plans (`canonry_measurement_plan_get`, `_versions`, `_version_get`, `_compile_preview`, `_diff_preview`, `_publish`, `_segment_retire`), one Property's paged evidence (`canonry_measurement_property_evidence`: `shape=sources` for one row per cited URL, `shape=answers` for one row per measured answer with its cited URLs nested, which is the only shape that shows the answers a Property was not cited in, `shape=other-queries` for answers to queries assigned only to other Properties that still cited its pages, kept out of its rates), runs, snapshots, insights, health, query generation and replacement, legacy keyword aliases, competitor add/remove, stored evidence suggestions (`canonry_competitors_suggest`), curated competitor aliases (`canonry_competitors_aliases_set`) and answer-derived auto aliases (`canonry_competitors_auto_aliases_detect` dry run, `canonry_competitors_auto_aliases_apply`, `canonry_competitors_aliases_block` / `_unblock`), schedules, settings, safe key identity, telemetry status, and supported notification event names, GSC reads plus the sitemap-submission write tool (`canonry_gsc_sitemaps_submit`, explicit URLs or `indexes` / `all-files` modes; all-files omits parent indexes), stored Bing index coverage (`canonry_bing_coverage` in the `bing` toolkit), GA reads including GA4's overview for a window against the period before it (`canonry_ga_overview`), per-day AI referral sessions (`canonry_ga_ai_referral_daily`), native-channel/lead/search-demand measurement analysis, and GA4's Search Console landing-page report (`canonry_ga_search_landing_pages`: stored 7/28/90/180-day snapshots with GA4's own Total), GBP local-AEO reads (incl. `canonry_gbp_attributes`: owner-set Business Profile attributes across categories, `canonry_gbp_places`: the Places rendered-listing cross-reference, and `canonry_gbp_reviews`: stored reviews with each location's review access, rating, and webhook alert state), live GBP reads for one selected location (`canonry_gbp_local_posts`, `canonry_gbp_local_post`, `canonry_gbp_reviews_live`) and the saved post-attempt read (`canonry_gbp_local_post_attempt`; publishing itself is not an MCP tool), Google Ads and GTM conversion evidence plus stored contract integrity, server-side traffic analytics (`canonry_traffic_analytics`: complete 7/14/30/90-day stored totals and breakdowns), AI visitor journeys (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`), traffic ingestion (Cloud Run / WordPress / Vercel connect/sync + async backfill + crawler/AI-referral rollup reads, and `canonry_traffic_declare_gap` to record a skipped span that cannot be recovered), OpenAI ads live account/integrity state, geo target lookup, conversion pixels/event settings, stored ads snapshot-provenance/configuration diagnostics plus historical campaign activity (never a provider serving or eligibility verdict), the bounded live provider read with a stored-snapshot delta (`canonry_ads_live_delivery`), paid-surface snapshots/rollups, sync, durable operation receipts, unresolved-receipt listing, safe provider-state reconciliation, exact-executor activation recovery, image upload, paused campaign/ad-group/ad create/update/pause lifecycle, and exact-grant campaign-tree activation, the doctor health-check, Agent Readiness audit scans and canonical graph semantics (`canonry_agent_readiness_overview`, exact page audit evidence via `canonry_agent_readiness_page_audit`, focused subgraphs, directed shortest paths, cursor-paged scan changes, page inventory, structure, links, neighbors, and opt-in dead links), run trigger/cancel, schedule updates, insight dismiss, content gap/target/source analysis, the winnabilityClass gate (`canonry_content_map`: per-domain cited-surface classifications) and structured brief synthesis (`canonry_content_brief`, gated to ownable targets), source-aware backlinks (`canonry_backlinks_domains` reads either Common Crawl or Bing Webmaster via `source`; `canonry_backlinks_sources` reports per-source availability), durable Aero memory (list/set/forget), agent transcript clear, agent webhook attach/detach, the tracked-basket discovery pipeline, and saved Research (`canonry_research_run_start`, `canonry_research_batch_start`, `canonry_research_runs_list`, `canonry_research_run_get`) that return model answers and sources without adding a query to tracking.
+
+### Agent Readiness tools
+
+Agent Readiness audit scans a site's pages and internal links and scores how ready
+each page is for AI agents and answer engines. Its tools are in the
+`monitoring` toolkit and call `/api/v1/projects/{name}/agent-readiness/…`.
+
+| Tool | Title | What it does |
+| --- | --- | --- |
+| `canonry_agent_readiness_score` | Get Agent Readiness score | Agent Readiness score, factor scorecard, fixes, and delta vs the previous scan |
+| `canonry_agent_readiness_page_scores` | List Agent Readiness page scores | Per-page scores of audited pages, worst first |
+| `canonry_agent_readiness_trend` | Get Agent Readiness score trend | Score history across past scans |
+| `canonry_agent_readiness_overview` | Get Agent Readiness overview | Scan summary: root, completeness, counts, budgets, termination, dead-link check state |
+| `canonry_agent_readiness_pages` | List Agent Readiness crawl pages | Cursor-paged crawl inventory with fetch, indexability, and audit state |
+| `canonry_agent_readiness_page_audit` | Get Agent Readiness page audit | One page's exact factor scores, findings, and recommendations |
+| `canonry_agent_readiness_issues` | List stored Agent Readiness issues | Stored findings grouped by issue, with affected-page counts and example URLs |
+| `canonry_agent_readiness_issue_pages` | Read pages affected by a saved Agent Readiness issue | The affected URLs for one issue |
+| `canonry_agent_readiness_structure` | List Agent Readiness site structure | One level of the site's path hierarchy |
+| `canonry_agent_readiness_links` | List Agent Readiness internal links | Cursor-paged internal links |
+| `canonry_agent_readiness_link_neighbors` | Get Agent Readiness page link neighbors | Inbound and outbound links of one page |
+| `canonry_agent_readiness_dead_links` | List Agent Readiness dead links | Dead-link check state and findings |
+| `canonry_agent_readiness_subgraph` | Inspect focused Agent Readiness subgraph | A focused neighborhood of the link graph |
+| `canonry_agent_readiness_path` | Find shortest Agent Readiness link path | The shortest followable-link path to a page |
+| `canonry_agent_readiness_changes` | Compare Agent Readiness audit scans | Page and link changes between two complete scans |
+| `canonry_agent_readiness_run` | Run Agent Readiness audit scan | Start an Agent Readiness audit scan (write) |
+
+`canonry_agent_readiness_issues` and `canonry_agent_readiness_issue_pages` read retained
+findings without crawling or calling a provider. The issue list
 includes passing-score findings, affected-page counts, example URLs and source
 coverage; the second tool pages through one issue's affected URLs. Pin its
 `runId` from the list and retain continuation metadata. Missing cross-page
 evidence in an older scan and partial crawl coverage cannot establish a clean
 site. Recommendations and advisory findings require review before edits.
+
+The tools' earlier names still work as deprecated aliases with the same input,
+output, access, and toolkit as the canonical tool. `canonry_help` and Aero list
+only the canonical names, and the aliases will be removed only in a future
+major version.
+
+| Deprecated name | Canonical tool |
+| --- | --- |
+| `canonry_technical_aeo_score` | `canonry_agent_readiness_score` |
+| `canonry_technical_aeo_pages` | `canonry_agent_readiness_page_scores` |
+| `canonry_technical_aeo_trend` | `canonry_agent_readiness_trend` |
+| `canonry_site_health_overview`, `canonry_technical_aeo_crawl` | `canonry_agent_readiness_overview` |
+| `canonry_technical_aeo_crawl_pages` | `canonry_agent_readiness_pages` |
+| `canonry_site_health_page_audit` | `canonry_agent_readiness_page_audit` |
+| `canonry_site_health_issues` | `canonry_agent_readiness_issues` |
+| `canonry_site_health_issue_pages` | `canonry_agent_readiness_issue_pages` |
+| `canonry_technical_aeo_structure` | `canonry_agent_readiness_structure` |
+| `canonry_technical_aeo_internal_links` | `canonry_agent_readiness_links` |
+| `canonry_technical_aeo_link_neighbors` | `canonry_agent_readiness_link_neighbors` |
+| `canonry_technical_aeo_dead_links` | `canonry_agent_readiness_dead_links` |
+| `canonry_site_health_subgraph` | `canonry_agent_readiness_subgraph` |
+| `canonry_site_health_path` | `canonry_agent_readiness_path` |
+| `canonry_site_health_changes` | `canonry_agent_readiness_changes` |
+| `canonry_technical_aeo_run` | `canonry_agent_readiness_run` |
 
 `canonry_project_history` and `canonry_history_global` share `actionPrefix`,
 `excludeEntityTypes`, `until`, and `entityId` investigation filters. `action`
@@ -392,13 +492,21 @@ inspections or frequent traffic pulls. The CLI equivalent is
 `canonry runs <project> --exclude-kinds bing-inspect,traffic-sync --limit 5 --format json`.
 The `since` bound is inclusive and accepts ISO timestamps with offsets. Omitted
 `since` reads all dates, and omitted `limit` returns every matching run.
+
+`canonry_activity` returns the dashboard's Overview Activity across every
+project the key can see (`GET /api/v1/runs/attention`): each job's latest run
+when it failed, finished partly, was cancelled, or is still queued or running,
+with its project. A job is one project, run kind, location and source, spot
+checks apart from full sweeps. Probes and per-URL inspections are left out;
+`since` bounds the runs read (default 30 days ago). The CLI equivalent is
+`canonry activity --format json`.
 `canonry run list <project>` is the CLI alias; traffic runs include their stored
 `sourceId` when available.
 Repeat `--exclude-kinds` or supply a comma list. The API accepts repeated or
 comma-separated `excludeKinds`; the existing single-value `excludeKind` remains supported.
 Project run lists still include probe runs; global `GET /runs` excludes them by default.
 
-Advanced Measurement v2 spans monitoring and setup. Monitoring provides the stored portfolio summary, Property questions/results/competitors, and change and data-quality reads. Setup provides setup state, the scoped overview and Property evidence, the draft plus its paginated Targets, assignments and groups, and saved query sets/templates. Seven write tools expose one discriminated `canonry_measurement_draft_action` surface, plan deactivation, and query-set/template mutations. The draft-action input is `{ project, operation }`; `operation` is a nested discriminated union whose twenty-five branches correlate each `action` with its request and header fields. Reads return stored state and never start provider work. Draft previews also never start provider work or mutate state, but they remain branches of the write-classified draft-action tool and are therefore absent from a read-only MCP catalog.
+Advanced Measurement v2 spans monitoring and setup. Monitoring provides the stored portfolio summary, Property queries, results, and competitors, and change and data-quality reads. Setup provides setup state, the scoped overview and Property evidence, the draft plus its paginated Targets, assignments and groups, and saved query sets/templates. Seven write tools expose one discriminated `canonry_measurement_draft_action` surface, plan deactivation, and query-set/template mutations. The draft-action input is `{ project, operation }`; `operation` is a nested discriminated union whose twenty-five branches correlate each `action` with its request and header fields. Reads return stored state and never start provider work. Draft previews also never start provider work or mutate state, but they remain branches of the write-classified draft-action tool and are therefore absent from a read-only MCP catalog.
 
 The matching CLI bridge is `canonry measurement-plan advanced <project> <operation> [<json|->] --format json|jsonl`. It accepts a JSON file or stdin; `--format json` returns the API response unchanged. Read operations take their endpoint query object; structured writes use an envelope so request body and required headers/IDs stay explicit. `draft-action` takes the same typed `{ action, request?, etag?, idempotencyKey? }` object as its MCP `operation` field; deactivation takes `{ request, idempotencyKey }`; query-set/template get, upsert, delete, and apply take their ID plus `request`/`idempotencyKey` where required. The operations are `setup`, `overview`, `portfolio-summary`, `property-questions`, `question-result`, `property-competitors`, `changes`, `data-quality`, `draft`, `draft-targets`, `draft-assignments`, `draft-groups`, `draft-action`, `deactivate`, and query-set/template list, get, upsert, delete, and apply variants. The paged draft collections and query-set/template lists stream a metadata header then records with `--format jsonl`.
 
@@ -495,9 +603,13 @@ Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete
 
 Some write tools compose existing API calls rather than using a native atomic endpoint. The agent webhook attach/detach tools are best-effort under concurrent calls until the public API grows narrower attach/detach operations for that domain.
 
-`canonry_project_upsert` and `canonry_apply_config` use PUT semantics: fields omitted from the request are reset to their defaults, with one `canonry_apply_config` exception: a spec carrying neither `queries` nor `keywords` leaves the tracked-query basket unchanged. To clear the basket, pass an explicit `queries: []`; omitting the field never clears it. Pass the full intended project shape, including `providerModels` when retaining project model overrides. An empty map inherits instance settings. `providerDispatchModes` (provider → `sync`/`batch`, read by scheduled sweeps) is the second exception on both tools: omitted keeps the stored preference, `{}` clears it. `qualifiedAliases` (the aliases Simple sentiment treats as the brand's own names) is the third: omitted keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor's name), and `[]` clears it. Curated competitor aliases are the fourth, on `canonry_apply_config`: a competitor given as a plain domain keeps its stored aliases, `{ domain, aliases }` sets them exactly, and `aliases: []` clears them. On both tools, a project identity (display name, aliases, domains) that claims a competitor's alias drops that alias, and the drop is audited (`droppedCompetitorAliases`); a new competitor whose name overlaps another competitor's alias (one brand key contains the other, so the alias "Tune" claims `tunespoke.example`) fails the apply until that alias is removed, and so does a new competitor that is the project's own site. `siteAuditMaxPages` (the Site Health page budget for scans that set none, 1 to 50,000) is the fifth: omitted keeps the stored budget, and `null` means the full site. `competitorAutoAliases` (`off`, `preview` or `apply`: what the unattended answer-derived competitor alias pass does after a sweep, a competitor add, an unblock or a market pin write that changes the pins) is the sixth: omitted keeps the stored mode, and a new project starts in `preview`. `canonry_competitors_auto_aliases_apply` stores one detection pass in every mode. `canonry_apply_config` accepts one project document per call; loop on the client side for multi-project configs.
+`canonry_project_upsert` and `canonry_apply_config` use PUT semantics: fields omitted from the request are reset to their defaults, with one `canonry_apply_config` exception: a spec carrying neither `queries` nor `keywords` leaves the tracked-query basket unchanged. To clear the basket, pass an explicit `queries: []`; omitting the field never clears it. Pass the full intended project shape, including `providerModels` when retaining project model overrides. An empty map inherits instance settings. `providerDispatchModes` (provider → `sync`/`batch`, read by scheduled sweeps) is the second exception on both tools: omitted keeps the stored preference, `{}` clears it. `qualifiedAliases` (the aliases Simple sentiment treats as the brand's own names) is the third: omitted keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor's name), and `[]` clears it. Curated competitor aliases are the fourth, on `canonry_apply_config`: a competitor given as a plain domain keeps its stored aliases, `{ domain, aliases }` sets them exactly, and `aliases: []` clears them. On both tools, a project identity (display name, aliases, domains) that claims a competitor's alias drops that alias, and the drop is audited (`droppedCompetitorAliases`); a new competitor whose name overlaps another competitor's alias (one brand key contains the other, so the alias "Tune" claims `tunespoke.example`) fails the apply until that alias is removed, and so does a new competitor that is the project's own site. `siteAuditMaxPages` (the Agent Readiness page budget for scans that set none, 1 to 50,000) is the fifth: omitted keeps the stored budget, and `null` means the full site. `siteAuditDomains` (owned domains every Agent Readiness scan covers besides the main domain) follows it: omitted keeps the stored list, minus domains no longer owned, and `[]` means the main domain only. `competitorAutoAliases` (`off`, `preview` or `apply`: what the unattended answer-derived competitor alias pass does after a sweep, a competitor add, an unblock or a market pin write that changes the pins) is the sixth: omitted keeps the stored mode, and a new project starts in `preview`. `canonry_competitors_auto_aliases_apply` stores one detection pass in every mode. `canonry_apply_config` accepts one project document per call; loop on the client side for multi-project configs.
 
-`canonry_technical_aeo_run` without `maxPages` uses the project's saved `siteAuditMaxPages`, else the full site (up to 50,000 pages), the same budget scheduled audits use.
+`canonry_agent_readiness_run` without `maxPages` uses the project's saved `siteAuditMaxPages`, else the full site (up to 50,000 pages), the same budget scheduled scans use. Without `sites` it covers the main domain plus the saved `siteAuditDomains`; `sites` names owned domains for this scan instead (at most 20 besides the main domain), and `[]` scans the main domain only. `canonry_agent_readiness_score` claims no change when the previous scan scored other sites (`deltaUnavailableReason: sites-changed`). `canonry_agent_readiness_pages`, `canonry_agent_readiness_structure`, `canonry_agent_readiness_issues` and `canonry_agent_readiness_issue_pages` take `site` to read one site the scan covered; the overview lists them in `sites`.
+
+`canonry_run_preview` reads the next default full manual sweep without writes or provider calls: query classes, Advanced assignments and published revision, engines/models, locations, planned answer slots, runnable requests, and provider holds. It does not preview scoped, forced, or all-location overrides and reserves no work. A read-only project key can preview only its own project.
+
+`canonry_project_setup` reads one project's first-run setup from stored state (`GET /projects/{name}/setup`, the same object as `cnry project setup <project> --format json`): the Agent Readiness audit scan and the AI Visibility check, each the latest non-probe run of its kind (`not_started` when there is none) with stored progress, result or error, and the server's `nextAction`. The AI Visibility blocker is the run preview's readiness, for Simple and Advanced projects, and its result keeps non-brand and branded query counts apart, as the run detail does. It makes no provider calls or crawls and grants nothing: the scan and the check each need their own approval.
 
 `canonry_run_trigger` takes the same optional `request.dispatchMode` as the API. `batch` sends every provider that can to its batch API and is refused, with each provider's reason, when none can; see [batch-mode.md](batch-mode.md). `canonry_run_get` returns the run's `dispatchModes`, `providerBatches` (a batch-pending run stays `running`) and per-provider `usage` with estimated cost.
 
@@ -540,7 +652,7 @@ before enabling spend.
 
 ## Progressive Tool Discovery
 
-The full 223-tool catalog (221 API tools plus two meta-tools) is too large to expose eagerly in most sessions. `canonry-mcp` defaults to a small **core tier** and registers the rest on demand via `notifications/tools/list_changed`.
+`canonry-mcp` defaults to a **core tier**. Loading a toolkit registers its available tools and sends `notifications/tools/list_changed`.
 
 For shared query assignments and measured results, see [Query control and AI visibility](query-visibility.md). The setup toolkit provides workspace, preview, and commit tools. Monitoring provides `canonry_visibility_report`. Its optional `marketKey` narrows a project, group, or property report to exact saved market assignments, including metrics, competitors and answer details. Omit it to read the full selected scope. Each population carries `comparison`, the change versus the previous eligible whole-project sweep when both are complete and comparable; it is absent when that sweep cannot be read. Preview requires write access but starts no provider calls.
 
@@ -549,7 +661,7 @@ Core tier (always loaded):
 - `canonry_help` — compact intent route, approval boundaries, and analyst playbooks to read; use `includeCatalog: true` for toolkit details and `playbook` for a playbook's full text
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
-- `canonry_project_overview` — composite read for "how is project X doing?"
+- `canonry_project_overview` — composite read for "how is project X doing?"; its `whatChanged` is the dashboard's "What changed" (lost and gained mentions and citations in the latest check, one per query and direction, and runs in progress)
 - `canonry_search` — composite text search across snapshots and insights
 - `canonry_doctor` — run health checks (Google/GA auth, redirect URI, scopes, providers); filter by check id or wildcard
 - `canonry_settings_get`
@@ -557,15 +669,26 @@ Core tier (always loaded):
 - `canonry_agent_webhook_attach`
 - `canonry_feedback` — send a struggle, bug, or improvement about Canonry itself to the Canonry team (canonry.ai); credentials are redacted, and the install id is attached only while telemetry is enabled
 
+For project connections, call `canonry_help({intent:"connect"})`. On a
+write-capable connection, Search Console and GA4 can start Google consent in
+the operator's browser and select a property afterward. Bing uses the key
+saved in Canonry Settings. Cloud Run uses the service account saved for the
+same project and log target, or returns a private setup link in `dashboardUrl`.
+New sources connected this way collect logs from connection time. An approved
+historical import can set `startFromNow: false`. Recheck the saved connection
+after completing any browser step.
+Hosted OAuth grants for read access or research do not include connection
+setup. An administrator can use a write-authorized MCP API key for setup.
+
 Toolkits (loaded on demand):
 
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
-| `monitoring` | experimental sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder) | Investigating regressions, comparing runs, reviewing insights/health, surfacing content opportunities, generating client-facing reports |
-| `setup` | project export/upsert, sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove plus `canonry_competitors_aliases_set` (curated answer-text names) and the answer-derived auto-alias tools (`canonry_competitors_auto_aliases_detect`, `_apply`, `canonry_competitors_aliases_block`, `_unblock`), schedule get/list/set/delete, notification event names, telemetry status, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing notification capability, and checking safe setup state |
-| `gsc` | google connections list, GSC performance, per-query totals, inspections, coverage, coverage history, sitemaps, sitemap submission, deindexed | Indexing, coverage, sitemap analysis and submission from Google Search Console |
-| `bing` | `canonry_bing_coverage`: stored index counts and URL inspections for a connected Bing site; no Bing call or sync | Reviewing indexed, not indexed, and unknown URL evidence from Bing Webmaster Tools |
-| `ga` | GA status, native-channel/lead/search-demand measurement analysis (leads also split by AI engine with lead rates), GA4's Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page), traffic, coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
+| `monitoring` | sentiment settings/summary/evidence/compare/backfill preview/jobs, administrator configure/backfill submit, runs list/latest/get, `canonry_activity` (jobs needing attention across projects), the next manual sweep preview (`canonry_run_preview`: planned answers and provider holds, no spending), project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, content dismissal list/dismiss/restore, `canonry_organic_evidence` (GSC + GA4 + server AI evidence ladder), Agent Readiness audit scans, scores, pages, findings and link-graph reads (`canonry_agent_readiness_*`) | Investigating regressions, comparing runs, reviewing insights/health, checking Agent Readiness, surfacing content opportunities, generating client-facing reports |
+| `setup` | project export/upsert, first-run setup status (`canonry_project_setup`), sitemap Target discovery, measurement setup/overview, draft get + paginated Targets/assignments/groups, guarded draft actions, query sets/templates, measurement-plan get/history/compile/diff/publish/deactivate, revision-pinned measurement report, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove plus `canonry_competitors_aliases_set` (curated answer-text names) and the answer-derived auto-alias tools (`canonry_competitors_auto_aliases_detect`, `_apply`, `canonry_competitors_aliases_block`, `_unblock`), schedule get/list/set/delete plus `canonry_schedule_preview` (the next occurrence of proposed timing), answer-engine provider connections (`canonry_provider_settings_get`, `canonry_provider_settings_update`, `canonry_provider_disconnect`, `canonry_provider_test`, `canonry_providers_reload`), notification event names, notification webhooks (`canonry_notifications_list`, and `canonry_notification_update` to change an existing webhook's events or turn it on or off), telemetry status, insight dismiss, backlinks domains | Onboarding a project, discovering and publishing its Target measurement plan, reviewing stored Target evidence, editing queries/competitors/schedules, reviewing, testing or disconnecting a provider connection, reviewing notification capability or which events a webhook receives, and checking safe setup state |
+| `gsc` | `canonry_gsc_connect`, `canonry_gsc_properties`, `canonry_gsc_set_property`, Google connection status, performance, inspections, coverage and sitemaps | Connecting Search Console and reviewing search and indexing evidence |
+| `bing` | `canonry_bing_connect`, `canonry_bing_status`, `canonry_bing_sites`, `canonry_bing_set_site`, coverage and search data | Connecting Bing Webmaster Tools and reviewing evidence for the selected site |
+| `ga` | GA status, native-channel/lead/search-demand measurement analysis (leads also split by AI engine with lead rates), GA4's Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page), traffic (social and creator platforms ranked by conversions per 1,000 sessions), coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
 | `gbp` | Google Business Profile location discovery, selection, and local AEO evidence | Reviewing connected Business Profile locations and local search visibility |
 | `ads` | OpenAI ads connection/live account status, integrity review, geo target search, conversion pixels/event settings, lifecycle-ready snapshots with upstream timestamps, paid rollups, summary, sync, durable receipts, unresolved-receipt listing, provider-state reconciliation, exact-executor activation recovery, image upload, paused create/update/pause operations, and execution of an exact human approval grant. No approval creation, direct activation, or archive. | Planning, reviewing, recovering ambiguous receipts, preparing ChatGPT ads, or executing a separately approved launch |
 | `google-ads` | connected status, customer discovery, stored conversion-action and effective-goal snapshots, and bounded read-only sync | Discovering Ads customer options or reviewing conversion evidence |
@@ -585,7 +708,7 @@ Loading a toolkit is idempotent and persists for the rest of the session; there 
 
 ### Eager mode
 
-Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 220-API-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
+Use `--eager` or `CANONRY_MCP_EAGER=1` to register the available stdio catalog at startup.
 
 ```json
 {
@@ -617,7 +740,7 @@ Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as J
 
 Native Aero uses the same authorized registry, starting with core tools and
 loading toolkits on demand. `aero_inspect_view` composes existing visibility
-report or Site Health API reads; external agents use those public reads directly.
+report or Agent Readiness API reads; external agents use those public reads directly.
 The native prompt remains an `excluded-protocol` SSE operation: external agents
 call Canonry tools directly rather than recursively delegate to Aero. Native
 view context and execution limits are available through REST and `agent ask`.
@@ -729,7 +852,7 @@ The silent `report.ai-referral-bursts` doctor diagnostic carries these limits in
 its details, counts `candidateGroups`, and warns only when candidate bursts
 exist; it never claims a verified 3x warning.
 
-### Experimental sentiment
+### Sentiment
 
 Load `monitoring` for `canonry_sentiment_settings`, `canonry_sentiment`,
 `canonry_sentiment_evidence`, `canonry_sentiment_compare`,
@@ -784,8 +907,11 @@ with the operator.
 traffic toolkit. It exposes no IP hashes and makes no provider call. `kind: all`
 excludes unknown requests; select `unknown` explicitly. `sourceId`, inclusive ISO
 `since`/`until`, literal `path` prefix, `limit` (1 to 500), and `offset` filter and
-page stored samples. Sample rows are not visits. Project/source scope only, for
-Simple and Advanced projects. Viewers and embeds are denied.
+page stored samples. Sample rows are not visits. A browser agent's (Google-Agent,
+Claude-Agent) AI user fetch sample carries `requestKind` (`page`, `action` or
+`resource`); unless it is likely fake, only a `page` sample was counted as an AI
+user fetch. Project/source scope only, for Simple and Advanced projects. Viewers
+and embeds are denied.
 
 `canonry_traffic_agent_journeys` lists stored user-triggered agent request
 sequences; `canonry_traffic_agent_journey` reads a sequence's ordered requests.
@@ -793,8 +919,9 @@ Both are stored reads in the traffic toolkit. Preserve `since`, `until`,
 `sourceId`, `agentId`, `verificationStatus`, and `targetKey` when opening a
 detail; `limit` and `offset` page the result. IP/UA correlation is inferred,
 not a confirmed user task; requests without an IP stay unlinked. Operator
-verification is separate from correlation. Responses carry source limitations,
-retention and cap evidence. Advanced Property attribution uses the current
+verification is separate from correlation. Responses carry source limitations
+(including what a browser agent's journey leaves out: it keeps page loads,
+actions and failed requests), retention and cap evidence. Advanced Property attribution uses the current
 plan's URL coverage, with its revision; market, model, query class and task
 intent remain unavailable. Viewers and embeds are denied; API read keys retain
 their project boundary. No provider calls or writes.
@@ -845,4 +972,9 @@ count, and whether acknowledgement is required. Measured writes above five
 domains in 24 hours require `acknowledgeBulkAdd: true`; apply and discovery
 promote are outside this guard. Aero cannot supply this acknowledgement.
 
-Site Health scans (`canonry_technical_aeo_run`) accept `includeGeo` and `includeAgentSkills`. Agent integration checks default on; set `includeAgentSkills: false` to disable them. Geographic checks default off. Both participate in scan identity; differing selections cannot reuse an active scan. Geographic checks suit businesses serving specific places. These checks run inside the instance without a browser.
+Agent Readiness audit scans (`canonry_agent_readiness_run`) accept `includeGeo` and `includeAgentSkills`. Agent integration checks default on; set `includeAgentSkills: false` to disable them. Geographic checks default off. Both participate in scan identity; differing selections cannot reuse an active scan. Geographic checks suit businesses serving specific places. These checks run inside the instance without a browser.
+
+
+### Preview schedule timing
+
+`canonry_schedule_preview` accepts `{ project, timing: { preset, timezone } }` (or `cron` / `recurrence` instead of `preset`). It returns the next occurrence without saving or enabling a schedule and without provider usage. Read credentials may preview their authorized projects. The equivalent CLI is `canonry schedule preview <project> --preset daily@9 --timezone America/New_York --format json`; saving remains a separate write.

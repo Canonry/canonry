@@ -57,6 +57,27 @@ describe('buildGapQueryScore', () => {
     expect(result.value).toBe('0')
   })
 
+  // An answer without sources (Local) shows neither the project's citation nor a rival's.
+  it('judges gaps over queries with a checked answer only (mixed engines)', () => {
+    const snapshots = [
+      snap({ queryId: 'q1', citationState: 'not-cited', citedCompetitorDomains: ['rival.com'] }),
+      snap({ queryId: 'q1', citationState: 'not-measured' }),
+      snap({ queryId: 'q2', citationState: 'not-cited' }),
+      snap({ queryId: 'q3', citationState: 'not-measured' }),
+    ]
+    const result = buildGapQueryScore(snapshots)
+    expect(result.value).toBe('1')
+    expect(result.delta).toBe('1 of 2 queries')
+    expect(result.progress).toBe(50)
+  })
+
+  it('reads "Not measured" when no answer carries sources', () => {
+    const result = buildGapQueryScore([snap({ queryId: 'q1', citationState: 'not-measured' })])
+    expect(result.value).toBe('Not measured')
+    expect(result.tone).toBe('neutral')
+    expect(result.progress).toBeUndefined()
+  })
+
   it('uses singular "query" in description when exactly 1 gap', () => {
     const snapshots = [
       snap({ queryId: 'q1', citationState: 'not-cited', citedCompetitorDomains: ['rival.com'] }),

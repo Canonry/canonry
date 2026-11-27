@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import anthropicRaw from '../src/ip-ranges/anthropic.json' with { type: 'json' }
 import chatgptConnectorsRaw from '../src/ip-ranges/chatgpt-connectors.json' with { type: 'json' }
 import chatgptUserRaw from '../src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import claudeAgentRaw from '../src/ip-ranges/claude-agent.json' with { type: 'json' }
 import googleUserAgentsRaw from '../src/ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
 import googlebotRaw from '../src/ip-ranges/googlebot.json' with { type: 'json' }
 import {
@@ -15,14 +16,24 @@ import {
   classifyAiReferral,
   classifyAiUserFetch,
   classifyCrawler,
+  DEFAULT_AI_CRAWLER_RULES,
+  DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
+  findAiReferralFollowOns,
   normalizeTrafficPathPattern,
 } from '../src/index.js'
+import { ruleTokenCases } from './fixtures/rule-tokens.js'
 import { firstPublishedIp, vendoredManifest } from './fixtures/vendored-ranges.js'
 
 // Addresses and manifest identities come from the vendored snapshots, so the
 // weekly range refresh cannot break these tests (see fixtures/vendored-ranges.ts).
 const ANTHROPIC_MANIFEST = vendoredManifest(anthropicRaw)
 const ANTHROPIC_IP = firstPublishedIp(anthropicRaw, 4)
+// Anthropic's published example user agent for its hosted browsers:
+// https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf
+const CLAUDE_AGENT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36'
+// Browsers seen arriving from ChatGPT answers.
+const IPHONE_SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1'
+const WINDOWS_EDGE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0'
 
 function event(overrides: Partial<NormalizedTrafficRequest>): NormalizedTrafficRequest {
   return {
@@ -104,6 +115,19 @@ describe('traffic analysis', () => {
     }
   })
 
+  it('publishes a user-agent token that classifies for every crawler and user-fetch rule', () => {
+    // These tokens drive the Cloudflare edge filter and the documented WordPress
+    // page-cache bypass list, so every rule needs one and none may go stale.
+    const reached = new Set<string>()
+    for (const token of DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS) {
+      const evt = event({ userAgent: `Mozilla/5.0 (compatible; ${token.replace(/\/$/, '')}/1.0)` })
+      const match = classifyCrawler(evt) ?? classifyAiUserFetch(evt)
+      expect(match, token).not.toBeNull()
+      reached.add(match!.botId)
+    }
+    expect([...reached].sort()).toEqual(DEFAULT_AI_CRAWLER_RULES.map((rule) => rule.id).sort())
+  })
+
   it('promotes to `verified` when the source IP is in the operator\'s published range', () => {
     // An address in a prefix published in `src/ip-ranges/googlebot.json`.
     // UA match + IP match should upgrade `claimed_unverified` → `verified`.
@@ -179,20 +203,15 @@ describe('traffic analysis', () => {
     // (toBeTruthy on a `ClassifiedCrawler | null`) plus the expected
     // operator. botId is asserted where the spelling is stable.
 
-    // Anthropic Claude-SearchBot (new variant — older rule only caught
-    // ClaudeBot/ and Claude-Web/).
+    // Anthropic Claude-SearchBot indexes for Claude's web search: a search
+    // crawler, not ClaudeBot training.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +searchbot@anthropic.com)',
     }))).toMatchObject({
-      botId: 'anthropic-claudebot',
+      botId: 'claude-searchbot',
       operator: 'Anthropic',
-    })
-
-    // Permissive variant — any future Claude-*Bot Anthropic introduces.
-    expect(classifyCrawler(event({
-      userAgent: 'Mozilla/5.0 (compatible; Claude-IndexBot/2.0)',
-    }))).toMatchObject({
-      operator: 'Anthropic',
+      product: 'Claude-SearchBot',
+      purpose: 'search',
     })
 
     // Mistral's general crawler — disjoint from MistralAI-User (per-user
@@ -460,77 +479,130 @@ describe('traffic analysis', () => {
     ])
   })
 
-  it('sessionizes AI referral sub-resource bursts into landing-page sessions', () => {
+  it('counts each visit from an AI engine once, not its later pages, assets and API calls', () => {
+    // Every request a page makes, and every page opened from it, carries the
+    // landing URL (and its utm) on its referer for as long as the visit lasts.
+    const at = (seconds: number) => new Date(Date.parse('2026-10-28T14:00:00.000Z') + seconds * 1000).toISOString()
+    const seenLanding = 'https://example.com/products/linen-shirt?utm_source=chatgpt.com'
+    const cachedLanding = 'https://example.com/?utm_source=chatgpt.com'
+    const phone = (eventId: string, seconds: number, overrides: Partial<NormalizedTrafficRequest>) => event({
+      eventId, observedAt: at(seconds), userAgent: IPHONE_SAFARI, remoteIp: '198.51.100.23', ...overrides,
+    })
+    const laptop = (eventId: string, seconds: number, overrides: Partial<NormalizedTrafficRequest>) => event({
+      eventId, observedAt: at(seconds), userAgent: WINDOWS_EDGE, remoteIp: '203.0.113.41', ...overrides,
+    })
     const report = buildTrafficProbeReport([
-      event({
-        eventId: 'page-1',
-        observedAt: '2026-05-01T13:05:00.000Z',
-        requestUrl: 'https://example.com/blog/post?utm_source=chatgpt.com',
-        path: '/blog/post',
-        queryString: 'utm_source=chatgpt.com',
-        userAgent: 'Mozilla/5.0',
-        remoteIp: '203.0.113.10',
-      }),
-      event({
-        eventId: 'asset-1',
-        observedAt: '2026-05-01T13:05:05.000Z',
-        requestUrl: 'https://example.com/_next/static/chunks/page.js',
-        path: '/_next/static/chunks/page.js',
-        queryString: null,
-        userAgent: 'Mozilla/5.0',
-        remoteIp: '203.0.113.10',
-        referer: 'https://example.com/blog/post?utm_source=chatgpt.com',
-      }),
-      event({
-        eventId: 'asset-2',
-        observedAt: '2026-05-01T13:05:10.000Z',
-        requestUrl: 'https://example.com/favicon.svg',
-        path: '/favicon.svg',
-        queryString: null,
-        userAgent: 'Mozilla/5.0',
-        remoteIp: '203.0.113.10',
-        referer: 'https://example.com/blog/post?utm_source=chatgpt.com',
-      }),
-      event({
-        eventId: 'asset-only-1',
-        observedAt: '2026-05-01T13:05:15.000Z',
-        requestUrl: 'https://example.com/_next/static/chunks/app.js',
-        path: '/_next/static/chunks/app.js',
-        queryString: null,
-        userAgent: 'Mozilla/5.0',
-        remoteIp: '198.51.100.22',
-        referer: 'https://example.com/open-source?utm_source=chatgpt.com',
-      }),
-      event({
-        eventId: 'asset-only-2',
-        observedAt: '2026-05-01T13:05:20.000Z',
-        requestUrl: 'https://example.com/_next/static/css/app.css',
-        path: '/_next/static/css/app.css',
-        queryString: null,
-        userAgent: 'Mozilla/5.0',
-        remoteIp: '198.51.100.22',
-        referer: 'https://example.com/open-source?utm_source=chatgpt.com',
-      }),
-    ], { generatedAt: '2026-05-01T14:00:00.000Z' })
+      // The logs saw this landing page.
+      phone('landing', 0, { requestUrl: seenLanding, path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com' }),
+      phone('script', 1, { path: '/assets/app.js', referer: seenLanding }),
+      phone('same-page-again', 3, { path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com', referer: seenLanding }),
+      phone('api', 75, { method: 'POST', path: '/api/storefront', referer: seenLanding }),
+      phone('api-later', 300, { method: 'POST', path: '/api/storefront', referer: seenLanding }),
+      phone('next-page', 420, { path: '/collections/sale', referer: seenLanding }),
+      // Another answer sends the same person again: a new arrival.
+      phone('second-click', 600, { path: '/products/rain-jacket', referer: 'https://chatgpt.com/' }),
+      // A page cache served this landing page, so only what it loaded reached the logs.
+      // A call answered with a redirect is a hop, never the arrival.
+      laptop('cached-cart-redirect', 20, { path: '/cart.js', status: 302, referer: cachedLanding }),
+      laptop('cached-script', 30, { path: '/_next/static/chunks/app.js', referer: cachedLanding }),
+      laptop('cached-api', 150, { path: '/api/cart', referer: cachedLanding }),
+      laptop('cached-next-page', 260, { path: '/pricing', referer: cachedLanding }),
+    ], { generatedAt: '2026-10-28T15:00:00.000Z' })
 
-    expect(report.totals.aiReferralHits).toBe(5)
-    expect(report.totals.aiReferralSessions).toBe(2)
+    expect(report.totals.aiReferralHits).toBe(11)
+    expect(report.totals.aiReferralSessions).toBe(3)
     expect(report.aiReferralEventsHourly).toEqual([
-      expect.objectContaining({
-        evidenceType: 'utm',
-        landingPathNormalized: '/blog/post',
-        hits: 1,
-      }),
-      expect.objectContaining({
-        evidenceType: 'referer-utm',
-        landingPathNormalized: '/open-source',
-        hits: 1,
-      }),
+      expect.objectContaining({ evidenceType: 'referer-utm', landingPathNormalized: '/', status: 200, hits: 1 }),
+      expect.objectContaining({ evidenceType: 'utm', landingPathNormalized: '/products/linen-shirt', hits: 1 }),
+      expect.objectContaining({ evidenceType: 'referer', landingPathNormalized: '/products/rain-jacket', hits: 1 }),
     ])
-    expect(report.topAiReferralLandingPaths).toEqual([
-      { landingPathNormalized: '/blog/post', hits: 1 },
-      { landingPathNormalized: '/open-source', hits: 1 },
+  })
+
+  it('covers a later same-site request with any stored arrival of the same engine within the lookback, on any of the project domains', () => {
+    const day = 24 * 60 * 60_000
+    const requestAt = '2026-10-28T14:00:00.000Z'
+    const daysBefore = (days: number) => Date.parse(requestAt) - days * day
+    const arrival = (days: number) => ({ at: daysBefore(days), standIn: false })
+    const stored = new Map([
+      ['198.51.100.23\tChatGPT', [arrival(29)]],
+      ['198.51.100.24\tChatGPT', [arrival(31)]],
+      // A newer arrival is stored too, as when a delayed batch or a backfill reads an older window.
+      ['198.51.100.25\tChatGPT', [arrival(2), arrival(-1)]],
+      // Stored only after this request.
+      ['198.51.100.26\tChatGPT', [arrival(-1)]],
     ])
+    // The request's host is the canonical domain; the referer is the project's other shop domain.
+    const onShop = (eventId: string, remoteIp: string, observedAt = requestAt) => event({
+      eventId, observedAt, remoteIp, userAgent: IPHONE_SAFARI, host: 'example.com', path: '/api/cart', referer: 'https://shop.example.net/?utm_source=chatgpt.com',
+    })
+    const result = findAiReferralFollowOns([
+      onShop('within-lookback', '198.51.100.23'),
+      // A click from an answer always arrives, whatever came before.
+      event({ eventId: 'from-chatgpt', observedAt: '2026-10-28T14:01:00.000Z', remoteIp: '198.51.100.23', userAgent: IPHONE_SAFARI, referer: 'https://chatgpt.com/' }),
+      onShop('past-lookback', '198.51.100.24'),
+      onShop('between-stored', '198.51.100.25'),
+      onShop('before-stored', '198.51.100.26'),
+      onShop('after-batch-arrival', '198.51.100.26', '2026-10-28T14:05:00.000Z'),
+    ], {
+      actorKey: (request, product) => `${request.remoteIp}\t${product}`,
+      known: actors => new Map(actors.flatMap(actor => stored.has(actor) ? [[actor, stored.get(actor)!] as const] : [])),
+      siteDomains: ['https://www.example.com/', 'shop.example.net'],
+    })
+
+    expect([...result.eventIds].sort()).toEqual(['after-batch-arrival', 'between-stored', 'within-lookback'])
+    expect(result.arrivals).toEqual(new Map([
+      ['198.51.100.24\tChatGPT', [{ at: Date.parse(requestAt), standIn: true }]],
+      ['198.51.100.26\tChatGPT', [{ at: Date.parse(requestAt), standIn: true }]],
+      ['198.51.100.23\tChatGPT', [{ at: Date.parse('2026-10-28T14:01:00.000Z'), standIn: false }]],
+    ]))
+  })
+
+  it('does not count a landing again when its own later request reached ingest first', () => {
+    const landingAt = Date.parse('2026-10-28T14:00:00.000Z')
+    const landing = (eventId: string, remoteIp: string) => event({
+      eventId, observedAt: '2026-10-28T14:00:00.000Z', remoteIp, userAgent: IPHONE_SAFARI, path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com',
+    })
+    const stored = new Map([
+      // A script of this landing page reached ingest first and stood in for it.
+      ['198.51.100.23\tChatGPT', [{ at: landingAt + 400, standIn: true }]],
+      // A stand-in more than a visit's idle window later belongs to another visit.
+      ['198.51.100.24\tChatGPT', [{ at: landingAt + 31 * 60_000, standIn: true }]],
+      // A landing seen from outside is a separate click, never this one.
+      ['198.51.100.25\tChatGPT', [{ at: landingAt + 400, standIn: false }]],
+    ])
+    const result = findAiReferralFollowOns([
+      landing('counted-already', '198.51.100.23'),
+      landing('another-visit', '198.51.100.24'),
+      landing('another-click', '198.51.100.25'),
+    ], {
+      actorKey: (request, product) => `${request.remoteIp}\t${product}`,
+      known: actors => new Map(actors.flatMap(actor => stored.has(actor) ? [[actor, stored.get(actor)!] as const] : [])),
+    })
+
+    expect([...result.eventIds]).toEqual(['counted-already'])
+    expect(result.arrivals).toEqual(new Map([
+      ['198.51.100.24\tChatGPT', [{ at: landingAt, standIn: false }]],
+      ['198.51.100.25\tChatGPT', [{ at: landingAt, standIn: false }]],
+    ]))
+  })
+
+  it('counts each engine apart: one engine\'s arrival does not cover another engine\'s requests', () => {
+    const at = (seconds: number) => new Date(Date.parse('2026-10-28T14:00:00.000Z') + seconds * 1000).toISOString()
+    const visitor = { remoteIp: '198.51.100.23', userAgent: IPHONE_SAFARI }
+    const report = buildTrafficProbeReport([
+      event({ ...visitor, eventId: 'chatgpt-landing', observedAt: at(0), path: '/products/linen-shirt', queryString: 'utm_source=chatgpt.com' }),
+      // Later the same person opens a cached page from a Perplexity answer: only what it loads reaches the logs.
+      event({ ...visitor, eventId: 'perplexity-script', observedAt: at(600), path: '/_next/static/chunks/app.js', referer: 'https://example.com/?utm_source=perplexity.ai' }),
+      event({ ...visitor, eventId: 'perplexity-api', observedAt: at(660), path: '/api/cart', referer: 'https://example.com/?utm_source=perplexity.ai' }),
+    ], { generatedAt: '2026-10-28T15:00:00.000Z' })
+
+    expect(report.totals.aiReferralHits).toBe(3)
+    expect(report.totals.aiReferralSessions).toBe(2)
+    expect(report.aiReferralEventsHourly).toHaveLength(2)
+    expect(report.aiReferralEventsHourly).toEqual(expect.arrayContaining([
+      expect.objectContaining({ product: 'ChatGPT', evidenceType: 'utm', landingPathNormalized: '/products/linen-shirt', hits: 1 }),
+      expect.objectContaining({ product: 'Perplexity', evidenceType: 'referer-utm', landingPathNormalized: '/', hits: 1 }),
+    ]))
   })
 
   it('normalizes high-cardinality path IDs without rewriting ordinary slugs', () => {
@@ -745,10 +817,21 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('leaves a Claude bot no rule names to the unrecognized agents, not ClaudeBot training', () => {
+    // A bot Anthropic adds later has no rule until one is written. It must
+    // not be counted as ClaudeBot training; stored as an unrecognized agent,
+    // it raises `traffic.agent.discovered` instead.
+    const userAgent = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-IndexBot/1.0; +claude-indexbot@anthropic.com)'
+    const report = buildTrafficProbeReport([event({ userAgent, observedAt: '2026-11-10T09:15:00.000Z', path: '/guide' })])
+
+    expect(report.crawlerEventsHourly).toEqual([])
+    expect(report.unrecognizedAgentEventsHourly).toEqual([
+      { tsHour: '2026-11-10T09:00:00.000Z', agentName: 'claude-indexbot', hits: 1, sampledUserAgent: userAgent, sampledPath: '/guide' },
+    ])
+  })
+
   it('routes Claude-User to ai-user-fetch, not crawler', () => {
-    // Anthropic's on-behalf-of-user fetcher. The `anthropic-claudebot`
-    // crawler rule does not match `Claude-User/` (its `Claude-[A-Z]+Bot/`
-    // pattern needs a `Bot/` suffix), so before the `claude-user` rule
+    // Anthropic's on-behalf-of-user fetcher. Before the `claude-user` rule
     // this UA fell through to the `unknown` bucket entirely.
     const evt = event({ userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)' })
     expect(classifyCrawler(evt)).toBeNull()
@@ -768,6 +851,47 @@ describe('traffic analysis', () => {
       botId: 'claude-user',
       verificationStatus: 'verified',
       verificationManifest: ANTHROPIC_MANIFEST,
+    })
+  })
+
+  it('routes Claude-Agent to ai-user-fetch, not crawler', () => {
+    // Anthropic-hosted browsers acting for a person send a real Chrome UA
+    // with a `compatible; Claude-Agent/1.0` token. Before its rule no rule
+    // matched it: traffic stored it as the unrecognized agent `claude-agent`
+    // and journeys read it as a person's browser.
+    const evt = event({ userAgent: CLAUDE_AGENT_UA })
+    expect(classifyCrawler(evt)).toBeNull()
+    expect(classifyAiUserFetch(evt)).toMatchObject({
+      botId: 'claude-agent',
+      operator: 'Anthropic',
+      product: 'Claude-Agent',
+      verificationStatus: 'claimed_unverified',
+    })
+    // Anthropic says to match the token, which may come without a version.
+    expect(classifyAiUserFetch(event({
+      userAgent: CLAUDE_AGENT_UA.replace('Claude-Agent/1.0', 'Claude-Agent'),
+    }))).toMatchObject({ botId: 'claude-agent' })
+  })
+
+  it('does not count third-party tools named after Claude as Claude-Agent', () => {
+    for (const userAgent of [
+      'claude-agent/0.3.1 (+https://github.com/someone/claude-agent)',
+      'Mozilla/5.0 (compatible; my-claude-agent/1.0)',
+      'claude-agent-sdk/0.1.30 (sdk-ts)',
+      'python-httpx/0.27 claude-agent-sdk-python/0.0.20',
+    ]) {
+      expect(classifyAiUserFetch(event({ userAgent })), userAgent).toBeNull()
+    }
+  })
+
+  it('promotes Claude-Agent using Anthropic\'s Claude-Agent egress list', () => {
+    expect(classifyAiUserFetch(event({
+      userAgent: CLAUDE_AGENT_UA,
+      remoteIp: firstPublishedIp(claudeAgentRaw, 4),
+    }))).toMatchObject({
+      botId: 'claude-agent',
+      verificationStatus: 'verified',
+      verificationManifest: vendoredManifest(claudeAgentRaw),
     })
   })
 
@@ -898,5 +1022,23 @@ describe('traffic analysis', () => {
     }))
     const report = buildTrafficProbeReport(events, { sampleLimit: 2 })
     expect(report.samples.map((s) => s.eventId)).toEqual(['e-3', 'e-4'])
+  })
+})
+
+describe('classifier rule order', () => {
+  // Both classifiers return the first rule that matches, so a rule listed
+  // below a broader pattern that also matches its token is never reached.
+  // Each token must also stay in its own channel: a user agent that matched
+  // a crawler rule and a user-fetch rule would be counted in both. A user
+  // fetch's user agent is one its trust rules accept, never a likely fake.
+  it.each(ruleTokenCases())('classifies $token as $ruleId, in its own channel only', (entry) => {
+    if ('problem' in entry) throw new Error(entry.problem)
+    const evt = event({ userAgent: entry.classifierUserAgent })
+    const userFetch = classifyAiUserFetch(evt)
+    expect({
+      crawler: classifyCrawler(evt)?.botId ?? null,
+      userFetch: userFetch?.botId ?? null,
+    }).toEqual(entry.purpose === 'user-agent' ? { crawler: null, userFetch: entry.ruleId } : { crawler: entry.ruleId, userFetch: null })
+    expect(userFetch?.trust).not.toBe('likely_fake')
   })
 })

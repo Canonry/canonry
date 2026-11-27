@@ -81,6 +81,44 @@ describe('showEvidence — jsonl', () => {
     expect(JSON.parse(cap.lines()[0]!).cited).toBe(false)
   })
 
+  it('format=jsonl reads a query no answer measured as cited null, not false', async () => {
+    // Local returns no sources: the latest run is not measured, never a miss.
+    mockGetTimeline.mockResolvedValue([
+      {
+        query: 'local only',
+        runs: [
+          { runId: 'a', createdAt: '2026-04-01T00:00:00.000Z', citationState: 'cited', transition: 'new' },
+          { runId: 'b', createdAt: '2026-04-02T00:00:00.000Z', citationState: 'not-measured', transition: 'not-measured' },
+        ],
+      },
+    ] satisfies TimelineDto[])
+    const cap = captureStdout(() => showEvidence('demo', 'jsonl'))
+    await cap.run
+    expect(JSON.parse(cap.lines()[0]!).cited).toBeNull()
+  })
+
+  it('human output labels a not-measured query and leaves it out of the cited base', async () => {
+    mockGetTimeline.mockResolvedValue([
+      { query: 'cited query', runs: [{ runId: 'a', createdAt: '2026-04-02T00:00:00.000Z', citationState: 'cited', transition: 'new' }] },
+      { query: 'local only', runs: [{ runId: 'a', createdAt: '2026-04-02T00:00:00.000Z', citationState: 'not-measured', transition: 'not-measured' }] },
+      { query: 'never answered', runs: [] },
+    ] satisfies TimelineDto[])
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await showEvidence('demo')
+    } finally {
+      console.log = origLog
+    }
+    const out = logs.join('\n')
+    expect(out).toContain('  · not measured (no sources)  local only')
+    expect(out).toContain('  Queries: 3')
+    // Out of the one query whose latest answers carried sources.
+    expect(out).toContain('  Cited:    1 / 1')
+    expect(out).toContain('  Not measured: 1 (no answer carried sources)')
+  })
+
   it('format=jsonl writes nothing for an empty timeline', async () => {
     mockGetTimeline.mockResolvedValue([])
     const cap = captureStdout(() => showEvidence('demo', 'jsonl'))

@@ -13,6 +13,7 @@ const rootManifestPath = path.join(repoRoot, 'package.json')
 const portablePluginManifestPath = path.join(pluginRoot, 'plugin.json')
 const portableMcpPath = path.join(pluginRoot, 'mcp.json')
 const legacyMcpPath = path.join(pluginRoot, '.mcp.json')
+const hermesExtension = 'com.nousresearch.hermes'
 const clientPluginManifestPaths = [
   path.join(pluginRoot, '.codex-plugin', 'plugin.json'),
   path.join(pluginRoot, '.claude-plugin', 'plugin.json'),
@@ -256,6 +257,25 @@ function validatePortablePlugin(failures) {
     || canonryServer.args.some((arg) => typeof arg !== 'string')
   ) {
     failures.push('plugins/canonry/mcp.json must declare the canonry-mcp stdio server')
+  }
+  validateHermesServerTrust(manifest, isPlainObject(mcp.mcpServers) ? mcp.mcpServers : {}, failures)
+}
+
+// Hermes runs a plugin server's write tools without asking unless the package
+// declares the server untrusted, and it refuses the whole package when a
+// declaration names a server that mcp.json does not define.
+function validateHermesServerTrust(manifest, mcpServers, failures) {
+  const hermes = isPlainObject(manifest.extensions) ? manifest.extensions[hermesExtension] : undefined
+  const declared = isPlainObject(hermes) && isPlainObject(hermes.servers) ? hermes.servers : {}
+  for (const name of Object.keys(declared)) {
+    if (!Object.hasOwn(mcpServers, name)) {
+      failures.push(`plugins/canonry/plugin.json declares Hermes server "${name}", which mcp.json does not define`)
+    }
+  }
+  for (const name of Object.keys(mcpServers)) {
+    if (!isPlainObject(declared[name]) || declared[name].trust !== 'untrusted') {
+      failures.push(`plugins/canonry/plugin.json must set extensions["${hermesExtension}"].servers.${name}.trust to "untrusted" so Hermes asks before write-capable tools`)
+    }
   }
 }
 

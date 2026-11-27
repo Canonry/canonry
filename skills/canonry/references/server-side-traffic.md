@@ -33,10 +33,21 @@ Legitimate peaks can qualify and small automated bursts can escape the rule.
 `--burst-threshold` changes the default 100-hit review trigger; the default has
 not been calibrated against live traffic distributions.
 
-Server counts use short actor windows within ingestion batches, so they are
-not GA sessions or verified people. Normalized paths can combine pages;
-multiple sources can overlap. No Property, Target or market attribution is
-available. These limits apply equally to Simple and Advanced portfolios.
+Server counts are arrivals, not GA sessions or verified people. A request
+whose referer is outside the site (the AI engine's page, or none) is an
+arrival; requests from one visitor (IP and user agent) to the same landing
+page within a minute count once. A later page, asset or API call whose same-site
+referer still carries the engine's utm belongs to that visitor's arrival from
+the same engine for 30 days, in any sync or push, even one that reaches
+Canonry before the landing does. It counts as the arrival only when the
+visitor had none from that engine in those 30 days: a site whose pages a cache
+serves before the logs see them shows nothing else, so a second click from
+the same engine within 30 days is not counted there. Hours stored before Canonry 7.87.2
+counted every later minute of a visit as another arrival and read high;
+hourly rows keep no visitor, so they cannot be corrected. Normalized paths
+can combine pages; multiple sources can overlap. No Property, Target or
+market attribution is available. These limits apply equally to Simple and
+Advanced portfolios.
 
 The observed server/GA quotient, rounded to 2 decimals, uses
 dimension-deduplicated GA sessions, but complete matching coverage and the GA
@@ -52,7 +63,7 @@ replace GA or change the raw traffic totals.
 
 ## Architecture
 
-Four tables store the shared output from every adapter:
+Canonry stores the shared traffic evidence in these tables.
 
 | Table | What's in it |
 |---|---|
@@ -61,7 +72,8 @@ Four tables store the shared output from every adapter:
 | `ai_user_fetch_likely_fake_hourly` | One row per `(project, source, hour, bot, first trust reason)` — requests that claimed a user-triggered agent but were judged likely fake |
 | `agent_scanner_clients` | One row per `(project, source, client)` — the latest run of scanner probes from one IP (stored as a keyed hash), kept two days so a burst split across batches is still recognized |
 | `journey_visitor_aliases` | One row per `(project, alias key)` — a visitor key found to be another visitor seen from a new IP (same AI-tagged page, same browser, within 5 seconds); requests under the alias key are kept under that visitor. Both are keyed hashes, never an IP |
-| `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour |
+| `ai_referral_events_hourly` | One row per `(project, source, hour, product, source_domain, evidence_type, landing_path, status)` — click-through arrivals rolled up by hour; a visitor's later same-site requests are not arrivals |
+| `ai_referral_visitors` | Recent AI arrivals by project, source, and visitor key. The key hashes the IP address, user agent, and engine to group follow-up requests across batches. |
 | `raw_event_samples` | Bounded forensic samples for spot checks. Source writes plus a startup/daily global sweep enforce 30-day retention; Cloudflare also uses a per-source, per-hour cap |
 
 Each `traffic_sources` row is one server-log integration for a project.
@@ -81,6 +93,18 @@ and does not use `traffic sync`.
 
 ## Connecting a Cloud Run source
 
+For an approved MCP connection, call `canonry_traffic_connect_cloud_run`
+with the Canonry project and `request.gcpProjectId`. Include the approved
+`serviceName` and `location`. The server can use a service account saved
+for that exact target. If it returns `cloud-run-credential-required`,
+give the operator the returned `dashboardUrl`. It opens the requested target
+for private key upload. On older instances, open the returned `dashboardPath`
+at the Canonry dashboard address. Keep the key out of chat.
+New keyless MCP connections start collecting at connection time. Set
+`request.startFromNow` to false only for an approved historical import.
+The CLI option `--start-from-now` starts a new source at connection time.
+Read `canonry_traffic_sources_list` to verify the source.
+
 ```bash
 # 1. Create a service account in the Cloud project that hosts the Cloud Run
 #    service. Grant it `roles/logging.viewer`. Download the JSON key.
@@ -98,6 +122,7 @@ cnry traffic connect cloud-run <project> \
   --location us-east1
 ```
 
+Omit `--service-account-key` to use the saved key for the same target.
 Credentials are stored in `~/.canonry/config.yaml` (not the DB). The
 canonical key lives only on the host that runs `cnry serve`. The
 sync flow does NOT echo the private key back in any response.
@@ -117,12 +142,10 @@ Application Password. It has no browser-side capture path.
 > AI-agent traffic, bypass **every** cache layer for the selected AI user
 > agents, or capture from access/edge logs instead.
 
-**Which user-agents to exclude from the cache** (one per line in
-LiteSpeed's "Do Not Cache User Agents", WP Rocket's
-`rocket_cache_reject_ua`, or W3TC / WP Super Cache "Rejected User
-Agents"):
+**Which user-agents to exclude from the cache** (enter them as described in
+"Entering the list" below):
 
-```
+```text
 GPTBot
 OAI-SearchBot
 OAI-AdsBot
@@ -166,11 +189,85 @@ Amzn-User
 This list mirrors Canonry's current classifier: answer-engine user-fetch,
 crawl, search, and training agents for which WordPress has no cache-independent
 measurement surface. `ClaudeBot` covers Anthropic's unhyphenated core crawler;
-`Claude-` is a separate family rule so newly named `Claude-*Bot` variants
-inherit the bypass. Do NOT add traditional search agents
+`Claude-` covers its hyphenated agents (Claude-SearchBot, Claude-User,
+Claude-Agent) and any it names later. Do NOT add traditional search agents
 `Googlebot`, `bingbot`, `DuckDuckBot`, `YandexBot`, or `Baiduspider`: caching
 helps them crawl efficiently, and the important Google/Bing crawl evidence is
 available through their webmaster tools.
+
+**Entering the list.** Each cache plugin matches entries differently. A wrong
+format fails silently: the agent keeps receiving cached pages and the plugin
+never sees it.
+
+- **LiteSpeed Cache** (Cache → Excludes → "Do Not Cache User Agents") and
+  **W3 Total Cache** (Performance → Page Cache → Advanced → "Rejected user
+  agents"): paste the list as-is, one per line. Both match case-insensitively
+  anywhere in the user agent.
+- **WP Rocket** ("Never Cache User Agent(s)"): paste the WP Rocket list
+  below. WP Rocket's `.htaccess` rule only matches user agents that *start*
+  with an entry, and most AI agents' user agents start with `Mozilla/5.0`, so
+  plain entries keep receiving cached pages on Apache and LiteSpeed servers.
+  The `(.*)` prefix matches anywhere in the user agent. Keep the casing shown,
+  because WP Rocket's PHP check is case-sensitive. Use this form only in WP
+  Rocket: the other plugins read `(.*)` as literal text.
+- **WP Super Cache**: its "Rejected User Agents" setting only stops these
+  agents from creating cache files; it still serves them existing cached
+  pages. In **Simple** delivery mode, add the WP Super Cache snippet below to
+  `wp-config.php`, above the `/* That's all, stop editing! */` line. **Expert**
+  delivery mode serves cached files from `.htaccess` before PHP runs and has
+  no user-agent bypass: switch to Simple, or capture from access/edge logs.
+
+**WP Rocket list:**
+
+```text
+(.*)GPTBot
+(.*)OAI-SearchBot
+(.*)OAI-AdsBot
+(.*)ChatGPT-User
+(.*)openai-mcp
+(.*)ClaudeBot
+(.*)Claude-
+(.*)anthropic-ai
+(.*)PerplexityBot
+(.*)Perplexity-User
+(.*)ShapBot
+(.*)Shap-User
+(.*)Google-Agent
+(.*)Google-GeminiNotebook
+(.*)Google-NotebookLM
+(.*)Google-CloudVertexBot
+(.*)Bytespider
+(.*)Applebot
+(.*)meta-externalagent
+(.*)meta-webindexer
+(.*)meta-externalfetcher
+(.*)CCBot
+(.*)cohere-ai
+(.*)Diffbot
+(.*)MistralAI-User
+(.*)MistralAI-Index
+(.*)MistralAI-Training
+(.*)MistralBot
+(.*)DeepSeekBot
+(.*)xAI-Bot
+(.*)Grok-Bot
+(.*)GrokBot
+(.*)YouBot
+(.*)ExaSearchBot
+(.*)DuckAssistBot
+(.*)Amazonbot
+(.*)Amzn-SearchBot
+(.*)Amzn-User
+```
+
+**WP Super Cache snippet** (`wp-config.php`):
+
+```php
+// Canonry Traffic Logger: don't serve cached pages to AI agents, so the plugin records their visits.
+if ( isset( $_SERVER['HTTP_USER_AGENT'] ) && preg_match( '/GPTBot|OAI-SearchBot|OAI-AdsBot|ChatGPT-User|openai-mcp|ClaudeBot|Claude-|anthropic-ai|PerplexityBot|Perplexity-User|ShapBot|Shap-User|Google-Agent|Google-GeminiNotebook|Google-NotebookLM|Google-CloudVertexBot|Bytespider|Applebot|meta-externalagent|meta-webindexer|meta-externalfetcher|CCBot|cohere-ai|Diffbot|MistralAI-User|MistralAI-Index|MistralAI-Training|MistralBot|DeepSeekBot|xAI-Bot|Grok-Bot|GrokBot|YouBot|ExaSearchBot|DuckAssistBot|Amazonbot|Amzn-SearchBot|Amzn-User/i', $_SERVER['HTTP_USER_AGENT'] ) ) {
+	define( 'WPSC_SERVE_DISABLED', true );
+}
+```
 
 > **1.1.0 -> 1.1.1 measurement boundary.** Plugin 1.1.0 briefly added a
 > JavaScript beacon to recover browser/referral page views served from cache.
@@ -183,10 +280,9 @@ available through their webmaster tools.
 > `204` for scripts stranded in old cached HTML, but never records an event.
 
 ```bash
-# 1. Install the plugin. Download the latest release zip from the
-#    canonry-traffic-logger plugin's GitHub release (the repo CI workflow
-#    publishes a zip on every plugin-file change), then in wp-admin:
-#    Plugins → Add New → Upload Plugin → upload + activate.
+# 1. Download the latest Canonry Traffic Logger release zip from GitHub.
+#    GitHub publishes a zip for each new plugin version.
+#    In wp-admin, upload and activate it under Plugins → Add New → Upload Plugin.
 
 # 2. In wp-admin, create an Application Password for the operator user:
 #    Users → Profile → Application Passwords. Copy the generated password.
@@ -470,39 +566,44 @@ same-origin assets, or the account is on Workers Paid.
 
 ### Excluding static assets from the route
 
-A route with NO script disables Workers on that path, and Cloudflare applies
-the most specific match. This removes the bundle without losing any crawler
-evidence, because crawlers request pages, not JS chunks.
+A route with no Worker assigned bypasses Workers on that path. Cloudflare's
+most-specific-match rule lets an asset route override the broader Canonry
+route. This reduces invocations while retaining page traffic; requests to the
+excluded asset paths are intentionally absent from Canonry's evidence.
 
-```bash
-# assets -> no worker. Omitting "script" is what disables it.
-curl -s -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-  --data '{"pattern":"<host>/_nuxt/*"}' \
-  "https://api.cloudflare.com/client/v4/zones/$ZONE/workers/routes"
+Use the zone's route management or the [Workers Routes API](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/create/)
+to create the exclusion. For a Nuxt site, the route creation payload is:
+
+```json
+{"pattern":"<host>/_nuxt/*"}
 ```
 
-Prefixes by framework: `/_nuxt/*` Nuxt, `/_next/*` Next.js, plus `/assets/*`,
-`/static/*`, `/build/*`.
+Replace `<host>` with the canonical hostname and omit `script` so no Worker is
+assigned. Verify the saved route has the intended pattern and no Worker. Keep
+the broader `<host>/*` route assigned to the Canonry Worker. Other asset
+prefixes include `/_next/*` for Next.js, `/assets/*`, `/static/*`, and `/build/*`.
+See [Cloudflare's route matching rules](https://developers.cloudflare.com/workers/configuration/routing/routes/#matching-behavior).
 
 **The Worker's own "Domains and Routes" tab cannot do this.** That screen only
 attaches routes TO that Worker, so adding the asset path there routes assets
-INTO the Worker and doubles the load. Asset exclusion is zone-level: the zone's
-Workers Routes page, or the API above.
+INTO the Worker. Asset exclusion must leave the Worker unassigned, using zone
+route management or the API above.
 
-### Fail open defaults to OFF
+### Verify the route's fail mode
 
-`request_limit_fail_open` is per route and defaults to `false`. Left off, a
-Worker error or an exhausted request allowance returns 5xx for every request on
-that route, which on a catch-all is the whole site. Setting it is not optional
-and it is not the default, so verify rather than assume:
+For a Worker used only to collect traffic, configure the route to **fail open**.
+Cloudflare then bypasses the Worker if the Free account exhausts its daily
+request allowance; fail closed returns a Cloudflare `1027` error page. This
+keeps the origin available while traffic collection is interrupted. A Worker
+that also enforces security needs its own fail-mode decision.
 
-```bash
-curl -s -H "Authorization: Bearer $CF_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones/$ZONE/workers/routes" \
-  | jq '.result[] | {pattern, script, request_limit_fail_open}'
-```
+In the Cloudflare dashboard, inspect the corresponding route and set its fail
+mode to open, then reopen it to confirm the saved setting. The API's
+`request_limit_fail_open` field represents this route setting; verify it is
+`true` when inspecting route state. Do not infer the setting from a successful
+deployment. See [Cloudflare's daily request limits and route fail modes](https://developers.cloudflare.com/workers/platform/limits/#daily-requests).
 
-Both route operations need `Zone | Workers Routes | Edit` on the token.
+API route changes require `Zone | Workers Routes | Edit` permission.
 
 ```bash
 npm install -g wrangler@latest
@@ -947,10 +1048,13 @@ usable value, receipts keep Cloudflare's 14-day maximum plus the margin.
 Each Queue sync drains in batches of up to 100 messages for as long as
 Cloudflare reports a backlog, up to a 4-minute time limit per sync
 (`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`, 30 seconds to 15 minutes) and a
-300-pull safety cap. Cloudflare can return a partial or briefly empty batch
-while a backlog waits, so a sync stops only when Cloudflare reports no backlog,
-two pulls in a row come back empty, or the limit is reached. If a pull fails
-after earlier batches were saved, the run ends `partial` and keeps them.
+300-pull safety cap. Cloudflare can return a partial or empty batch while a
+backlog waits (on a busy Queue, about 3 pulls in 10 come back empty). While 100
+or more messages wait, the sync waits after each empty pull, 0.5, 1, 2, 4 and
+then 8 seconds, and pulls again. It stops when Cloudflare reports no backlog,
+when every wait came back empty, when fewer than 100 messages wait and two
+pulls in a row came back empty, or at the limit. If a pull fails after earlier
+batches were saved, the run ends `partial` and keeps them.
 
 Each sync run records what it did and why it stopped in `syncSummary`: pulls,
 empty pulls, messages pulled and acknowledged, redelivered (duplicate) events,
@@ -964,8 +1068,9 @@ the drain) and warns above that, with the cause taken from the last stop
 reason. After `deadline` or `batch-cap` the drain hit its limit: shorten the
 `traffic-sync` interval or raise the time limit, or messages will pass the
 Queue's retention and be dropped. After `empty-pulls` or `unleased-only`
-Cloudflare still counted messages it would not return (leased or not yet
-visible); later syncs pull them, and raising the time limit does not help.
+Cloudflare still counted messages it would not return, even after the waits
+(leased or not yet visible); later syncs pull them, and raising the time limit
+does not help.
 
 ## Syncing data
 
@@ -1028,6 +1133,12 @@ cnry traffic sources <project> --format json
 # Windowed events (defaults to last 24h):
 cnry traffic events <project> --kind crawler --limit 200 --format json
 cnry traffic events <project> --kind ai-referral --since 2026-04-01 --until 2026-04-30
+# Several kinds at once (rows, totals and series cover only those kinds):
+cnry traffic events <project> --kind ai-user-fetch,ai-referral --format json
+# Which bots read one page, totaled over the window (no row cap to page through):
+cnry traffic events <project> --path /faq --group-by agent --since 2026-10-26 --format json
+# Every row: follow eventRows.nextCursor until it is null (repeat the same filters):
+cnry traffic events <project> --kind crawler --since 2026-10-26 --limit 5000 --cursor <next-cursor> --format json
 ```
 
 The `traffic status` composite returns the same per-source detail
@@ -1168,12 +1279,7 @@ domains, or PII are surfaced.
   records the `cache` HIT/MISS label), and `cloud-run` logs every request that
   reaches the service, missing only what a CDN ahead of Cloud Run serves at its
   own edge.
-- **Path-level citation cross-reference is not implemented yet.** The
-  citation store is domain-grain (`query_snapshots.cited_domains`). A
-  future iteration that lands URL-grain citation evidence will extend
-  the `topCrawledPaths` entry with a `citationState` flag. Until then,
-  treat traffic analytics' crawled-paths table as "engine attention" — the
-  signal is the bot fetched it, not whether it was cited.
+- **Crawled paths.** `topCrawledPaths` reports bot requests by path. Read citation evidence separately with `cnry run show <run-id> --format json`.
 - **Verified vs unverified.** Verified crawler counts include only
   published-IP-range-verified hits. Unverified crawler counts remain separate:
   those bots claim a known UA but
@@ -1227,16 +1333,22 @@ Each timeline preserves time, hostname, masked path, method, status, available
 latency, operator verification, trust level with reasons, and current-plan
 Property attribution. IP/UA grouping is inferred and can combine different tasks
 on shared infrastructure; without an IP the requests stay unlinked. Neither
-grouping nor trust identifies a person or establishes their task.
+grouping nor trust identifies a person or establishes their task. Claude-Agent
+and Google-Agent load pages like a browser, so their journeys keep page loads,
+actions such as form posts and failed requests, not the files and data calls
+their pages made; `coverage.limitations` says so.
 
 Every user-triggered agent request gets a trust level when it is classified.
 `verified` means the source IP is in the operator's published list. Otherwise:
 `likely_fake` when the path asks for credential, config, version-control or
-admin files, when the same IP asked for one within 10 minutes (`scanner-burst`:
-a scanner posing as several agents), when an operator that publishes a
-full user-agent string (OpenAI, Mistral) sees a different one; an IP missing
-from the published list alone leaves a request `unknown`, because lists lag
-real addresses and some rotate; `likely_real`
+admin files (for Claude-Agent and Google-Agent, which load pages like a
+browser, the settings files and Azure and Netlify sign-in endpoints a web app's
+pages load by themselves are exempt; key and credential files inside those
+endpoints are not), when the same IP asked for one within 10 minutes
+(`scanner-burst`: a scanner posing as several agents), when an operator that
+publishes a full user-agent string (OpenAI, Mistral) sees a different one; an
+IP missing from the published list alone leaves a request `unknown`, because
+lists lag real addresses and some rotate; `likely_real`
 when nothing could be checked (no IP, or no published list) but the user agent
 matches the published string; `unknown` for the rest. `trustReasons` lists the
 evidence. Likely fake requests are never added to AI user fetch hits or stored
@@ -1248,10 +1360,15 @@ the trust rules change, a server checks stored traffic again once after
 startup (`cnry backfill traffic-classification` runs the same pass on demand):
 hourly agent rows for a scanner path move to the likely fake counts, and stored
 agent requests from a probing client (same IP and user agent) are removed when
-the probe itself was stored. Earlier rules already flagged some probes and
-never stored them, so their clients' other stored requests stay. Hourly rows
-keep no IP, so older hours get the burst rule only through stored agent
-requests.
+the probe itself was stored. Each other removed request that was counted moves
+one hit to the likely fake counts; a browser agent's request was counted only
+if it was a page load, or came before its source's older count ended. Earlier
+rules already flagged some probes and never stored them, so their clients'
+other stored requests stay. Hourly rows keep no IP, so older hours get the
+burst rule only through stored agent requests. The same pass removes the stored
+requests a browser agent's pages made by themselves, unless they failed, since
+capture now leaves them out; stored requests keep no query, so a `?_rsc=`
+prefetch stays until retention drops it.
 
 Preserve the
 response's retention, daily-cap and source limitations; missing requests do
@@ -1307,9 +1424,8 @@ every source and needs no site snippet or goal setup. Read it with
   as browser groups. A key stores at most 300
   requests per UTC day besides AI touches; `cappedDays` counts the days it hit
   that cap.
-- By default the Cloudflare Worker forwards only AI-referred and bot requests,
-  so journeys from a Cloudflare source record AI landings but not later visits.
-  Reconnect with `--forward-page-views` and redeploy to forward page views too
+- By default the Cloudflare Worker filters traffic for AI, bot, and unrecognized agent signals.
+  Reconnect with `--forward-page-views` and redeploy to forward ordinary browser page views
   (one Queue message or push per page view; see the Cloudflare setup guide for
   volume and Queue drain limits). Reads list a source in `partialSources` until
   its deployed Worker reports the `+page-views` version.
@@ -1344,6 +1460,8 @@ days. People's browsers, generic HTTP tools (curl, python-requests and the
 like), static files and writes are left out, so the list is agents rather than
 scripts. Every source records them; the Cloudflare Worker forwards them from
 version 1.1.0. A name that keeps showing up is a candidate for a classifier rule.
+A Claude bot Anthropic adds later is listed here too until a rule names it,
+rather than counted as ClaudeBot.
 Agents that drive a normal browser (their user agent is plain Chrome) look like
 people and never appear here.
 
@@ -1353,6 +1471,29 @@ rules. Those hits stay claimed, because stored traffic keeps no IP to verify,
 and their path reads `(path not recorded)`, because each hour kept one count
 per name rather than per page. The same pass relabels unknown samples, renames
 rows the naming now reads differently (Apple's link previews become
-`imessage-link-preview`), and deletes Canonry's own monitoring requests.
-`cnry backfill traffic-classification [--project <name>] [--dry-run]` runs it
-on demand. An IP-list refresh does not re-verify stored hits.
+`imessage-link-preview`), and deletes Canonry's own monitoring requests. It
+also files crawler hours whose sampled user agent today's rules file elsewhere
+(such as hours an older version wrote after a rollback) where ingest would:
+under the crawler rule that names it, in the AI user-fetch counts (likely fakes
+in theirs), back in this list, or nowhere for Canonry's own tools. An hour
+moves whole, by its one sampled user agent. Hours with no sampled user agent,
+static-file hours of an agent no rule names, and hours under a bot the running
+version has no rule for stay. Moved hours stay verified only when both rules
+check the same published IP list, and the automatic pass never makes a change
+that would leave verified hits claimed: it logs
+`traffic-reclassify.verified-moves-held` instead. When it moves Claude-Agent's
+older hours into the AI user-fetch counts, or the rules for counting browser
+agents' requests changed, it marks the source's older count
+(`aiUserFetchCountingChangedAt`). `cnry backfill traffic-classification
+[--project <name>] [--dry-run]` runs the pass on demand and also makes the
+changes that leave verified hits claimed; `--dry-run` shows them as
+`crawlers.unverifiedHits`. An IP-list refresh does not re-verify stored hits.
+
+Only `canonry serve` runs the pass, never a Cloud Run deployment of the API.
+After a rollback, run the backfill yourself when the older version predates the
+pass (before 7.84.0) or ran too briefly for its own pass to finish (it starts
+30 s after startup): the newer version then finds its own rules already
+recorded and skips the pass. Traffic the newer version ingested in its first
+30 s can also replace a misfiled hour's sampled user agent, which hides that
+hour from every pass; only `cnry traffic backfill` (Cloud Run and Vercel)
+recounts it from the logs.

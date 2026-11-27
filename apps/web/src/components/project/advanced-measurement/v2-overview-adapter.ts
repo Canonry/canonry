@@ -49,6 +49,7 @@ function metric(value: OverviewMetric): AdvancedMeasurementMetric {
     denominator: value.denominator,
     ...(value.unattributed === undefined ? {} : { unattributed: value.unattributed }),
     ...(value.unchecked === undefined ? {} : { unchecked: value.unchecked }),
+    ...(value.citationNotMeasured === undefined ? {} : { citationNotMeasured: value.citationNotMeasured }),
   }
 }
 
@@ -128,6 +129,8 @@ function propertyStatus(row: MeasurementOverviewResponse['properties']['items'][
   if (reasons.includes('identity_ambiguous')) return { label: VISIBILITY_DISPLAY_COPY.ambiguous, tone: 'caution' }
   if (reasons.includes('no_population')) return { label: 'No queries', tone: 'neutral' }
   if (reasons.includes('not_applicable')) return { label: 'Not applicable', tone: 'neutral' }
+  // Every answer came from an engine without sources: measured for mention, not citation.
+  if (reasons.includes('citation_not_measured')) return { label: 'Citation not measured', tone: 'neutral' }
   return { label: 'Complete', tone: 'positive' }
 }
 

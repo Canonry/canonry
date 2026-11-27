@@ -70,7 +70,11 @@ function readServeOpenState(db: ReturnType<typeof createClient>): {
   }
 }
 
-/** First-run banner: empty installs and unscanned projects still point at Page Health. */
+/**
+ * First-run banner: an empty install opens setup, and an unscanned project opens
+ * its setup tracker, whose first row is the Agent Readiness audit scan. An
+ * install with one project frames it as the first setup.
+ */
 function buildServeOpenLine(input: {
   url: string
   projectCount: number
@@ -78,10 +82,11 @@ function buildServeOpenLine(input: {
   hasSiteAudit: boolean
 }): string {
   if (input.projectCount === 0) {
-    return `Open ${input.url}/setup to map your site and run your first Page Health scan.`
+    return `Open ${input.url}/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.`
   }
   if (!input.hasSiteAudit && input.firstProjectName) {
-    return `Open ${input.url}/setup?onboarding=site-health&setupProject=${encodeURIComponent(input.firstProjectName)} to run your first Page Health scan.`
+    const firstRun = input.projectCount === 1 ? '&onboarding=first-run' : ''
+    return `Open ${input.url}/setup?project=${encodeURIComponent(input.firstProjectName)}${firstRun} to run its first Agent Readiness audit scan.`
   }
   return `Open ${input.url}`
 }

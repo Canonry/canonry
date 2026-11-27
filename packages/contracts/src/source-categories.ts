@@ -79,6 +79,7 @@ export const SOURCE_CATEGORY_RULES: SourceCategoryRule[] = [
   { pattern: 'threads.net', category: 'social', label: 'Threads' },
   { pattern: 'pinterest.com', category: 'social', label: 'Pinterest' },
   { pattern: 'tiktok.com', category: 'social', label: 'TikTok' },
+  { pattern: 'lemon8-app.com', category: 'social', label: 'Lemon8' },
 
   // Video
   { pattern: 'youtube.com', category: 'video', label: 'YouTube' },

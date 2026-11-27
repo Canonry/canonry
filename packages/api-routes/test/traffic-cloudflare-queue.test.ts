@@ -12,6 +12,7 @@ import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import type { CloudflareTrafficCredentialRecord, CloudflareTrafficCredentialStore, TrafficSyncedEvent } from '../src/traffic.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
+import { logCapture } from './log-capture.js'
 
 const directories: string[] = []
 
@@ -27,6 +28,10 @@ async function harness(options: {
   /** Live Queue retention read; by default it fails, as if Cloudflare were unreachable. */
   queueRetention?: Parameters<typeof apiRoutes>[1]['getCloudflareQueueRetentionSeconds']
   queueSyncDeadlineMs?: number
+  /** Waits after consecutive empty pulls; by default one zero wait, so two empty pulls in a row end the drain. */
+  queueEmptyPullBackoffMs?: readonly number[]
+  /** Fastify logger option, to read what the drain logged (`logCapture`). */
+  logger?: ReturnType<typeof logCapture>['logger']
 } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-cloudflare-queue-'))
   directories.push(directory)
@@ -44,7 +49,7 @@ async function harness(options: {
     deleteConnectionBySourceId: sourceId => credentials.delete(sourceId),
   }
   const synced: TrafficSyncedEvent[] = []
-  const app = Fastify()
+  const app = Fastify(options.logger ? { logger: options.logger } : {})
   app.register(apiRoutes, {
     db, skipAuth: true, cloudflareTrafficCredentialStore: store, onTrafficSynced: event => { synced.push(event) },
     ...(options.includeDirectIngestUrl === false ? {} : {
@@ -55,6 +60,7 @@ async function harness(options: {
     getCloudflareQueueRetentionSeconds: options.queueRetention ?? (async () => { throw new Error('retention read unavailable in tests') }),
     cloudflareQueueMaxBatches: options.queueMaxBatches,
     cloudflareQueueSyncDeadlineMs: options.queueSyncDeadlineMs,
+    cloudflareQueueEmptyPullBackoffMs: options.queueEmptyPullBackoffMs ?? [0],
   })
   await app.ready()
   await app.inject({ method: 'PUT', url: '/api/v1/projects/test-project', payload: {
@@ -546,6 +552,35 @@ describe('Cloudflare Queue pull lifecycle', () => {
     await h.app.close()
   })
 
+  it('reports a browser agent\'s requests other than page loads on the sync and in the log', async () => {
+    const agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
+    const request = (eventId: string, method: string, path: string) => ({
+      eventId, observedAt: '2026-08-11T12:00:00.000Z', method, host: 'example.com', path, queryString: null, status: 200,
+      userAgent: agent, remoteIp: null, referer: null, cf: null,
+    })
+    const message = {
+      id: 'browser-agent', timestampMs: 1_700_000_000_000, attempts: 1, leaseId: 'browser-agent-lease', metadata: {},
+      contentType: 'json' as const,
+      body: {
+        schemaVersion: 1, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+        events: [request('page', 'GET', '/pricing'), request('script', 'GET', '/_next/static/chunks/main.js'), request('beacon', 'POST', '/_vercel/insights/view')],
+      },
+    }
+    const logs = logCapture()
+    const h = await harness({
+      logger: logs.logger,
+      queuePull: async () => ({ messageBacklogCount: 0, messages: [message], skippedUnleasedMessageCount: 0 }),
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const { sourceId, synced } = await connectAndSync(h)
+
+    expect(synced.statusCode, synced.payload).toBe(200)
+    const body = JSON.parse(synced.payload) as { runId: string }
+    expect(body).toMatchObject({ pulledEvents: 3, aiUserFetchHits: 1, aiUserFetchBrowserNonPageHits: 2 })
+    // A scheduled drain throws its response away, so the log reports them too.
+    expect(logs.withField('aiUserFetchBrowserNonPageHits')).toMatchObject([{ sourceId, runId: body.runId, aiUserFetchBrowserNonPageHits: 2 }])
+  })
+
   it('logs successful Queue ACK warning counts without failing the sync', async () => {
     const validMessage = {
       id: 'ack-warning', timestampMs: 1_700_000_000_000, attempts: 1,
@@ -777,6 +812,78 @@ describe('Cloudflare Queue pull lifecycle', () => {
     expect(storedDrain(h, sourceId)).toEqual(drain({
       stopReason: 'empty-pulls', pulls: 5, emptyPulls: 3, messagesPulled: 20, messagesAcknowledged: 20, acceptedEvents: 20,
       backlogAtFirstPull: 500, backlogAtLastPull: 500,
+    }))
+    await h.app.close()
+  })
+
+  it('waits longer after each empty pull while a full batch waits and stops only when every wait came back empty', async () => {
+    // Cloudflare answers some pulls empty while messages wait: the later pulls return them.
+    const script = [10, 0, 0, 10, 0, 0, 0]
+    let pulls = 0
+    const h = await harness({
+      queueEmptyPullBackoffMs: [5, 10],
+      queuePull: async () => {
+        const size = script[pulls]!
+        pulls += 1
+        return { messageBacklogCount: 100, messages: queueMessages(size, `wait-${pulls}`), skippedUnleasedMessageCount: 0 }
+      },
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const started = Date.now()
+    const { synced, sourceId } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(pulls).toBe(7)
+    // Two waits per empty streak: 5 then 10 ms, twice.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(30)
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'empty-pulls', pulls: 7, emptyPulls: 5, messagesPulled: 20, messagesAcknowledged: 20, acceptedEvents: 20,
+      backlogAtFirstPull: 100, backlogAtLastPull: 100,
+    }))
+    await h.app.close()
+  })
+
+  it('retries once without waiting when less than a full batch waits, then leaves it for the next sync', async () => {
+    // Under a full batch is mostly what arrived during the drain; long waits would only chase new messages.
+    const script = [10, 0, 10, 0, 0, 10]
+    let pulls = 0
+    const h = await harness({
+      queueEmptyPullBackoffMs: [60_000, 60_000],
+      queuePull: async () => {
+        const size = script[pulls]!
+        pulls += 1
+        return { messageBacklogCount: 99, messages: queueMessages(size, `small-${pulls}`), skippedUnleasedMessageCount: 0 }
+      },
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const started = Date.now()
+    const { synced, sourceId } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(pulls).toBe(5)
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'empty-pulls', pulls: 5, emptyPulls: 3, messagesPulled: 20, messagesAcknowledged: 20, acceptedEvents: 20,
+      backlogAtFirstPull: 99, backlogAtLastPull: 99,
+    }))
+    await h.app.close()
+  })
+
+  it('never waits past the drain deadline after an empty pull', async () => {
+    let pulls = 0
+    const h = await harness({
+      queueEmptyPullBackoffMs: [60_000],
+      queueSyncDeadlineMs: 200,
+      queuePull: async () => {
+        pulls += 1
+        return { messageBacklogCount: 500, messages: [], skippedUnleasedMessageCount: 0 }
+      },
+    })
+    const started = Date.now()
+    const { synced, sourceId } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(pulls).toBe(1)
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'deadline', pulls: 1, emptyPulls: 1, backlogAtFirstPull: 500, backlogAtLastPull: 500,
     }))
     await h.app.close()
   })

@@ -13,7 +13,7 @@ import {
   forbidden,
   isReadOnlyKey,
   intersectScopes,
-  normalizeIdTokens,
+  normalizeEmbedProjectTabs,
   parseEmbedQueryLimit,
   READ_ONLY_SCOPE,
   READ_SEMANTIC_OPERATIONS,
@@ -114,9 +114,8 @@ declare module 'fastify' {
     /** Derived only from the host allowlist and direct bearer authentication. */
     operatorAccess?: boolean
     /**
-     * The API key that authenticated the current request. Present on every
-     * request that passed `authPlugin` (i.e. everything not in the
-     * skip-paths list). Routes that need scope checks should call
+     * The API key that authenticated the current request.
+     * Routes that need scope checks should call
      * `requireScope(request, '<scope>')`.
      *
      * Absent when the request was authenticated by a signed-in person — see
@@ -133,6 +132,9 @@ declare module 'fastify' {
     readSemanticGrant?: boolean
   }
   interface FastifyContextConfig {
+    /** Public routes and handlers that verify their own credentials opt out at registration. */
+    skipInstanceAuth?: boolean
+
     /**
      * This route's POST does not change anything.
      *
@@ -465,6 +467,13 @@ export function assertNotProjectScoped(request: FastifyRequest, what: string): v
   }
 }
 
+/** Google returns the account's complete Search Console or GA4 property list. */
+export function requireGooglePropertyDiscovery(request: FastifyRequest): void {
+  assertNotProjectScoped(request, 'listing Google properties')
+  requireAdminSession(request)
+  requirePaidReadScope(request, [], 'Listing Google properties requires full-instance authority to query the connected account.')
+}
+
 /**
  * Hash a raw `cnry_…` bearer token to the value stored in `api_keys.key_hash`.
  * Plain SHA-256 is sufficient here because the tokens are 128-bit random, so a
@@ -474,50 +483,6 @@ export function assertNotProjectScoped(request: FastifyRequest, what: string): v
  */
 export function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
-}
-
-const SKIP_PATHS = ['/health']
-
-export function shouldSkipAuth(url: string): boolean {
-  if (SKIP_PATHS.includes(url)) return true
-  // Fastify decodes percent-encoded static segments before matching, so the
-  // literal `/projects/` test below must see the decoded path too: a request
-  // for `/%70rojects/session` still routes to `/projects/:name`.
-  let path = url
-  try {
-    path = decodeURIComponent(url)
-  } catch {
-    // Malformed escape: keep the raw path.
-  }
-  const underProject = path.includes('/projects/')
-  if (path.endsWith('/openapi.json') && !underProject) return true
-  // Both OAuth callback routes (`/google/callback` and
-  // `/projects/:name/google/callback`) end with this suffix. `endsWith` (not
-  // `includes`) so a future route that merely contains the substring — e.g.
-  // `/google/callback/anything` — does not silently become unauthenticated.
-  if (path.endsWith('/google/callback')) return true
-  // Shared Google Ads / Tag Manager OAuth callback. This is intentionally the
-  // same exact-suffix rule as the legacy Google callback above: only the
-  // signed state verifier in that route may receive an unauthenticated request.
-  if (path.endsWith('/google-marketing/callback')) return true
-  // The legacy dashboard-password session routes live at the API root, never
-  // under `/projects/<name>`; nor does the root OpenAPI document (above).
-  if ((path.endsWith('/session') || path.endsWith('/session/setup')) && !underProject) return true
-  // The sign-in surface. It cannot require a credential: the sign-in screen has
-  // to be able to ask whether a sign-in is needed, offer the form, and clear a
-  // dead session, none of which it can do while holding something it does not
-  // have yet. Each of the three does its own resolution.
-  if (path.endsWith('/auth/session') || path.endsWith('/auth/login') || path.endsWith('/auth/logout')) return true
-  // Seeing and ending your own sessions is part of the sign-in surface: it has
-  // to work from a session that the rest of the API might already be refusing.
-  // Both routes resolve the cookie themselves, and the DELETE runs its own
-  // same-origin check below.
-  if (path.endsWith('/auth/sessions')) return true
-  // Cloudflare Worker ingest carries its own per-source bearer + HMAC
-  // (verified inside the route handler). A canonry `cnry_*` key isn't
-  // available to the Worker — that would defeat the per-source isolation.
-  if (path.endsWith('/traffic/cloudflare/ingest')) return true
-  return false
 }
 
 /** OAuth-backed internal MCP credentials cannot outlive their transport cleanup indefinitely. */
@@ -621,8 +586,8 @@ function requestEmbedProjectTabs(
   request: FastifyRequest,
   configuredTabs: readonly string[] | undefined,
 ): EmbedTabPolicy | undefined {
-  const headerTabs = normalizeIdTokens(splitList(request.headers['x-canonry-embed-tabs']))
-  const configured = configuredTabs && configuredTabs.length > 0 ? configuredTabs : undefined
+  const headerTabs = normalizeEmbedProjectTabs(splitList(request.headers['x-canonry-embed-tabs']))
+  const configured = configuredTabs && configuredTabs.length > 0 ? normalizeEmbedProjectTabs([...configuredTabs]) : undefined
 
   if (!configured) return headerTabs ? { tabs: headerTabs, fromEmbedSurface: true } : undefined
   if (!headerTabs) return { tabs: [...configured], fromEmbedSurface: false }
@@ -690,32 +655,37 @@ function isOverviewRead(url: string): boolean {
   ]).has(rest)
 }
 
-function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
-  const rest = projectRouteRest(url)
+function isAgentReadinessRead(request: FastifyRequest, url: string): boolean {
+  // The deprecated `technical-aeo` segment reaches the same reads, so it is
+  // checked as its canonical `agent-readiness` path.
+  const rest = projectRouteRest(url)?.replace(/^technical-aeo(?=\/|$)/, 'agent-readiness') ?? null
   if (rest === 'runs') {
     return queryValue(request, 'kind') === RunKinds['site-audit']
   }
-  if (rest && /^technical-aeo\/runs\/[^/]+\/(?:progress|page-health-preview)$/.test(rest)) {
+  if (rest && /^agent-readiness\/runs\/[^/]+\/(?:progress|page-health-preview)$/.test(rest)) {
     return true
   }
-  return rest === 'technical-aeo'
-    || rest === 'technical-aeo/pages'
-    || rest === 'technical-aeo/trend'
-    || rest === 'technical-aeo/crawl'
-    || rest === 'technical-aeo/graph'
-    || rest === 'technical-aeo/subgraph'
-    || rest === 'technical-aeo/path'
-    || rest === 'technical-aeo/changes'
-    || rest === 'technical-aeo/crawl/pages/audit'
-    || rest === 'technical-aeo/crawl/pages'
+  // The Agent Readiness trend card (`surface=site-health` is its stable token).
+  // Other surfaces belong to tabs an embed cannot show.
+  if (rest === 'trends') return queryValue(request, 'surface') === 'site-health'
+  return rest === 'agent-readiness'
+    || rest === 'agent-readiness/pages'
+    || rest === 'agent-readiness/trend'
+    || rest === 'agent-readiness/crawl'
+    || rest === 'agent-readiness/graph'
+    || rest === 'agent-readiness/subgraph'
+    || rest === 'agent-readiness/path'
+    || rest === 'agent-readiness/changes'
+    || rest === 'agent-readiness/crawl/pages/audit'
+    || rest === 'agent-readiness/crawl/pages'
     // Scan history. Only the GET reaches here; every write method is refused
     // before the tab allowlist is consulted, so the POST on this same path
     // stays out of the embed surface.
-    || rest === 'technical-aeo/runs'
-    || rest === 'technical-aeo/structure'
-    || rest === 'technical-aeo/internal-links'
-    || rest === 'technical-aeo/internal-links/neighbors'
-    || rest === 'technical-aeo/dead-links'
+    || rest === 'agent-readiness/runs'
+    || rest === 'agent-readiness/structure'
+    || rest === 'agent-readiness/internal-links'
+    || rest === 'agent-readiness/internal-links/neighbors'
+    || rest === 'agent-readiness/dead-links'
 }
 
 /**
@@ -773,7 +743,7 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
   if (isProjectShellRead(request, url)) return
   if (isEmbedQueryRead(request, url)) return
   if (tabs.includes('overview') && isOverviewRead(url)) return
-  if (tabs.includes('technical-aeo') && isTechnicalAeoRead(request, url)) return
+  if (tabs.includes('agent-readiness') && isAgentReadinessRead(request, url)) return
 
   throw forbidden('This endpoint is not available for the configured embed tabs.')
 }
@@ -877,8 +847,8 @@ function applyScopedWriteGates(request: FastifyRequest): void {
 
 export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
   app.addHook('onRequest', async (request, reply) => {
+    if (request.routeOptions.config?.skipInstanceAuth === true) return
     const url = request.url.split('?')[0]!
-    if (shouldSkipAuth(url)) return
 
     const header = request.headers.authorization
     let key: typeof apiKeys.$inferSelect | undefined
@@ -1021,7 +991,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // cannot perform any write — keyed off the HTTP method, NOT per-route
     // `requireScope` calls, so a newly added write route is protected
     // automatically. Safe methods (GET/HEAD/OPTIONS) always pass. This runs
-    // after `shouldSkipAuth` (so public routes stay open) and does not gate
+    // after the public-route check and does not gate
     // the `last_used_at` write above (infrastructural usage tracking).
     if (
       isReadOnlyKey(scopes) &&

@@ -16,16 +16,14 @@ A "not-mentioned" query means the answer text never named the client. `answerMen
 ### First diagnostic read (mention-first)
 
 ```bash
-cnry get <project> scores.mentionCoverage.value     # mention rate (primary)
-cnry get <project> scores.mentionShare.value        # mention share / AI share-of-voice (primary)
-cnry analytics <project> --feature gaps             # mentionGap[] / notMentioned[] (who's named instead of you)
+cnry get <project> mentionCoverage.populations --format json
+cnry get <project> scores.mentionShare --format json
+cnry analytics <project> --feature gaps --format json
 ```
 
-Read citation as the secondary lens only after the mention read:
-
-```bash
-cnry get <project> scores.citationCoverage.value    # cited rate (secondary)
-```
+Select the population by `queryClass`. Its `mentionCoverage` and
+`citationCoverage` each contain a numerator, denominator, and rate. Use the
+reported scope for mention share.
 
 ## What Citation Means
 
@@ -37,27 +35,38 @@ A "cited" query means the client's domain appeared in an AI provider's grounding
 
 A "not-cited" query means the AI answered without grounding on the client's domain.
 
+A citation is `not-measured` when the adapter captures no structured sources, as with Local chat completions. Cited rates exclude these answers. Their mention measurements remain available.
+
 ## Reading Evidence Output
 
-`cnry evidence` renders a two-glyph cell per (query × provider): `[C/c][M/m]` — uppercase = present, lowercase = absent, `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). Always print the legend before the table; never collapse the two signals into one cell. Lead your interpretation with the mention glyph.
+`cnry citations visibility <project>` renders a two-glyph cell per (query × engine): citation first, mention second. Uppercase = present, lowercase = absent, `·` = citation not measured (the engine returns no sources), `–` = no snapshot. **C/c = cited** (secondary), **M/m = mentioned** (primary). The legend prints above the table; keep it when you quote the table, and never collapse the two signals into one cell. Lead your interpretation with the mention glyph.
 
 ```
-Legend: [C/c][M/m]  C=cited c=not-cited  M=mentioned m=not-mentioned  –=no snapshot
-
-[C][M]  AEO Agency NYC             ← mentioned AND cited: branded/direct match, fully visible
-[c][M]  best plumber brooklyn      ← mentioned but NOT cited: named in the answer, domain not in sources (mention win, citation gap)
-[C][m]  ai seo tools               ← cited but NOT mentioned: domain grounded, brand never named (citation without share of voice)
-[c][m]  how to fix a leaky faucet  ← neither: informational gap, no page for this topic
-[c][m]  emergency plumber near me  ← neither: competitive gap, others mentioned/cited instead
+(cell = [citation][mention];  C=cited c=not ·=not measured, M=mentioned m=not, –=no data)
+Query                      gemini  local  openai  Cite  Ment
+AEO Agency NYC             CM      ·M     CM      2/2   3/3   ← mentioned AND cited: branded/direct match, fully visible
+best plumber brooklyn      cM      ·M     cM      0/2   3/3   ← mentioned but NOT cited: named in the answer, domain not in sources (mention win, citation gap)
+ai seo tools               Cm      ·m     cm      1/2   0/3   ← cited but NOT mentioned: domain grounded, brand never named (citation without share of voice)
+how to fix a leaky faucet  cm      ·m     cm      0/2   0/3   ← neither: informational gap, no page for this topic
 ```
 
-The summary line reports each signal independently: `Mentioned: X / Y` (primary) and `Cited: X / Y` (secondary) — a query can be one, both, or neither.
+`Cite` counts the engines that cited the query out of those whose sources were checked (`·` when none were); `Ment` counts the engines that mentioned it. Above the table, `Cited in sources: X/Y engines` and `Mentioned in answers: X/Y engines` report each signal independently — a query can be one, both, or neither.
+
+`cnry evidence <project>` is the per-query citation history instead: one line per query with its latest citation (`✓ cited`, `✗ not-cited` or `· not measured (no sources)`, plus a transition such as `(lost)`), then `Cited: X / Y` over the queries whose latest answers carried sources and `Not measured: N`. It prints no mention line; read mention from its `--format json` (each run's `mentionState` and `mentionTransition`) or from `cnry citations visibility`.
+
+### Which threads and pages engines cite
+
+`cnry citations urls <project>` lists every cited page once, across the sweeps in the window: how many answers cite it, how many of those mention the brand (`answersMentionUnchecked` were never checked, never "not mentioned"), the engines and queries behind it, and its first and last sweep. Links are compared one way (https, no `www.`, no `utm_*` parameters, a Reddit thread by its id), so a thread cited with and without its title slug is one row.
+
+- `--category forum,social,video` keeps discussion threads and posts, the places a person can reply.
+- `--new-in-latest` keeps pages the latest sweep cited for the first time. "First" means within the window; the default window is `all`. It needs an earlier sweep that captured pages: answers stored before page capture (August 2026) are left out and counted in `answersPagesNotCaptured`.
+- Reading a cited thread itself is a separate step: Canonry stores the link, not the thread's text.
 
 ### Query Categories
 
 **Branded/direct queries** (e.g., "[business name] [city]"):
 - If mentioned: good — the engine names you for your own core queries (and check the citation as the secondary confirmation)
-- If not mentioned: urgent — the engine won't even say your name; something broken at a fundamental level (indexing, schema, llms.txt). Losing the citation for your own name is the secondary signal on the same query.
+- If not mentioned, read the exact answer and check the project's recorded brand names. Use separate site and search evidence to investigate possible causes.
 
 **Competitive queries** (e.g., "best [service] [city]"):
 - If not mentioned: check who IS mentioned (mention share) — competitor analysis needed. Then check who is cited as the secondary lens.
@@ -78,7 +87,7 @@ The summary line reports each signal independently: `Mentioned: X / Y` (primary)
 **Query normalization:** When new queries are added to a project mid-history, canonry automatically normalizes each time bucket to only include queries that existed before that bucket started. This prevents newly-added (typically not-yet-mentioned/uncited) queries from creating a false drop in the rate trend. The chart displays dashed vertical annotation lines at points where queries were added (e.g. "+3 q"), and each bucket's tooltip shows the query count ("q") used for that bucket's calculation.
 
 ### Gap Analysis (`--feature gaps`)
-`GapAnalysisDto` returns mention buckets — `mentionedQueries[]`, `mentionGap[]` (a competitor is mentioned but you're not), `notMentioned[]` (nobody named) — alongside the cited buckets (`cited[]`, `gap[]`, `uncited[]`). Read the mention buckets first. Priorities:
+`GapAnalysisDto` returns mention buckets — `mentionedQueries[]`, `mentionGap[]` (a competitor is mentioned but you're not), `notMentioned[]` (nobody named) — alongside the cited buckets (`cited[]`, `gap[]`, `uncited[]`, and `citationNotMeasured[]` for queries whose engines return no sources, which are in none of the other three). Read the mention buckets first. Priorities:
 - **`mentionGap[]` queries** are highest priority — competitors are taking mention share (AI share-of-voice) you're not winning
 - **`notMentioned[]` queries** may need content or may be too broad
 - The cited `gap[]` / `uncited[]` buckets are the secondary lens on the same queries
@@ -98,9 +107,9 @@ Recommend briefs only for ownable targets; for ceded head terms, advise earning 
 ## Diagnosing Mention + Citation Gaps
 
 ### Step 0: Read the mention signal first
-Before anything else, separate the two signals. `cnry analytics <project> --feature gaps` tells you whether the query is in `notMentioned[]` (the engine never names you), `mentionGap[]` (a competitor is named instead), or only in the cited `gap[]`/`uncited[]` (a citation gap while the mention may hold). The fix priority follows the mention: earn the name first, the source citation second. `answerMentioned = null` means the snapshot wasn't checked — re-run, don't read it as not-mentioned.
+Read both signals in `cnry analytics <project> --feature gaps`. The `notMentioned[]` and `mentionGap[]` buckets use answer text. The `gap[]` and `uncited[]` buckets use citations. Report `answerMentioned = null` as unavailable.
 
-> **Known gap:** `cnry health` is citation-only today (no mention dimension). For the mention-first read, use `cnry overview` / `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
+`cnry health <project>` shows mention and citation rates with separate denominators. `cnry health <project> --history` shows both signals over time.
 
 ### Stored competitor suggestions
 
@@ -120,11 +129,11 @@ because a recommended name can be a partner, place, service, or unrelated
 entity.
 
 ### Step 1: Check indexing
-Not mentioned / not cited ≠ bad content. Often the page isn't indexed yet, which starves both signals.
+Read stored indexing evidence as one possible explanation for a change in visibility.
 ```bash
 cnry google coverage <project>
 ```
-If key pages are "unknown to Google," submit them before drawing conclusions.
+For a key page, read its stored inspection with `cnry google inspections <project> --url <url>`. Report the inspection date. Use the [indexing workflow](indexing.md) for an approved submission.
 
 ### Step 2: Check if content exists
 Is there a page on the site targeting that query? If not, that's the gap — not a canonry or provider issue.
@@ -135,16 +144,16 @@ For competitive queries, if others are mentioned/cited and the client isn't (che
 - Do they have stronger schema/structured data?
 - Are they more established in the index?
 
-Run `cnry evidence <project> --format json`. Use `citedDomains` and grounding-source hosts for citation evidence; use answer text with Canonry's shared matcher for mention evidence. `competitorOverlap` is a legacy mixed field and must not be treated as either metric by itself.
+Take a `runId` from `cnry evidence <project> --format json` (it lists each query's runs and their citation states) and run `cnry run show <run-id> --format json`. Its snapshots carry the evidence: use `citedDomains` and `citedUrls` for citation evidence, and the answer text with Canonry's shared matcher for mention evidence. `competitorOverlap` is a legacy mixed field and must not be treated as either metric by itself.
 
 ### Step 4: Check across providers
 Gemini, OpenAI, Claude, and Perplexity may behave differently. One citing a domain while another doesn't is normal — each has its own knowledge base and update schedule.
 
 ### Step 5: Check analytics trends
 ```bash
-cnry analytics <project> --feature gaps --window 30d
+cnry analytics <project> --feature metrics --window 30d
 ```
-Look for patterns: are gaps growing or shrinking? Are new competitors appearing?
+Read the mention and citation trends. Use `--feature gaps` for the latest eligible sweep. Its window controls the consistency history.
 
 ### Step 6: Check GA4 traffic for impact
 A lost mention (or lost citation) isn't always a lost user. Before declaring a regression real, confirm whether AI-referral traffic actually fell on the same window:
@@ -155,12 +164,7 @@ cnry ga ai-referral-daily <project> --format json
                                                       # attribution dimensions; totals match `cnry ga traffic`
 cnry ga attribution <project> --trend             # 7d/30d direction per channel + biggest mover
 ```
-Read the result against the citation loss window:
-- **AI sessions flat or up** → the citation loss may be sweep-side noise (provider variance, query refresh). Track for one more cycle before alarming the client.
-- **AI sessions dropped on the same date** → real outage; escalate. Cross-reference `aiReferrals[]` from `cnry ga traffic` to identify which provider lost traffic.
-- **Organic dropped but AI held** → the citation loss is masking a separate indexing issue. Re-run Step 1.
-
-GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI channel that isn't reflected in citation count usually means a provider expanded an existing citation's exposure (more queries triggering it) — a quiet win worth flagging in the next report.
+Compare the same date range in both instruments. If AI sessions also fell, read `aiReferrals[]` from `cnry ga traffic` to find the sources with fewer sessions. A sweep and GA4 measure different populations. Their changes do not establish what caused the traffic change.
 
 ## Trend Interpretation
 
@@ -193,9 +197,9 @@ To answer "did it move since the last sweep?", read `populations[].comparison` f
 
 ### Low overall mention rate (< 50%)
 Mention rate is the primary KPI — fix this before cited rate.
-1. Audit indexing — `cnry google coverage <project>` (an unindexed page can't be named or cited)
-2. Submit unindexed pages to Google Indexing API
-3. Submit sitemap to Bing WMT + send IndexNow batch
+1. Audit Google index coverage with `cnry google coverage <project>`.
+2. Submit the sitemap with `cnry google submit-sitemap <project> --configured`. Use the Google Indexing API for eligible job and livestream pages.
+3. Submit the sitemap with `cnry bing submit-sitemap <project> <url>`.
 4. Check core pages for schema (LocalBusiness / Organization / FAQPage) so the brand name is unambiguous
 5. Map `notMentioned[]` / `mentionGap[]` queries to pages — which have no corresponding page, and who is named instead?
 
@@ -227,7 +231,7 @@ Expected — each provider has independent knowledge. Focus on the ones that mat
 **Never say:** "Deploy this and re-run canonry to see if it worked."
 **Always say:** "This positions the site correctly. Canonry will tell us if/when that pays off."
 
-## Experimental sentiment
+## Sentiment
 
 Sentiment is a branded figure: read `canonry sentiment <project> --query-class branded
 --format json` for the favorable share. Non-brand answers name the brand almost only to

@@ -31,7 +31,7 @@ describe('advanced measurement setup shell', () => {
   it('moves focus to the new step heading after a step change', async () => {
     const view = render(
       <AdvancedMeasurementSetupWizard currentStep="import" hasDraft={false} canEdit>
-        <section><h2>Import Properties</h2><button type="button">Review sitemap</button></section>
+        <section><h2>Add Properties</h2><button type="button">Review sitemap</button></section>
       </AdvancedMeasurementSetupWizard>,
     )
     screen.getByRole('button', { name: 'Review sitemap' }).focus()
@@ -69,7 +69,7 @@ describe('advanced measurement setup shell', () => {
       </AdvancedMeasurementSetupWizard>,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     expect(onDiscard).not.toHaveBeenCalled()
     expect(screen.getByText('Discard all unpublished changes?')).toBeTruthy()
@@ -92,7 +92,7 @@ describe('advanced measurement setup shell', () => {
       </AdvancedMeasurementSetupWizard>,
     )
 
-    expect(screen.getByText('Unpublished changes')).toBeTruthy()
+    expect(screen.getByText('Draft')).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
   })
 })

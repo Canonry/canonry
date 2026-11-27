@@ -7,11 +7,11 @@ export function NotFoundPage() {
     <div className="page-container">
       <section className="page-section">
         <Card className="surface-card empty-card">
-          <h1>Route not found</h1>
-          <p>The current path does not map to a dashboard view.</p>
+          <h1>Page not found</h1>
+          <p>This page may have moved. Choose a project to continue.</p>
           <Button asChild>
-            <Link to="/">
-              Return to overview
+            <Link to="/projects">
+              View projects
             </Link>
           </Button>
         </Card>

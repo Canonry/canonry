@@ -24,8 +24,8 @@ Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level ver
 ### Opt-in DuckDB
 
 - `@duckdb/node-api` is **not** a canonry dependency. It ships as a devDependency in this package so unit tests can exercise the query path, and is bundled as `external` by canonry's tsup config.
-- Runtime resolution goes through `loadDuckdb()`, which calls `createRequire` against `~/.canonry/plugins/package.json`. If the module is absent, `loadDuckdb()` throws `missingDependency()` with a hint pointing at `canonry backlinks install`.
-- The installer (`installDuckdb()`) spawns `npm install @duckdb/node-api@<DUCKDB_SPEC> --prefix ~/.canonry/plugins/`. Override the version via `CANONRY_DUCKDB_SPEC`.
+- `loadDuckdb()` anchors `createRequire` at the installed DuckDB package manifest under `~/.canonry/plugins/node_modules/`. If the module is absent, `loadDuckdb()` throws `missingDependency()` with a hint to run `canonry backlinks install`.
+- `installDuckdb()` passes `DUCKDB_SPEC` to the package manager. The spec already includes the package name and version. Set `CANONRY_DUCKDB_SPEC` to replace the spec.
 
 ### Releases
 
@@ -58,10 +58,9 @@ Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level ver
 
 - **Importing `@duckdb/node-api` directly** at the top of a module — it must be resolved via `loadDuckdb()` so the missing-dependency path works.
 - **Adding `@duckdb/node-api` to canonry's `dependencies`** — it is an opt-in plugin. It belongs in this package's `devDependencies` (for tests) and in canonry's tsup `external` list.
-- **Assuming cached files are valid** — always check the `.sha256` sidecar; fall back to re-hashing if the sidecar is missing or mismatched.
+- **Treating the sidecar as a fresh integrity check.** The downloader reuses a well-formed `.sha256` sidecar. If the sidecar is missing or malformed, it hashes the cached file.
 
 ## See Also
 
-- `.context/commoncrawl-spike/` — standalone spike that validated the architecture against real Common Crawl data (2026-04)
 - `packages/canonry/src/commoncrawl-sync.ts` — orchestrator that calls into this package for the workspace-wide release sync
 - `packages/canonry/src/backlink-extract.ts` — per-project extract runner

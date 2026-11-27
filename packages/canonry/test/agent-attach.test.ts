@@ -63,7 +63,7 @@ describe('agentAttach', () => {
     expect(mockCreateNotification).toHaveBeenCalledWith('my-project', {
       channel: 'webhook',
       url: TEST_URL,
-      events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+      events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained', 'mention.gained'],
       source: 'agent',
     })
   })

@@ -8,20 +8,31 @@ export function Drawer({
   children,
   open,
   onClose,
+  onClosed,
+  onCloseAutoFocus,
 }: {
   title: string
   subtitle: string
   children: ReactNode
   open: boolean
   onClose: () => void
+  onClosed?: () => void
+  onCloseAutoFocus?: (event: Event) => void
 }) {
+  const restoreFocus = (event: Event) => {
+    onCloseAutoFocus?.(event)
+    if (onClosed && !event.defaultPrevented) {
+      event.preventDefault()
+      onClosed()
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => (nextOpen ? undefined : onClose())}>
-      <SheetContent>
+      <SheetContent onCloseAutoFocus={restoreFocus}>
         <SheetHeader className="drawer-head">
-          <p className="eyebrow eyebrow-soft">{subtitle}</p>
-          <SheetTitle id="drawer-title">{title}</SheetTitle>
-          <SheetDescription className="sr-only">{subtitle}</SheetDescription>
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>{subtitle}</SheetDescription>
         </SheetHeader>
         <div className="drawer-body">{children}</div>
       </SheetContent>

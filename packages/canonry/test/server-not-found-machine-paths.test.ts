@@ -42,6 +42,9 @@ async function buildServer(basePath?: string): Promise<Built> {
   // without a real index.html on disk every assertion below would pass for the
   // wrong reason — a headless build 404s everything already.
   fs.writeFileSync(path.join(assetsDir, 'index.html'), INDEX_HTML)
+  // One code file of the current build, which must still be served.
+  fs.mkdirSync(path.join(assetsDir, 'assets'), { recursive: true })
+  fs.writeFileSync(path.join(assetsDir, 'assets', 'ProjectPage-current.js'), 'export const ProjectPage = 1\n')
 
   const dbPath = path.join(tmpDir, 'test.db')
   const db: DatabaseClient = createClient(dbPath)
@@ -138,6 +141,21 @@ describe('not-found handler: machine-facing paths', () => {
     expect(res.statusCode).toBeLessThan(500)
   })
 
+  it('returns a JSON 404 for a dashboard code file the build does not have', async () => {
+    // A tab opened before a deploy asks for the old build's hashed file names.
+    // Sending the app shell with a 200 turns a missing file into a MIME error.
+    for (const url of ['/assets/TrafficSourceDetailPage-old.js', '/assets/index-old.css', '/assets/nested/chunk-old.js']) {
+      const res = await built.app.inject({ method: 'GET', url })
+      expect(res.statusCode, url).toBe(404)
+      expect(res.headers['content-type']).toContain('application/json')
+      expect(res.body).not.toContain('<!doctype html>')
+    }
+    // A file the build does have is still served as code.
+    const current = await built.app.inject({ method: 'GET', url: '/assets/ProjectPage-current.js' })
+    expect(current.statusCode).toBe(200)
+    expect(current.headers['content-type']).toContain('javascript')
+  })
+
   it('still 404s API routes as JSON', async () => {
     const res = await built.app.inject({ method: 'GET', url: '/api/v1/nope' })
     expect(res.statusCode).toBe(404)
@@ -176,6 +194,12 @@ describe('not-found handler: machine-facing paths under a base path', () => {
     // must not return the app shell.
     const res = await built.app.inject({ method: 'GET', url: '/t/demo/.well-known/anything' })
     expect(res.statusCode).toBe(404)
+  })
+
+  it('returns a JSON 404 for a missing code file under the base path', async () => {
+    const res = await built.app.inject({ method: 'GET', url: '/t/demo/assets/ProjectPage-old.js' })
+    expect(res.statusCode).toBe(404)
+    expect(res.headers['content-type']).toContain('application/json')
   })
 
   it('still serves the SPA document for a deep link under the base path', async () => {

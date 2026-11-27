@@ -182,7 +182,9 @@ export const researchRunQuerySchema = z.object({
   evidence: answerEvidenceSchema.nullable().optional(),
   /**
    * Whether `citationState` was measured. False when the answer's sources are
-   * not tied to the answer (search results only), so citationState stays null.
+   * not tied to the answer (search results only) or the engine returns no
+   * sources (Local, including rows stored before this flag), so citationState
+   * stays null. Absent when the row records nothing either way.
    */
   citationMeasured: z.boolean().optional(),
   /** The upstream job a `waiting-upstream` query waits on. Absent or null otherwise. */

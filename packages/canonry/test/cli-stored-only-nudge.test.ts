@@ -31,9 +31,9 @@ describe('stored-only CLI housekeeping', () => {
     setupStateSpy.mockClear()
   })
 
-  it('does not evaluate the setup nudge for a stored Page Health success', async () => {
+  it('does not evaluate the setup nudge for a stored Agent Readiness success', async () => {
     process.env.CANONRY_STORED_ONLY = '1'
-    await expect(runCli(['--stored-only', 'site-health', 'overview', 'fixture'])).resolves.toBe(0)
+    await expect(runCli(['--stored-only', 'agent-readiness', 'overview', 'fixture'])).resolves.toBe(0)
     expect(dispatchSpy).toHaveBeenCalledOnce()
     expect(nudgeSpy).not.toHaveBeenCalled()
     expect(setupStateSpy).not.toHaveBeenCalled()

@@ -1,5 +1,7 @@
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, requireProject, requirePositional, getString, parseIntegerOption } from '../cli-command-helpers.js'
+import { getBoolean, requireProject, requirePositional, getString, parseIntegerOption, stringOption } from '../cli-command-helpers.js'
+
+const CITATION_URLS_USAGE = 'canonry citations urls <project> [--window 7d|30d|90d|all] [--domain <host>] [--category forum,social,video] [--provider <id>] [--query-class all|branded|non-brand] [--new-in-latest] [--sort answers|newest] [--limit 100] [--cursor <next-cursor>] [--format json|jsonl]'
 
 export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -57,6 +59,18 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['activity'],
+    usage: 'canonry activity [--since <iso>] [--format json]',
+    options: {
+      since: { type: 'string' },
+    },
+    allowPositionals: false,
+    run: async (input) => {
+      const { showActivity } = await import('../commands/activity.js')
+      await showActivity({ since: getString(input.values, 'since'), format: input.format })
+    },
+  },
+  {
     path: ['overview'],
     usage: 'canonry overview <project>|--all [--location <label>] [--since <iso>] [--format json]',
     options: {
@@ -107,6 +121,38 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const usage = 'canonry citations visibility <project> [--format json]'
       const project = requireProject(input, 'citations visibility', usage)
       await showCitationVisibility(project, { format: input.format })
+    },
+  },
+  {
+    path: ['citations', 'urls'],
+    usage: CITATION_URLS_USAGE,
+    options: {
+      window: stringOption(),
+      domain: stringOption(),
+      category: stringOption(),
+      provider: stringOption(),
+      'query-class': stringOption(),
+      'new-in-latest': { type: 'boolean', default: false },
+      sort: stringOption(),
+      limit: stringOption(),
+      cursor: stringOption(),
+    },
+    run: async (input) => {
+      const { showCitationUrls } = await import('../commands/citations.js')
+      const project = requireProject(input, 'citations urls', CITATION_URLS_USAGE)
+      const limit = parseIntegerOption(input, 'limit', { command: 'citations.urls', usage: CITATION_URLS_USAGE, message: '--limit must be an integer' })
+      await showCitationUrls(project, {
+        window: getString(input.values, 'window'),
+        domain: getString(input.values, 'domain'),
+        category: getString(input.values, 'category'),
+        provider: getString(input.values, 'provider'),
+        queryClass: getString(input.values, 'query-class'),
+        newInLatest: input.values['new-in-latest'] === true ? true : undefined,
+        sort: getString(input.values, 'sort'),
+        limit,
+        cursor: getString(input.values, 'cursor'),
+        format: input.format,
+      })
     },
   },
 ]

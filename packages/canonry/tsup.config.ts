@@ -45,7 +45,7 @@ export default defineConfig({
     '@google/genai',
     '@anthropic-ai/sdk',
     'node-cron',
-    // Publish-time Site Health layout runs in a worker and resolves these
+    // Publish-time Agent Readiness layout runs in a worker and resolves these
     // pinned packages through createRequire. Keep them external in the npm
     // artifact so the worker receives real filesystem module paths.
     'graphology',

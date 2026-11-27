@@ -18,7 +18,7 @@ test('a site-graph render failure reports ui.error with the boundary slug and cl
   vi.spyOn(console, 'error').mockImplementation(() => {})
   const sent: UiTelemetryEvent[] = []
   configureUiTelemetry({ send: async (event) => { sent.push(event); return { accepted: true } } })
-  setUiPageFromRoute('/projects/$projectName/technical-aeo')
+  setUiPageFromRoute('/projects/$projectName/agent-readiness')
 
   render(
     <GraphRenderBoundary fallback={<p>Map unavailable</p>} resetToken={0}>
@@ -33,8 +33,8 @@ test('a site-graph render failure reports ui.error with the boundary slug and cl
     kind: 'render',
     component: 'site-graph',
     errorName: 'RangeError',
-    page: '/projects/:projectName/technical-aeo',
-    tab: 'technical-aeo',
+    page: '/projects/:projectName/agent-readiness',
+    tab: 'agent-readiness',
   })])
   expect(JSON.stringify(sent)).not.toContain('acme-secret')
   expect(JSON.stringify(sent)).not.toContain('WebGL')

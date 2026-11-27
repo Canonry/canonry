@@ -219,6 +219,48 @@ describe('computeVisibilityCompare — share of voice', () => {
     expect(metricOf(dto, 'mention-rate').to.denominator).toBe(3)
   })
 
+  it('leaves an answer from an engine without sources out of every cited figure, counted on its own', () => {
+    // A local model returns no sources, so `not-measured` is not a miss and not
+    // an unknown capture either: it leaves the cited rate and cited share of
+    // voice, stays in the mention rate, and is reported as excludedNotMeasured.
+    const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
+    const from = [
+      snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', citedDomains: ['demo.com'] }),
+      snap({ queryId: 'q1', provider: 'local', citationState: 'not-measured', answerMentioned: true }),
+    ]
+    const to = [
+      snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', citedDomains: ['demo.com'] }),
+      snap({ queryId: 'q1', provider: 'openai', citedDomains: ['rival.com'] }),
+      snap({ queryId: 'q1', provider: 'local', citationState: 'not-measured', answerMentioned: true }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to, { competitors }))
+    expect(metricOf(dto, 'cited-rate').from).toMatchObject({ numerator: 1, denominator: 1, excludedNotMeasured: 1 })
+    expect(metricOf(dto, 'cited-rate').to).toMatchObject({ numerator: 1, denominator: 2, point: 0.5, excludedNotMeasured: 1 })
+    // Cited share of voice: 1 project citation vs 1 competitor citation.
+    expect(metricOf(dto, 'cited-share-of-voice').to).toMatchObject({ numerator: 1, denominator: 2, excludedNotMeasured: 1 })
+    // Not a capture failure: a legacy frame reports no unknowns.
+    expect(metricOf(dto, 'cited-rate').to).not.toHaveProperty('excludedUnknown')
+    // Mention reads every answer, the local ones included.
+    expect(metricOf(dto, 'mention-rate').to).toMatchObject({ numerator: 1, denominator: 3 })
+  })
+
+  it('keeps a class cited rate apart from its unknowns when an engine returns no sources', () => {
+    const queries = [{ id: 'category', query: 'best services' }]
+    // Both months answer on both engines, so both pairs are in the common basket.
+    const from = [
+      snap({ queryId: 'category', provider: 'openai', citationState: 'cited' }),
+      snap({ queryId: 'category', provider: 'local', citationState: 'not-measured' }),
+    ]
+    const to = [
+      snap({ queryId: 'category', provider: 'openai', citationState: 'cited' }),
+      snap({ queryId: 'category', provider: 'openai', citationChecked: false }),
+      snap({ queryId: 'category', provider: 'local', citationState: 'not-measured' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to, { queries, brandNames: ['Demo'] }))
+    expect(metricOf(dto, 'cited-rate-non-brand').from).toMatchObject({ numerator: 1, denominator: 1, excludedUnknown: 0, excludedNotMeasured: 1 })
+    expect(metricOf(dto, 'cited-rate-non-brand').to).toMatchObject({ numerator: 1, denominator: 1, excludedUnknown: 1, excludedNotMeasured: 1 })
+  })
+
   it('does not exclude an answer whose retrieval could not be detected (unknown)', () => {
     // `unknown` means detection did not prove an absence; laundering it into a
     // no-search exclusion would assert a fact the observation never made.

@@ -423,6 +423,37 @@ describe('RunCoordinator', () => {
     })
   })
 
+  describe('spot-check runs (a list of queries)', () => {
+    it('records the answers and sends run.completed, but derives nothing from them', async () => {
+      const { db } = createTempDb('coord-spot-check-')
+      const { projectId, runId } = seedFixture(db)
+      db.update(runs).set({ kind: 'answer-visibility', trigger: 'manual', queries: ['test query'] }).where(eq(runs.id, runId)).run()
+
+      const notifier = createMockNotifier()
+      const service = new IntelligenceService(db)
+      const intelSpy = vi.spyOn(service, 'analyzeAndPersist')
+      const aeroSpy = vi.fn(async () => {})
+      const coordinator = new RunCoordinator(db, notifier as Notifier, service, undefined, aeroSpy)
+      const answersRecorded: string[] = []
+      const sentimentWoken: string[] = []
+      coordinator.onAnswersRecorded = (id) => { answersRecorded.push(id) }
+      coordinator.onSentimentCompleted = async (id) => { sentimentWoken.push(id) }
+
+      await coordinator.onRunCompleted(runId, projectId)
+
+      // Real answers: competitor-alias evidence and the completion webhook.
+      expect(answersRecorded).toEqual([runId])
+      expect(notifier.onRunCompleted).toHaveBeenCalledTimes(1)
+      expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+      // Nothing that would describe the slice as the project.
+      expect(intelSpy).not.toHaveBeenCalled()
+      expect(db.select().from(healthSnapshots).all()).toHaveLength(0)
+      expect(db.select().from(insights).all()).toHaveLength(0)
+      expect(sentimentWoken).toEqual([])
+      expect(aeroSpy).not.toHaveBeenCalled()
+    })
+  })
+
   it('runs GBP intelligence for a gbp-sync run and wakes Aero with the insight count', async () => {
     const { db } = createTempDb('coord-gbp-')
     const now = new Date().toISOString()
@@ -651,5 +682,35 @@ describe('answer evidence hook', () => {
 
     expect(db.select().from(healthSnapshots).all()).toHaveLength(1)
     expect(notifier.onRunCompleted).toHaveBeenCalledWith(runId, projectId)
+  })
+})
+
+describe('site audits', () => {
+  function seedAudit(db: ReturnType<typeof createClient>) {
+    const { projectId, runId } = seedFixture(db)
+    const now = new Date().toISOString()
+    const auditRunId = crypto.randomUUID()
+    db.insert(runs).values({ id: auditRunId, projectId, kind: 'site-audit', status: 'completed', createdAt: now, finishedAt: now }).run()
+    return { projectId, answerRunId: runId, auditRunId }
+  }
+
+  it('asks the notifier for Site Health alerts after a site audit, and only then', async () => {
+    const { db } = createTempDb('coord-site-health-')
+    const { projectId, answerRunId, auditRunId } = seedAudit(db)
+    const notifier = { ...createMockNotifier(), onSiteAuditCompleted: vi.fn().mockResolvedValue(null) }
+    const coordinator = new RunCoordinator(db, notifier as unknown as Notifier, new IntelligenceService(db))
+    await coordinator.onRunCompleted(auditRunId, projectId)
+    expect(notifier.onRunCompleted).toHaveBeenCalledWith(auditRunId, projectId)
+    expect(notifier.onSiteAuditCompleted).toHaveBeenCalledWith(auditRunId, projectId)
+    await coordinator.onRunCompleted(answerRunId, projectId)
+    expect(notifier.onSiteAuditCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('finishes the run even when the Site Health alert fails', async () => {
+    const { db } = createTempDb('coord-site-health-fail-')
+    const { projectId, auditRunId } = seedAudit(db)
+    const notifier = { ...createMockNotifier(), onSiteAuditCompleted: vi.fn().mockRejectedValue(new Error('webhook down')) }
+    const coordinator = new RunCoordinator(db, notifier as unknown as Notifier, new IntelligenceService(db))
+    await expect(coordinator.onRunCompleted(auditRunId, projectId)).resolves.toBeUndefined()
   })
 })

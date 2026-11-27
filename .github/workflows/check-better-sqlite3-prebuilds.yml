@@ -5,7 +5,7 @@ name: Check better-sqlite3 prebuilds
 
 on:
   schedule:
-    # Mondays 10:00 UTC, an hour after bump-aeo-audit so the two do not collide.
+    # Mondays 10:00 UTC, an hour after bump-agent-readiness so the two do not collide.
     - cron: '0 10 * * 1'
   workflow_dispatch:
 

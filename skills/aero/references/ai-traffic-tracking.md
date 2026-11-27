@@ -17,21 +17,59 @@ action.
 
 ## The funnel and what measures each step
 
-Each step is usually 10 to 100 times smaller than the one above it. Most AI
-answers are read inside the assistant, so a site can be read often and clicked
-rarely. Report every step separately; never pool them.
+An assistant can read a site without sending it a visit. Each instrument
+measures a different population. Report every step separately; never pool them.
 
 | Step | What it is | Instrument | Read with |
 |---|---|---|---|
 | Crawled | AI and search bots fetch pages to index them | Server-side traffic, `crawler` | `cnry traffic events <p> --kind crawler` (`canonry_traffic_events`) |
 | Read for a user | An assistant fetches a page live while answering someone (ChatGPT-User, Claude-User, Perplexity-User) | Server-side traffic, `ai-user-fetch` | `cnry traffic events <p> --kind ai-user-fetch` |
-| Clicked | A person follows a link from an AI answer | Server-side `ai-referral` hits; GA4 AI sessions | `cnry traffic events <p> --kind ai-referral`; `cnry ga ai-referral-history <p>` (`canonry_ga_ai_referral_history`) |
-| Came back | That person's later visits, from any channel | AI visitor journeys (server logs) | `cnry journeys summary\|list\|show <p>` (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`) |
+| Clicked | An arrival carries an AI referrer or campaign identifier | Server-side `ai-referral` hits and GA4 AI sessions | `cnry traffic events <p> --kind ai-referral`; `cnry ga ai-referral-daily <p>` (`canonry_ga_ai_referral_daily`) |
+| Came back | Later visits linked by the configured journey identifier | AI visitor journeys (server logs) | `cnry journeys summary\|list\|show <p>` (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`) |
 | Converted | Lead, booking or purchase | GA4 key events plus `measurement.leadEventNames` | `cnry ga measurement-analysis <p> --window 90d --host-scope all` (`canonry_ga_measurement_analysis`) |
 
 Server-side hits are requests and GA4 counts sessions, and each instrument
 misses some visits the other sees, so the two never match exactly. Compare
-their trend, not their totals.
+their trend, not their totals. Server-side arrivals stored before Canonry
+7.87.2 also counted a visitor's later pages, assets and API calls that carried
+the landing page's utm, about one per minute of the visit, so those hours can
+read several times high and cannot be corrected. Never read a trend across
+that upgrade; for earlier hours quote GA4, or AI visitor journeys where they
+exist. `aiReferralCountingChangedAt` on the traffic events series and on
+traffic analytics says when the older count ended; the fitted referral trend
+starts after it, and referral changes are null while the prior window
+reaches back before it. On Cloudflare and Cloud Run sources a one-time
+recount rebuilds the older hours that AI visitor journeys cover, so the mark
+moves back to where journeys began. GA4's daily AI series carries its own
+fitted `trend`, which can span the whole window. For the long view, read GA4
+`months` and `monthlyTrend` and server-side `--granularity month`; never chart
+a month listed in `partialBuckets`, or one whose GA4 `complete` is false, as a
+full reading. A GA4 month with `sessions: null` was never fetched by the AI
+sync; it is not a month without AI visits.
+
+Since Canonry 7.104.0, Claude-SearchBot (Anthropic's search indexing) is its
+own crawler, and any other Claude bot no rule names is listed as an
+unrecognized agent; before, both counted as ClaudeBot (training). The upgrade
+moved stored hours by each hourly row's one sampled user agent, so an hour in
+which two of these bots read the same page stayed whole under one of them, and
+some hours of other Claude bots stay under ClaudeBot: compare ClaudeBot and
+Claude-SearchBot only from the upgrade on.
+
+Since Canonry 7.104.0, browser agents acting for a person (Claude-Agent,
+Google-Agent) count only their page loads as `ai-user-fetch` hits, one per page
+as a fetcher such as Claude-User counts. The files, data calls, prefetches and
+beacons their pages load, and their actions such as form posts, are counted
+apart (`aiUserFetchBrowserNonPageHits` on a sync result; the server log records
+it for scheduled syncs and backfills). Their agent journeys keep page loads,
+actions and failed requests. Hours stored before were counted differently.
+Google-Agent counted every request. Claude-Agent, an unrecognized agent before
+7.104.0, counted its GET and HEAD requests for anything but a static file; the
+upgrade moves those hours into the AI user fetch counts. Both read high, while
+visits the older trust rules sent whole to the likely fake counts read low.
+`aiUserFetchCountingChangedAt` on traffic events and analytics names when a
+source's count changed; the server-fitted `aiUserFetchHits` trend and the
+analytics change already leave earlier hours out. Compare browser-agent counts
+only from that point on.
 
 ## Check the instrument before you report a zero
 
@@ -59,8 +97,8 @@ through these in order and say which one applies.
    read-only.
 3. **Do two instruments agree?** Compare Canonry's GA4 AI sessions with GA4's
    own `AI Assistant` channel (`cnry ga acquisition <p> --window 30d
-   --group-by channel`), and with server-side `ai-referral` hits. Agreement
-   between independent instruments rules out an ingestion fault. GA4 may file
+   --group-by channel`), and with server-side `ai-referral` hits. Use agreement
+   as corroboration and review each source's coverage. GA4 may file
    AI shopping links under another channel when they carry a different
    `utm_medium` (for example `feed`); the source still reads `chatgpt.com`.
 4. **Paid or organic?** An AI-referral spike can be an ads test. GA4 rows carry
@@ -71,10 +109,9 @@ through these in order and say which one applies.
    service or host actually serves the domain (for example, check which backend
    a load balancer routes the domain to) before you claim a wiring gap.
 6. **Is the source partial?**
-   - The default Cloudflare Worker forwards only AI-referred and bot requests,
-     so journeys miss later visits until the source is reconnected with
-     `--forward-page-views` and the Worker redeployed. Journey reads list such
-     sources in `partialSources`.
+   - The default Cloudflare Worker filters traffic for AI, bot, and unrecognized agent signals.
+     To record ordinary browser page views for journeys, reconnect with `--forward-page-views` and redeploy the Worker.
+     Journey reads list sources with partial coverage in `partialSources`.
    - The WordPress logger runs inside WordPress, so it cannot see page views a
      cache serves before WordPress runs.
    - Vercel logs carry no IP, so journey keys use the user agent only
@@ -93,10 +130,14 @@ through these in order and say which one applies.
    requests from an IP that asked for one within 10 minutes, or a user agent
    unlike OpenAI's or Mistral's published string) are left out of AI user
    fetch hits and counted as
-   `totals24h.aiUserFetchLikelyFakeHits`. `cnry traffic samples <p> --kind
-   ai-user-fetch` shows each sample's `trust` and `trustReasons`. Quote
-   `verified` and `likely_real` requests and pages that returned 200; treat
-   `unknown` as unconfirmed.
+   `totals24h.aiUserFetchLikelyFakeHits`. Claude-Agent and Google-Agent load
+   pages like a browser, so the settings files and sign-in endpoints a web
+   app's pages load by themselves are not probes for them. `cnry traffic
+   samples <p> --kind ai-user-fetch` shows each sample's `trust` and
+   `trustReasons`, and for those two agents its `requestKind`; text output
+   marks the requests that were not counted `not counted`. Quote `verified`
+   and `likely_real` requests and pages that returned 200, for browser agents
+   only `requestKind: page` samples; treat `unknown` as unconfirmed.
 
 ## What attribution can and cannot say
 
@@ -130,24 +171,22 @@ through these in order and say which one applies.
    known.
 2. `cnry journeys list <p> --engine ChatGPT --since <a few days before>` and
    `cnry journeys show <p> <visitor-key>` for visitors active near that time.
-3. A user-agent match is "likely", never proof, unless the key also includes
-   the IP. Reading a provider's raw logs beyond what Canonry stored is a live
-   read and needs approval.
+3. Treat the request sequence as a possible match. Canonry groups requests by IP and user agent where available. Reading a provider's raw logs requires approval for the live read.
 
 **"AI referrals dropped. Is our tracking broken?"**
 1. Pull the monthly series from both instruments (server-side `ai-referral` and
    GA4 AI sessions) and split paid from organic.
-2. If both fell together, the traffic changed, not the tracking. Check for an
-   ended ads test, a lost citation or mention (`references/aeo-analysis.md`), or
-   a site change.
+2. If both fell together, check coverage on both sources. Review ad activity, citation and mention evidence, and site changes.
 3. If only one fell, check that instrument: sync errors and stop reasons
    (`cnry traffic status`, `cnry runs <p> --kind traffic-sync`), the GA4 tag,
    or the source's service or host.
 
 **"Which of our pages does AI read?"**
-`cnry traffic events <p> --kind ai-user-fetch --since <date>`: keep verified
-fetches with status 200, group by path, and leave out `robots.txt`. These are
-the pages assistants open while answering people, even when nobody clicks.
+`cnry traffic events <p> --kind ai-user-fetch --group-by agent,path,status --since <date>`
+totals each assistant's fetches per page over the whole window. Keep status 200
+and leave out `robots.txt`. These are the pages assistants open while answering
+people, even when nobody clicks. For one page, add `--path /faq`; to count
+verified fetches only, read the rows and follow `eventRows.nextCursor`.
 
 **"What did an agent do on our site?"**
 Read `cnry traffic agent-journeys <p> --since <date> --until <date>`, then
@@ -169,9 +208,7 @@ mean only user-agent matches were seen: say "not measurable", never zero.
 
 ## Reporting language
 
-- Lead with the step, the count and the window: "Assistants read the site 300
-  times in 30 days (verified); 10 people clicked through; conversions are not
-  measured."
+- Lead with the step, count, and window. For example, "In 30 days we recorded 300 verified assistant fetches and 10 AI referral arrivals. Conversion data is unavailable."
 - Keep crawled, read, clicked, came back and converted as separate numbers.
 - Name the blind spot whenever a number is zero or low because an instrument
   cannot see it.

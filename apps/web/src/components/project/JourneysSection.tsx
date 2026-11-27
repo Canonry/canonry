@@ -238,7 +238,7 @@ function VisitorJourneys({ projectName }: { projectName: string }) {
             <div className="border-y border-default py-8 text-copy-14 text-secondary">
               <p className="text-label-14-strong text-heading">No AI-referred visitors in this period.</p>
               <p className="mt-1 max-w-prose">Visitors appear after a connected traffic source records an AI referral. Try a longer period.</p>
-              <Link to="/traffic" className="mt-2 inline-block text-link hover:underline">Review traffic sources</Link>
+              <Link to="/projects/$projectName/traffic" params={{ projectName }} className="mt-2 inline-block text-link hover:underline">Review traffic sources</Link>
             </div>
           ) : data ? (
             <VisitorTable projectName={projectName} data={data} engines={summaryQuery.data?.byEngine.map(item => item.engine) ?? []} engine={engine} returned={returned} matching={matching} openKey={openKey}

@@ -57,14 +57,14 @@ function insertCompetitor(db: ReturnType<typeof createClient>, projectId: string
   }).run()
 }
 
-function insertRun(db: ReturnType<typeof createClient>, projectId: string, createdAt: string) {
+function insertRun(db: ReturnType<typeof createClient>, projectId: string, createdAt: string, trigger: 'manual' | 'probe' = 'manual') {
   const id = crypto.randomUUID()
   db.insert(runs).values({
     id,
     projectId,
     kind: 'answer-visibility',
     status: 'completed',
-    trigger: 'manual',
+    trigger,
     createdAt,
   }).run()
   return id
@@ -76,7 +76,8 @@ function insertSnapshot(
     runId: string
     queryId: string
     provider: string
-    citationState: 'cited' | 'not-cited'
+    citationState: 'cited' | 'not-cited' | 'not-measured'
+    retrievalStatus?: 'used' | 'not-applicable'
     answerMentioned?: boolean | null
     citedDomains?: string[]
     competitorOverlap?: string[]
@@ -89,6 +90,7 @@ function insertSnapshot(
     queryId: args.queryId,
     provider: args.provider,
     citationState: args.citationState,
+    retrievalStatus: args.retrievalStatus ?? null,
     answerMentioned: args.answerMentioned ?? null,
     citedDomains: args.citedDomains ?? [],
     competitorOverlap: args.competitorOverlap ?? [],
@@ -367,6 +369,48 @@ test('cited-and-mentioned bucket counts a query when different engines provide e
   expect(body.summary.queriesMentionedOnly).toBe(0)
   expect(body.summary.providersCiting).toBe(1)
   expect(body.summary.providersMentioning).toBe(1)
+})
+
+test('an engine that returns no sources is not measured for citation, never counted as a miss', async () => {
+  const projectId = insertProject(ctx.db, 'with-local', ['local', 'gemini'])
+  const qCited = insertQuery(ctx.db, projectId, 'gemini cites, local names')
+  const qLocalOnly = insertQuery(ctx.db, projectId, 'only local answered')
+  const qOlderRow = insertQuery(ctx.db, projectId, 'older local row')
+  const run = insertRun(ctx.db, projectId, '2026-04-28T00:00:00Z')
+  const at = '2026-04-28T00:00:01Z'
+  insertSnapshot(ctx.db, { runId: run, queryId: qCited, provider: 'local', citationState: 'not-measured', retrievalStatus: 'not-applicable', answerMentioned: true, createdAt: at })
+  insertSnapshot(ctx.db, { runId: run, queryId: qCited, provider: 'gemini', citationState: 'cited', retrievalStatus: 'used', answerMentioned: false, createdAt: at })
+  insertSnapshot(ctx.db, { runId: run, queryId: qLocalOnly, provider: 'local', citationState: 'not-measured', retrievalStatus: 'not-applicable', answerMentioned: true, createdAt: at })
+  // Written before `not-measured` existed: stored not-cited, retrieval not-applicable.
+  insertSnapshot(ctx.db, { runId: run, queryId: qOlderRow, provider: 'local', citationState: 'not-cited', retrievalStatus: 'not-applicable', answerMentioned: false, createdAt: at })
+  insertSnapshot(ctx.db, { runId: run, queryId: qOlderRow, provider: 'gemini', citationState: 'not-cited', retrievalStatus: 'used', answerMentioned: false, createdAt: at })
+  // A later probe that cites on the local-only query must not measure it.
+  const probe = insertRun(ctx.db, projectId, '2026-04-29T00:00:00Z', 'probe')
+  insertSnapshot(ctx.db, { runId: probe, queryId: qLocalOnly, provider: 'gemini', citationState: 'cited', retrievalStatus: 'used', answerMentioned: true, createdAt: '2026-04-29T00:00:01Z' })
+
+  await ctx.app.ready()
+  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/with-local/citations/visibility' })
+  const body = JSON.parse(res.body) as CitationVisibilityResponse
+
+  expect(body.summary).toMatchObject({
+    providersConfigured: 2,
+    providersCiting: 1,
+    providersMentioning: 1,
+    providersCitationNotMeasured: 1,
+    totalQueries: 3,
+    queriesCitedAndMentioned: 1,
+    queriesCitedOnly: 0,
+    queriesMentionedOnly: 0,
+    // Gemini checked this query's sources, so "invisible" is a measured claim.
+    queriesInvisible: 1,
+    // Mentioned, but nothing checked its sources: no bucket may claim it is not cited.
+    queriesCitationNotMeasured: 1,
+  })
+  const row = (query: string) => body.byQuery.find(entry => entry.query === query)!
+  expect(row('gemini cites, local names')).toMatchObject({ citedCount: 1, mentionedCount: 1, totalProviders: 2, citationNotMeasured: 1 })
+  expect(row('only local answered')).toMatchObject({ citedCount: 0, mentionedCount: 1, totalProviders: 1, citationNotMeasured: 1 })
+  expect(row('older local row').providers.find(entry => entry.provider === 'local')).toMatchObject({ citationState: 'not-measured', cited: null, mentioned: false })
+  expect(row('older local row').providers.find(entry => entry.provider === 'gemini')).toMatchObject({ citationState: 'not-cited', cited: false })
 })
 
 test('legacy snapshots with null answer_mentioned count as not mentioned', async () => {

@@ -348,6 +348,52 @@ describe('DataForSEO market rankings', () => {
     expect(other).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ costMicros: 10_000 }], results: { marketRankings: [] } })
   })
 
+  it('fails a complete results page with no organic result instead of reading the site and every rival as not in the top 50', async () => {
+    const mapOnly = { type: 'local_pack', rank_group: 0, rank_absolute: 1, domain: 'example.com', title: 'Map results' }
+    const questions = { type: 'people_also_ask', rank_group: 1, rank_absolute: 2, title: 'People also ask' }
+    // Status 20000 and a charge, but nothing ranked was checked: an empty page, no items at all, or only non-organic blocks.
+    for (const page of [serp([]), serp([], { items: null, items_count: 0 }), serp([mapOnly, questions])]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page))
+      const result = await createDataForSeoAdapter(credentials).execute(ranking)
+      expect(result).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ remoteTaskId: 'serp-task', statusCode: 20000, costMicros: 10_000 }], results: { marketRankings: [] } })
+      // Not a search-engine error, so the paid search is not sent again.
+      expect(result.retryable).toBeUndefined()
+    }
+  })
+
+  // Google can link a result through its own redirect; the provider then reports google.com as the
+  // result's domain and keeps the site only in the breadcrumb. Shape checked against a real mobile call 2026-11-10.
+  const wrapped = (rank: number, absolute: number, breadcrumb: string, websiteName: string) => ({
+    type: 'organic', rank_group: rank, rank_absolute: absolute, page: 1, position: 'left', domain: 'google.com',
+    title: `${websiteName} listings`, url: `https://google.com/goto?url=CAESdAHEIkXX${rank}`, breadcrumb, website_name: websiteName,
+  })
+
+  it('reads the site from the breadcrumb when Google links a result through its own redirect', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(serp([
+      wrapped(1, 4, 'https://www.rival.com', 'Rival'),
+      // A social post shows its age where the address would be, so it names no site, even one that sounds like the target.
+      wrapped(2, 6, '1 week ago', 'Facebook · Example Homes'),
+      wrapped(3, 7, 'https://apartments.example.com › harbor › homes', 'Example Homes'),
+      // Google's older redirect form, on www.
+      { ...wrapped(5, 9, 'https://www.downtown-rival.com', 'Downtown Rival'), url: 'https://www.google.com/url?q=https://www.downtown-rival.com/harbor' },
+      wrapped(6, 10, 'https://www.example.com', 'Example'),
+    ])))
+    const result = await createDataForSeoAdapter(credentials).execute(ranking)
+    expect(result.outcome).toBe(SeoAdapterOutcomes.completed)
+    // The redirect is not the page's address, so the address stays unknown rather than pointing at Google.
+    expect(result.results.marketRankings).toMatchObject([
+      { marketKey: 'harbor', searchStatus: 'completed', rankOrganic: 3, rankAbsolute: 7, url: null, depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 1 }] },
+      { marketKey: 'downtown', searchStatus: 'completed', rankOrganic: 3, rankAbsolute: 7, url: null, depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 1 }, { domain: 'downtown-rival.com', rankOrganic: 5 }] },
+    ])
+  })
+
+  it('fails a results page whose every organic result hides its site instead of reading everyone as not in the top 50', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(serp([wrapped(1, 2, '1 week ago', 'Facebook · Rival'), wrapped(2, 3, '10+ likes', 'Instagram · example'), { ...wrapped(3, 4, '', 'Rival'), breadcrumb: null }])))
+    const result = await createDataForSeoAdapter(credentials).execute(ranking)
+    expect(result).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ remoteTaskId: 'serp-task', statusCode: 20000, costMicros: 10_000 }], results: { marketRankings: [] } })
+    expect(result.retryable).toBeUndefined()
+  })
+
   it('keeps a partly collected results page, already paid for, and checks only as deep as it reached', async () => {
     // 40106: some results pages could not be retrieved; the rest come back and only they are charged.
     const partial = { status_code: 40106, cost: 0.006 }

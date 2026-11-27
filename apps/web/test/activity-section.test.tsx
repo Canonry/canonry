@@ -12,9 +12,18 @@ vi.mock('recharts', () => {
   // them. React renders a parent before its children, so this is populated by
   // the time any `Line` below is called.
   let chartRows: Record<string, unknown>[] = []
-  const ComposedChart = ({ children, data }: { children?: React.ReactNode; data?: Record<string, unknown>[] }) => {
+  // The chart's series as a hover lists them: Recharts leaves out a series
+  // drawn with tooltipType="none" (the fitted trend lines).
+  let chartSeries: { dataKey: string; name: string }[] = []
+  // Hover sync stays observable: stacked panels must hover together.
+  const ComposedChart = ({ children, data, syncId }: { children?: React.ReactNode; data?: Record<string, unknown>[]; syncId?: string }) => {
     chartRows = data ?? []
-    return <div>{children}</div>
+    chartSeries = React.Children.toArray(children).flatMap((child) => {
+      if (!React.isValidElement(child)) return []
+      const { dataKey, name, tooltipType } = child.props as { dataKey?: unknown; name?: unknown; tooltipType?: unknown }
+      return typeof dataKey === 'string' && typeof name === 'string' && tooltipType !== 'none' ? [{ dataKey, name }] : []
+    })
+    return <div data-testid="composed-chart" data-sync={syncId}>{children}</div>
   }
   return {
     ResponsiveContainer: passthrough,
@@ -31,16 +40,39 @@ vi.mock('recharts', () => {
               (dot as (p: Record<string, unknown>) => React.ReactNode)({ cx: i, cy: 1, index: i, key: `dot-${i}` }))}
           </div>
         )
-        : null,
+        // Any other line leaves a marker, so a test can tell which are drawn.
+        : <div data-testid={`line-${dataKey}`} />,
     CartesianGrid: () => null,
     Bar: () => null,
-    BarChart: passthrough,
+    BarChart: ({ children }: { children?: React.ReactNode }) => {
+      chartRows = []
+      chartSeries = []
+      return <div>{children}</div>
+    },
     Cell: () => null,
-    ReferenceArea: () => null,
-    ReferenceLine: () => null,
+    // Keep unlabeled bands observable, including their calendar boundaries.
+    ReferenceArea: ({ label, x1, x2 }: { label?: { value?: string }; x1?: string; x2?: string }) =>
+      <div data-testid="reference-area" data-from={x1} data-to={x2}>{label?.value}</div>,
+    ReferenceLine: ({ x }: { x?: string }) => <span data-marker={x} />,
     XAxis: () => null,
-    YAxis: () => null,
-    Tooltip: () => null,
+    // How four-digit ticks read: whole in the gutter, or cut down to "000";
+    // exact, or rounded off the gridline they label.
+    YAxis: ({ tickFormatter }: { tickFormatter?: (value: number, index: number) => string }) =>
+      <div data-testid="y-axis" data-tick-4000={tickFormatter ? tickFormatter(4000, 0) : '4,000'}
+           data-tick-1050={tickFormatter ? tickFormatter(1050, 0) : '1,050'} />,
+    // What a hover names on every bucket: each series' label as the chart's own
+    // formatter returns it. Labels ride on attributes, so text queries never meet them.
+    Tooltip: ({ formatter }: { formatter?: (value: unknown, name: string, item: { payload: Record<string, unknown> }) => unknown }) => (
+      <div data-testid="chart-tooltip">
+        {chartRows.flatMap((row, i) => chartSeries.map(({ dataKey, name }) => {
+          const shown = formatter?.(row[dataKey], name, { payload: row })
+          return (
+            <span key={`${i}-${dataKey}`} data-bucket={String(row.bucket)} data-series={dataKey}
+                  data-label={Array.isArray(shown) ? String(shown[1]) : name} />
+          )
+        }))}
+      </div>
+    ),
     // Rendered as a marker so a test can prove the legend exists at all. The
     // real Legend draws to canvas-ish SVG that jsdom cannot meaningfully assert.
     Legend: () => <div data-testid="chart-legend" />,
@@ -49,7 +81,7 @@ vi.mock('recharts', () => {
 
 import { ACTIVITY_COPY, ActivitySection, ClickThroughActivity, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
 import { StackedSeriesChart } from '../src/components/project/ActivityParts.js'
-import { AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
+import { AI_TRAFFIC_HISTORY_COPY, AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
 
 function renderActivitySection() {
   const queryClient = new QueryClient({
@@ -460,17 +492,173 @@ test('social groups sources by platform from the API and opens the raw rows in p
   expect(within(sources).getByText('Paid social')).toBeTruthy()
 })
 
+function socialPlatformRow(row: {
+  key: string
+  platform: string | null
+  label: string
+  sessions: number
+  paidSessions: number
+  conversions: number | null
+  display: string
+  rank: number | null
+  enoughSessions: boolean
+  sources?: unknown[]
+}) {
+  return {
+    key: row.key,
+    platform: row.platform,
+    label: row.label,
+    sessions: row.sessions,
+    organicSessions: row.sessions - row.paidSessions,
+    paidSessions: row.paidSessions,
+    share: 0.3,
+    conversions: row.conversions,
+    conversionsPerThousandSessions: row.display === '\u2014' ? null : Number.parseFloat(row.display),
+    conversionsPerThousandSessionsDisplay: row.display,
+    enoughSessions: row.enoughSessions,
+    rank: row.rank,
+    paid: { sessions: row.paidSessions, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' },
+    organic: { sessions: row.sessions - row.paidSessions, conversions: 0, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' },
+    channelGroups: ['Organic Social'],
+    sources: row.sources ?? [],
+  }
+}
+
+/**
+ * Platforms across every GA4 channel, as the API sends them: sessions
+ * descending, with the rank, the not-ranked flag and every rate set by the
+ * server. The displays here differ from conversions / sessions on purpose, so
+ * a client recount would show.
+ */
+function socialPlatformPerformance(overrides: Record<string, unknown> = {}) {
+  const facebookSources = [
+    { source: 'FB_Ads', medium: 'paidsocial', channelGroup: 'Paid Other', trafficClass: 'paid', sessions: 1500, share: 0.47, conversions: 6, conversionsPerThousandSessions: 4, conversionsPerThousandSessionsDisplay: '4.0' },
+    { source: 'facebook.com', medium: 'referral', channelGroup: 'Organic Social', trafficClass: 'organic', sessions: 120, share: 0.04, conversions: 0, conversionsPerThousandSessions: 0, conversionsPerThousandSessionsDisplay: '0' },
+  ]
+  return {
+    status: 'ready',
+    unavailableReason: null,
+    sessions: 3220,
+    sharePct: 32.2,
+    sharePctDisplay: '32.2%',
+    paidSessions: 1500,
+    paidShare: 0.466,
+    conversions: 26,
+    conversionRateAvailable: true,
+    conversionRateUnavailableReason: null,
+    countedEventNames: ['purchase'],
+    minSessions: 1000,
+    site: { sessions: 10000, conversions: 56, conversionsPerThousandSessions: 5.6, conversionsPerThousandSessionsDisplay: '5.6' },
+    platforms: [
+      socialPlatformRow({ key: 'facebook', platform: 'facebook', label: 'Facebook', sessions: 1620, paidSessions: 1500, conversions: 6, display: '3.7', rank: 2, enoughSessions: true, sources: facebookSources }),
+      socialPlatformRow({ key: 'instagram', platform: 'instagram', label: 'Instagram', sessions: 1200, paidSessions: 0, conversions: 12, display: '9.9', rank: 1, enoughSessions: true }),
+      socialPlatformRow({ key: 'shopmy', platform: 'shopmy', label: 'ShopMy', sessions: 400, paidSessions: 0, conversions: 8, display: '20.0', rank: null, enoughSessions: false }),
+    ],
+    daily: {
+      series: [{ key: 'facebook', label: 'Facebook', sessions: 1620 }, { key: 'instagram', label: 'Instagram', sessions: 1200 }, { key: 'shopmy', label: 'ShopMy', sessions: 400 }],
+      otherCount: 0,
+      days: [{ date: '2026-03-31', sessions: 3220, values: { facebook: 1620, instagram: 1200, shopmy: 400 } }],
+    },
+    ...overrides,
+  }
+}
+
+test('social platforms across every GA4 channel rank by the API conversions per 1,000 sessions', async () => {
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({ socialPlatformPerformance: socialPlatformPerformance() })),
+  }))
+
+  renderActivitySection()
+
+  const section = await waitFor(() => sectionByHeading('Social'))
+  const figures = within(within(section).getByLabelText('Social sessions'))
+  expect(figures.getByText('3,220')).toBeTruthy()
+  expect(figures.getByText('32.2% of all sessions')).toBeTruthy()
+  expect(within(figures.getByText('Top platform').closest('div') as HTMLElement).getByText('Facebook')).toBeTruthy()
+  const best = figures.getByText('Best converting').closest('div') as HTMLElement
+  expect(within(best).getByText('Instagram')).toBeTruthy()
+  expect(within(best).getByText('9.9 per 1,000 sessions')).toBeTruthy()
+
+  const platformsRow = disclosure(section, 'Social platforms')
+  expect(within(platformsRow).getByText('3 platforms · 2 sources')).toBeTruthy()
+  await openDisclosure(platformsRow)
+  const table = await within(platformsRow).findByRole('table', { name: 'Social and creator platforms by sessions and conversions' })
+  const bodyRows = within(table).getAllByRole('row').slice(1)
+  // The whole-site row is pinned first; platforms follow the server rank, and
+  // the platform with too few sessions comes last whatever its rate.
+  expect(bodyRows[0]!.getAttribute('data-testid')).toBe('social-site-average')
+  expect(within(bodyRows[0]!).getByText('10,000')).toBeTruthy()
+  expect(within(bodyRows[0]!).getByText('5.6')).toBeTruthy()
+  expect(bodyRows.slice(1).map(row => within(row).getAllByRole('cell')[0]!.textContent)).toEqual([
+    'Instagram0 sources',
+    'Facebook2 sources',
+    'ShopMy0 sources',
+  ])
+  expect(within(bodyRows[1]!).getByText('9.9')).toBeTruthy()
+  expect(within(bodyRows[1]!).getByText('1')).toBeTruthy()
+  expect(within(bodyRows[3]!).getByText('20.0')).toBeTruthy()
+  expect(within(bodyRows[3]!).getByText(ACTIVITY_COPY.notRanked)).toBeTruthy()
+
+  // An ad GA4 filed under Paid Other reads as Paid, with GA4's channel verbatim.
+  fireEvent.click(within(table).getByRole('button', { name: /Facebook/ }))
+  const sources = within(table).getByRole('table', { name: 'Facebook sources' })
+  const adRow = within(sources).getByText('FB_Ads').closest('tr') as HTMLElement
+  expect(within(adRow).getByText('Paid Other')).toBeTruthy()
+  expect(within(adRow).getByText('Paid')).toBeTruthy()
+  expect(within(adRow).getByText('4.0')).toBeTruthy()
+})
+
+test('social platforms withhold ranks with the API reason, and keep sessions and conversions', async () => {
+  const withheld = socialPlatformPerformance({ conversionRateAvailable: false, conversionRateUnavailableReason: 'sessions-before-leads' })
+  withheld.platforms = withheld.platforms.map(row => ({ ...row, rank: null, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' }))
+  withheld.site = { ...withheld.site, conversionsPerThousandSessions: null, conversionsPerThousandSessionsDisplay: '\u2014' }
+  onTestFinished(mockConnectedGa({
+    '/ga/traffic': () => jsonResponse(gaTrafficResponse({ socialPlatformPerformance: withheld })),
+  }))
+
+  renderActivitySection()
+
+  const section = await waitFor(() => sectionByHeading('Social'))
+  const best = within(within(section).getByLabelText('Social sessions')).getByText('Best converting').closest('div') as HTMLElement
+  expect(within(best).getByText(ACTIVITY_COPY.notMeasured)).toBeTruthy()
+  const platformsRow = disclosure(section, 'Social platforms')
+  await openDisclosure(platformsRow)
+  expect(within(platformsRow).getByText(ACTIVITY_COPY.rateReasons['sessions-before-leads'])).toBeTruthy()
+  const table = within(platformsRow).getByRole('table', { name: 'Social and creator platforms by sessions and conversions' })
+  // Sessions order when nothing is ranked, and conversions still shown.
+  const bodyRows = within(table).getAllByRole('row').slice(1)
+  expect(bodyRows.slice(1).map(row => within(row).getAllByRole('cell')[0]!.textContent)).toEqual([
+    'Facebook2 sources',
+    'Instagram0 sources',
+    'ShopMy0 sources',
+  ])
+  expect(within(bodyRows[2]!).getByText('12')).toBeTruthy()
+  expect(within(table).queryByText(ACTIVITY_COPY.notRanked)).toBeNull()
+})
+
 test('top time picker reloads every GA surface, social included, from the same window', async () => {
   const seen = new Set<string>()
+  const syncDays: number[] = []
+  const serverStarts: string[] = []
   const platforms = {
     '7d': { label: 'LinkedIn', platform: 'linkedin', source: 'linkedin.com', sessions: 7 },
     '30d': { label: 'Facebook', platform: 'facebook', source: 'facebook.com', sessions: 30 },
     '90d': { label: 'X', platform: 'x', source: 'x.com', sessions: 90 },
+    '180d': { label: 'Instagram', platform: 'instagram', source: 'instagram.com', sessions: 180 },
   } as const
   const surfaces = ['traffic', 'ai-referral-daily', 'session-history', 'overview'] as const
 
-  onTestFinished(mockFetch((url) => {
+  onTestFinished(mockFetch((url, init) => {
     const parsed = new URL(url, window.location.origin)
+    if (parsed.pathname.endsWith('/traffic/sources')) return jsonResponse({ sources: [] })
+    if (parsed.pathname.endsWith('/traffic/events')) {
+      serverStarts.push(parsed.searchParams.get('since')!)
+      return jsonResponse({ events: [], totals: {}, series: { points: [] } })
+    }
+    if (parsed.pathname.endsWith('/ga/sync')) {
+      syncDays.push((JSON.parse(String(init?.body)) as { days: number }).days)
+      return jsonResponse({ rowCount: 0, aiReferralCount: 0, socialReferralCount: 0, days: 180 })
+    }
     if (parsed.pathname.endsWith('/projects/test-project/ga/status')) return jsonResponse(GA_STATUS)
     if (parsed.pathname.endsWith('/projects/test-project/ga/search-landing-pages')) return jsonResponse(EMPTY_SEARCH_LANDING)
     if (parsed.pathname.endsWith('/ga/social-referral-history')) throw new Error('the Social section reads /ga/traffic only')
@@ -490,12 +678,6 @@ test('top time picker reloads every GA surface, social included, from the same w
     }))
   }))
 
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const renderWindow = (windowKey: keyof typeof platforms) => (
-    <QueryClientProvider client={queryClient}>
-      <ClickThroughActivity projectName="test-project" window={windowKey} />
-    </QueryClientProvider>
-  )
   // Social's figures stay in view while its tables are closed rows, so the
   // top platform figure is what proves the section reloaded for the window.
   const topPlatform = () => {
@@ -509,12 +691,18 @@ test('top time picker reloads every GA surface, social included, from the same w
     })
   }
 
-  const { rerender } = render(renderWindow('30d'))
+  renderActivitySection()
   await assertWindow('30d')
-  rerender(renderWindow('7d'))
-  await assertWindow('7d')
-  rerender(renderWindow('90d'))
-  await assertWindow('90d')
+  const picker = screen.getByRole('group', { name: 'Traffic time period' })
+  for (const window of ['7d', '90d', '180d'] as const) {
+    fireEvent.click(within(picker).getByRole('button', { name: window }))
+    await assertWindow(window)
+  }
+  expect(within(picker).getByRole('button', { name: '180d' }).getAttribute('aria-pressed')).toBe('true')
+  expect(within(sectionByHeading('Site traffic')).getAllByText('vs prior 180 days').length).toBeGreaterThan(0)
+  expect(Math.round((Date.now() - Date.parse(serverStarts.at(-1)!)) / 86_400_000)).toBe(180)
+  fireEvent.click(within(sectionByHeading('Site traffic')).getByRole('button', { name: 'Sync' }))
+  await waitFor(() => expect(syncDays).toEqual([180]))
 })
 
 /**
@@ -724,7 +912,7 @@ test('AI traffic history survives an API older than the client', async () => {
  * Without a legend the only thing naming a series is the hover tooltip, so a
  * glance cannot tell the lines apart.
  */
-test('AI traffic charts carry a legend', async () => {
+test('AI traffic charts name their series and keep every y label whole', async () => {
   const restoreFetch = mockFetch((url) => {
     if (url.split('?')[0]!.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
     if (url.split('?')[0]!.endsWith('/projects/test-project/traffic/events')) {
@@ -753,8 +941,562 @@ test('AI traffic charts carry a legend', async () => {
   )
 
   await screen.findByText('AI crawlers')
-  // One per chart: machines, and people arriving.
-  expect(screen.getAllByTestId('chart-legend').length).toBe(2)
+  // The machines chart carries a legend; each visits panel names its count.
+  expect(screen.getAllByTestId('chart-legend').length).toBe(1)
+  expect(within(screen.getByRole('group', { name: 'Visits, server' })).getByText('Visits, server')).toBeTruthy()
+  // GA4 recorded nothing here, so Both draws no empty GA4 panel.
+  expect(screen.queryByRole('group', { name: 'Visits, GA4' })).toBeNull()
+  // Four-digit ticks read compactly on every chart, so the gutter holds them,
+  // and exactly: a 1,050 gridline is not labelled 1.1K.
+  for (const axis of screen.getAllByTestId('y-axis')) {
+    expect([axis.getAttribute('data-tick-4000'), axis.getAttribute('data-tick-1050')]).toEqual(['4.0K', '1.05K'])
+  }
+})
+
+/**
+ * Server visits before the API's `aiReferralCountingChangedAt` were counted by
+ * an older rule that also counted a visitor's later pages, and can read many
+ * times high. The chart keeps them, bands them where the server line is drawn,
+ * and says so on the visitors total; GA4 never used that rule, so its view
+ * carries no band.
+ */
+test('AI traffic history bands server visits counted by the older rule', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  for (const changedAt of ['2026-11-02T18:31:33.000Z', null]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 6, aiReferralHits: 336, aiReferralLandedHits: 336 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiReferralCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map((bucket, i) => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: 1,
+              aiReferralHits: i < 3 ? 100 : 2, aiReferralLandedHits: i < 3 ? 100 : 2, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const visitorsTile = (await screen.findByText(AI_TRAFFIC_HISTORY_COPY.visitors)).closest('div') as HTMLElement
+
+    if (changedAt) {
+      // Raw totals and their caveat remain; the historical band has no caption.
+      expect(within(visitorsTile).getByText('336')).toBeTruthy()
+      expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsOlderDetail)).toBeTruthy()
+      const band = screen.getByTestId('reference-area')
+      expect(band.getAttribute('data-from')).toBe('2026-10-31')
+      expect(band.getAttribute('data-to')).toBe('2026-11-02')
+      expect(band.textContent).toBe('')
+      // The older count is its own faded series, keyed as reading high.
+      const serverPanel = screen.getByRole('group', { name: 'Visits, server' })
+      expect(within(serverPanel).getByTestId('dots-serverOlder')).toBeTruthy()
+      expect(within(serverPanel).getByText('Older count, may read high')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+      expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    } else {
+      expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsDetail)).toBeTruthy()
+      expect(screen.queryAllByTestId('reference-area')).toEqual([])
+      expect(screen.queryByTestId('dots-serverOlder')).toBeNull()
+      expect(screen.queryByText('Older count, may read high')).toBeNull()
+    }
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/**
+ * Review finding: once the older and newer server counts became separate
+ * lines, a count with one day in view had no neighbour to join and drew
+ * nothing in Days, while the key still listed it. A lone day of either count
+ * is a dot; a run of days stays a line.
+ */
+test('Days view draws a lone older or newer server day as a dot', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  for (const { changedAt, older, newer } of [
+    // Changed on the first day shown: the older count holds that day alone.
+    { changedAt: '2026-10-31T18:31:33.000Z', older: [['0', '0.4']], newer: [] },
+    // Changed on the day before the last: the newer count holds the last day alone.
+    { changedAt: '2026-11-04T18:31:33.000Z', older: [], newer: [['5', '1']] },
+  ]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 6, aiReferralHits: 60, aiReferralLandedHits: 60 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiReferralCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map(bucket => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: 1, aiReferralHits: 10, aiReferralLandedHits: 10, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const serverPanel = await screen.findByRole('group', { name: 'Visits, server' })
+    const dots = (dataKey: string) => [...within(serverPanel).getByTestId(`dots-${dataKey}`).querySelectorAll('circle')]
+      .map(circle => [circle.getAttribute('cx'), circle.getAttribute('fill-opacity')])
+    expect(dots('serverOlder'), changedAt).toEqual(older)
+    expect(dots('aiReferralLandedHits'), changedAt).toEqual(newer)
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/** The x of every count-change line the charts draw, in document order. */
+const changeMarkers = () => [...document.querySelectorAll('[data-marker]')].map((marker) => marker.getAttribute('data-marker'))
+
+/** What a hover names one series on each bucket, in bucket order. */
+const hoverLabels = (dataKey: string) => [...document.querySelectorAll(`[data-testid="chart-tooltip"] [data-series="${dataKey}"]`)]
+  .map((entry) => [entry.getAttribute('data-bucket'), entry.getAttribute('data-label')])
+
+/**
+ * Page fetches before the API's `aiUserFetchCountingChangedAt`, the end of the
+ * last hour a browser agent's requests were counted under older rules, can read
+ * high or low. The page fetches total says so, a line marks the last such day
+ * wherever page fetches are drawn, and a hover names that day's fetches and the
+ * ones before it the older count. A change at midnight leaves the day it begins
+ * counted the new way. The visitors total, counted by its own rule, says nothing.
+ */
+test('AI traffic history marks page fetches counted before browser agents counted page loads only', async () => {
+  const days = ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']
+  const older = AI_TRAFFIC_HISTORY_COPY.olderPageFetchesSeries
+  const current = AI_TRAFFIC_HISTORY_COPY.pageFetchesSeries
+  for (const { changedAt, through } of [
+    { changedAt: '2026-11-02T10:00:00.000Z', through: '2026-11-02' },
+    { changedAt: '2026-11-03T00:00:00.000Z', through: '2026-11-02' },
+    { changedAt: null, through: null },
+  ]) {
+    const restoreFetch = mockFetch((url) => {
+      const path = url.split('?')[0]!
+      if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      if (path.endsWith('/projects/test-project/traffic/events')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 60, crawlerContentHits: 60, aiUserFetchHits: 69, aiReferralHits: 12, aiReferralLandedHits: 12 },
+          series: {
+            granularity: 'day', coverageStart: '2026-08-16T18:00:00.000Z', aiUserFetchCountingChangedAt: changedAt,
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: days.map((bucket, i) => ({
+              bucket, crawlerHits: 10, crawlerContentHits: 10, aiUserFetchHits: i < 3 ? 20 : 3,
+              aiReferralHits: 2, aiReferralLandedHits: 2, measured: true,
+            })),
+          },
+        })
+      }
+      return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+      </QueryClientProvider>,
+    )
+    const fetchesTile = (await screen.findByText(AI_TRAFFIC_HISTORY_COPY.pageFetches)).closest('div') as HTMLElement
+    const visitorsTile = screen.getByText(AI_TRAFFIC_HISTORY_COPY.visitors).closest('div') as HTMLElement
+
+    expect(within(fetchesTile).getByText('69')).toBeTruthy()
+    expect(within(fetchesTile).getByText(through ? AI_TRAFFIC_HISTORY_COPY.pageFetchesOlderDetail : AI_TRAFFIC_HISTORY_COPY.pageFetchesDetail)).toBeTruthy()
+    expect(within(fetchesTile).getByRole('button', { name: AI_TRAFFIC_HISTORY_COPY.pageFetchesTooltip(through) })).toBeTruthy()
+    expect(within(visitorsTile).getByText(AI_TRAFFIC_HISTORY_COPY.visitorsDetail)).toBeTruthy()
+    // Marked with a line, not a band: the crawler series beside it never changed.
+    expect(screen.queryAllByTestId('reference-area')).toEqual([])
+    expect(changeMarkers(), String(changedAt)).toEqual(through ? [through] : [])
+    expect(hoverLabels('aiUserFetchHits'), String(changedAt)).toEqual(through
+      ? [['2026-10-31', older], ['2026-11-01', older], ['2026-11-02', older], ['2026-11-03', current], ['2026-11-04', current], ['2026-11-05', current]]
+      : days.map((day) => [day, current]))
+    if (through) {
+      // Hidden page fetches take their marker with them.
+      fireEvent.click(screen.getByRole('checkbox', { name: AI_TRAFFIC_HISTORY_COPY.pageFetchesSeries }))
+      expect(changeMarkers()).toEqual([])
+    }
+    cleanup()
+    restoreFetch()
+  }
+})
+
+/**
+ * GA4 counted AI sessions the same way the whole time, so its server-fitted
+ * trend is drawn wherever the GA4 line is: Both and GA4, never Server.
+ */
+/**
+ * Months read the long view the monthly report draws: visits by calendar month,
+ * part months (recording began inside one, or it is still running) drawn
+ * hollow off the line, and the newest complete month's figures in one strip,
+ * all as the API reports them.
+ */
+test('AI traffic history shows visits by month', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-06T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
+  const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
+  const restoreFetch = mockFetch((url) => {
+    const [path, query = ''] = url.split('?') as [string, string?]
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) {
+      if (!query.includes('startDate=')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+      return jsonResponse({
+        days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0,
+        months: [
+          { month: '2026-03', sessions: null, complete: false, engines: [] },
+          { month: '2026-04', sessions: 46, complete: false, engines: [] },
+          ...[['2026-05', 86], ['2026-06', 90], ['2026-07', 88], ['2026-08', 148], ['2026-09', 175]].map(([month, sessions]) =>
+            ({ month, sessions, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions }] })),
+          { month: '2026-10', sessions: 95, complete: true, engines: [{ key: 'chatgpt', label: 'ChatGPT', sessions: 91 }, { key: 'gemini', label: 'Gemini', sessions: 4 }] },
+          { month: '2026-11', sessions: 24, complete: false, engines: [] },
+        ],
+        monthlyTrend: { slope: 9.7, intercept: 41.6, r2: 0.15, start: 99.8, end: 138.6, n: 5, startIndex: 3, endIndex: 7, startMonth: '2026-06', endMonth: '2026-10', changePct: 39.25 },
+      })
+    }
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      if (query.includes('granularity=month')) {
+        return jsonResponse({
+          events: [], eventRows: { total: 0, returned: 0, truncated: false },
+          totals: { crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0 },
+          series: {
+            granularity: 'month', coverageStart: '2026-05-21T00:00:00.000Z', partialBuckets: ['2026-05', '2026-11'],
+            trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+            points: months.map((bucket, i) => ({
+              bucket, crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0,
+              aiReferralLandedHits: [0, 14, 127, 135, 216, 235, 120, 31][i], measured: i > 0,
+            })),
+          },
+        })
+      }
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 5, crawlerContentHits: 5, aiUserFetchHits: 1, aiReferralHits: 2, aiReferralLandedHits: 2 },
+        series: {
+          granularity: 'day', coverageStart: '2026-05-21T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: [{ bucket: '2026-11-05', crawlerHits: 5, crawlerContentHits: 5, aiUserFetchHits: 1, aiReferralHits: 2, aiReferralLandedHits: 2, measured: true }],
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+  await screen.findByText('AI crawlers')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+  expect(strip.textContent).toBe('October 202695visits, GA4120visits, server▲39.3%trend since Jun91from ChatGPT')
+  const current = screen.getByRole('group', { name: 'Month so far' })
+  expect(within(current).getByText('November 2026 so far')).toBeTruthy()
+  expect(within(current).getByText('Hollow dots: partial months')).toBeTruthy()
+  expect(current.textContent).toMatch(/24\s*visits, GA4/)
+  expect(current.textContent).toMatch(/31\s*visits, server/)
+  // Part months are hollow and off the line: May and November for the server.
+  const serverPartial = screen.getByTestId('dots-serverPartial').querySelectorAll('circle')
+  expect([...serverPartial].map(c => c.getAttribute('fill'))).toEqual(['none', 'none'])
+  // April (GA4 history began inside it) and November for GA4.
+  expect(screen.getByTestId('dots-ga4Partial').querySelectorAll('circle[fill="none"]').length).toBe(2)
+
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.queryByTestId('dots-serverPartial')).toBeNull()
+  expect(strip.textContent).toBe('October 202695visits, GA4▲39.3%trend since Jun91from ChatGPT')
+  expect(current.textContent).toMatch(/24\s*visits, GA4/)
+  expect(current.textContent).not.toContain('visits, server')
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(current.textContent).toMatch(/31\s*visits, server/)
+  expect(current.textContent).not.toContain('visits, GA4')
+  fireEvent.click(screen.getByRole('button', { name: 'Days' }))
+  expect(screen.queryByRole('group', { name: 'Month so far' })).toBeNull()
+})
+
+/** Real SDK reads with independently supplied source responses. */
+function renderMonthlyHistory(input: {
+  dailyActive?: boolean
+  serverConnected?: boolean
+  gaStatus?: () => Response | Promise<Response>
+  server: () => Response | Promise<Response>
+  ga: () => Response | Promise<Response>
+}) {
+  onTestFinished(mockFetch((url) => {
+    const parsed = new URL(url, window.location.origin)
+    if (parsed.pathname.endsWith('/ga/status')) return input.gaStatus?.() ?? jsonResponse(GA_STATUS)
+    if (parsed.pathname.endsWith('/ga/ai-referral-daily')) {
+      return parsed.searchParams.has('startDate') ? input.ga() : jsonResponse(EMPTY_AI_DAILY_RESPONSE)
+    }
+    if (parsed.pathname.endsWith('/traffic/sources')) {
+      return jsonResponse({ sources: input.serverConnected === false ? [] : [{ id: 'server', status: 'connected' }] })
+    }
+    if (parsed.pathname.endsWith('/traffic/events')) {
+      if (parsed.searchParams.get('granularity') === 'month') return input.server()
+      const count = input.dailyActive === false ? 0 : 1
+      return jsonResponse({
+        events: [], totals: { crawlerContentHits: count, aiUserFetchHits: 0, aiReferralLandedHits: count },
+        series: {
+          coverageStart: input.serverConnected === false ? null : '2026-05-01T00:00:00.000Z',
+          points: [{ bucket: '2026-11-05', crawlerContentHits: count, aiReferralLandedHits: count, measured: input.serverConnected !== false }],
+        },
+      })
+    }
+    throw new Error(`Unexpected history request: ${url}`)
+  }))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={queryClient}>
+    <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+  </QueryClientProvider>)
+}
+
+test.each([true, false])('monthly history remains reachable with quiet daily traffic and server connected=%s', async (serverConnected) => {
+  renderMonthlyHistory({
+    dailyActive: false,
+    serverConnected,
+    server: () => jsonResponse({ series: { points: serverConnected ? [{ bucket: '2026-10', aiReferralLandedHits: 42, measured: true }] : [] } }),
+    ga: () => jsonResponse({ months: [{ month: '2026-10', sessions: 23, complete: true, engines: [] }] }),
+  })
+  await screen.findByText(serverConnected ? 'No AI activity recorded in this period.' : 'No server-side traffic source connected yet.')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+  await waitFor(() => expect(strip.textContent).toBe(serverConnected ? 'October 202623visits, GA442visits, server' : 'October 202623visits, GA4'))
+  // With no server buckets, GA4 must still supply a plotted reading.
+  expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Days' }))
+  expect(screen.queryByText('October 2026')).toBeNull()
+})
+
+test('monthly history draws adjacent partial months for both sources', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-12-06T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: {
+      partialBuckets: ['2026-10', '2026-11'],
+      points: [{ bucket: '2026-10', aiReferralLandedHits: 42 }, { bucket: '2026-11', aiReferralLandedHits: 11 }],
+    } }),
+    ga: () => jsonResponse({ months: [
+      { month: '2026-10', sessions: 23, complete: false, engines: [] },
+      { month: '2026-11', sessions: 7, complete: false, engines: [] },
+    ] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  await waitFor(() => {
+    expect(screen.getByTestId('dots-serverPartial').querySelectorAll('circle[fill="none"]')).toHaveLength(2)
+    expect(screen.getByTestId('dots-ga4Partial').querySelectorAll('circle[fill="none"]')).toHaveLength(2)
+  })
+  expect(screen.getByTestId('dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(0)
+  expect(screen.getByTestId('dots-ga4Visits').querySelectorAll('circle')).toHaveLength(0)
+  // Stale incomplete months remain plotted, but are not the current month.
+  expect(screen.queryByRole('group', { name: 'Month so far' })).toBeNull()
+})
+
+test('monthly summary follows the selected source when GA4 history ends earlier', async () => {
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: { points: [
+      { bucket: '2026-09', aiReferralLandedHits: 30 },
+      { bucket: '2026-10', aiReferralLandedHits: 42 },
+    ] } }),
+    ga: () => jsonResponse({ months: [{ month: '2026-09', sessions: 23, complete: true, engines: [] }] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  await screen.findByText('September 2026')
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect((await screen.findByText('October 2026')).parentElement?.textContent).toBe('October 202642visits, server')
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByText('September 2026').parentElement?.textContent).toBe('September 202623visits, GA4')
+})
+
+test.each(['server', 'ga', 'status'] as const)('monthly history reports and retries a failed %s read without claiming zero', async (source) => {
+  let finishRequest!: (response: Response) => void
+  const pendingResponse = new Promise<Response>((resolve) => { finishRequest = resolve })
+  let attempts = 0
+  const server = () => jsonResponse({ series: { points: source === 'status' ? [] : [{ bucket: '2026-10', aiReferralLandedHits: 42 }] } })
+  const ga = () => jsonResponse({ months: [{ month: '2026-10', sessions: 23, complete: true, engines: [] }] })
+  const read = (lane: 'server' | 'ga' | 'status') => {
+    if (lane === source && attempts++ === 0) return pendingResponse
+    if (lane === 'status') return jsonResponse(GA_STATUS)
+    return lane === 'server' ? server() : ga()
+  }
+  renderMonthlyHistory({ server: () => read('server'), ga: () => read('ga'), gaStatus: () => read('status') })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const loading = source === 'status' ? 'Checking the GA4 connection…' : source === 'server' ? 'Loading monthly server visits…' : 'Loading monthly GA4 visits…'
+  expect(await screen.findByText(loading)).toBeTruthy()
+  expect(screen.queryByText('No monthly visits recorded yet.')).toBeNull()
+  finishRequest(new Response('failed', { status: 500 }))
+  expect((await screen.findByRole('alert')).textContent).toBe(source === 'status' ? 'Could not check the GA4 connection.' : source === 'server' ? 'Could not load monthly server visits.' : 'Could not load monthly GA4 visits.')
+  expect(screen.queryByText('No monthly visits recorded yet.')).toBeNull()
+  if (source === 'status') {
+    // The unresolved connection must remain an error in GA4-only mode too.
+    fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+    expect(screen.getByRole('alert').textContent).toBe('Could not check the GA4 connection.')
+    fireEvent.click(screen.getByRole('button', { name: 'Both' }))
+  } else {
+    const strip = (await screen.findByText('October 2026')).parentElement as HTMLElement
+    expect(strip.textContent).toBe(source === 'server' ? 'October 202623visits, GA4' : 'October 202642visits, server')
+    expect(screen.getByTestId(source === 'server' ? 'dots-ga4Visits' : 'dots-aiReferralLandedHits').querySelectorAll('circle')).toHaveLength(1)
+  }
+  fireEvent.click(screen.getByRole('button', { name: source === 'status' ? 'Retry GA4 connection check' : source === 'server' ? 'Retry monthly server visits' : 'Retry monthly GA4 visits' }))
+  await waitFor(() => expect(screen.getByText('October 2026').parentElement?.textContent).toBe(source === 'status' ? 'October 202623visits, GA4' : 'October 202623visits, GA442visits, server'))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(attempts).toBe(2)
+})
+
+test('AI traffic history draws the GA4 trend where the GA4 line is', async () => {
+  const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) {
+      return jsonResponse({
+        days: days.map(date => ({ date, sessions: 5 })),
+        trend: { slope: 0, intercept: 5, r2: 1, start: 5, end: 5, n: 4, startIndex: 0, endIndex: 3, startDate: '2026-10-01', endDate: '2026-10-04' },
+      })
+    }
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 4, crawlerContentHits: 4, aiUserFetchHits: 0, aiReferralHits: 4, aiReferralLandedHits: 4 },
+        series: {
+          granularity: 'day', coverageStart: '2026-09-01T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map(bucket => ({ bucket, crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 0, aiReferralHits: 1, aiReferralLandedHits: 1, measured: true })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => expect(screen.getByTestId('line-ga4Trend')).toBeTruthy())
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(screen.queryByTestId('line-ga4Trend')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByTestId('line-ga4Trend')).toBeTruthy()
+})
+
+/**
+ * The server count and GA4's differ many times over, so on one shared axis the
+ * GA4 line flattened onto zero and its trend vanished. Both draws one panel
+ * per count, each with its own y-axis, over the same buckets and hovering
+ * together; picking one source draws only its panel.
+ */
+test('Both stacks one panel per count, each on its own scale, hovering together', async () => {
+  const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/status')) return jsonResponse({ connected: true, propertyId: 'p', clientEmail: null, lastSyncedAt: null })
+    if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: days.map(date => ({ date, sessions: 4 })) })
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 4, crawlerContentHits: 4, aiUserFetchHits: 0, aiReferralHits: 400, aiReferralLandedHits: 400 },
+        series: {
+          granularity: 'day', coverageStart: '2026-09-01T00:00:00.000Z',
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map(bucket => ({ bucket, crawlerHits: 1, crawlerContentHits: 1, aiUserFetchHits: 0, aiReferralHits: 100, aiReferralLandedHits: 100, measured: true })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'connected' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  const gaPanel = await screen.findByRole('group', { name: 'Visits, GA4' })
+  const serverPanel = screen.getByRole('group', { name: 'Visits, server' })
+  // Each panel draws only its own count, so each axis scales to that count.
+  expect(within(serverPanel).getByTestId('dots-aiReferralLandedHits')).toBeTruthy()
+  expect(within(serverPanel).queryByTestId('dots-ga4Visits')).toBeNull()
+  expect(within(gaPanel).getByTestId('dots-ga4Visits')).toBeTruthy()
+  expect(within(gaPanel).queryByTestId('dots-aiReferralLandedHits')).toBeNull()
+  // Server above GA4, hovering together.
+  expect(serverPanel.compareDocumentPosition(gaPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  for (const panel of [serverPanel, gaPanel]) {
+    expect(within(panel).getByTestId('composed-chart').getAttribute('data-sync')).toBe('ai-visits')
+  }
+
+  fireEvent.click(screen.getByRole('button', { name: 'Server' }))
+  expect(screen.getByRole('group', { name: 'Visits, server' })).toBeTruthy()
+  expect(screen.queryByRole('group', { name: 'Visits, GA4' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getByRole('group', { name: 'Visits, GA4' })).toBeTruthy()
+  expect(screen.queryByRole('group', { name: 'Visits, server' })).toBeNull()
+})
+
+/**
+ * A month counted by the older arrival rule reads high beside one counted by
+ * the newer rule, so the two are separate series: the older one faded, and no
+ * line joins them across the change.
+ */
+test('monthly history keeps the older server count apart from the newer one', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-20T12:00:00.000Z'))
+  onTestFinished(() => vi.useRealTimers())
+  renderMonthlyHistory({
+    server: () => jsonResponse({ series: {
+      // Recording began inside August, and November is still running.
+      partialBuckets: ['2026-08', '2026-11'],
+      aiReferralCountingChangedAt: '2026-09-25T01:00:00.000Z',
+      points: [
+        { bucket: '2026-08', aiReferralLandedHits: 1900, measured: true },
+        { bucket: '2026-09', aiReferralLandedHits: 3800, measured: true },
+        { bucket: '2026-10', aiReferralLandedHits: 420, measured: true },
+        { bucket: '2026-11', aiReferralLandedHits: 150, measured: true },
+      ],
+    } }),
+    ga: () => jsonResponse({ months: [] }),
+  })
+  await screen.findByText('AI crawlers')
+  fireEvent.click(screen.getByRole('button', { name: 'Months' }))
+  const serverPanel = await screen.findByRole('group', { name: 'Visits, server' })
+  const circles = (dataKey: string) => [...within(serverPanel).getByTestId(`dots-${dataKey}`).querySelectorAll('circle')]
+  // September, counted the older way: a point of its own, faded.
+  expect(circles('serverOlder').map(c => c.getAttribute('fill-opacity'))).toEqual(['0.4'])
+  // October, counted the newer way: the solid series.
+  expect(circles('aiReferralLandedHits').map(c => c.getAttribute('fill-opacity'))).toEqual(['1'])
+  // Part months stay hollow, off both lines: August, counted the older way,
+  // faded with it; November, still running, at full strength.
+  const hollow = (dataKey: string) => circles(dataKey).map(c => [c.getAttribute('fill'), c.getAttribute('stroke-opacity')])
+  expect(hollow('serverOlderPartial')).toEqual([['none', '0.4']])
+  expect(hollow('serverPartial')).toEqual([['none', '1']])
 })
 
 /**
@@ -926,10 +1668,11 @@ test('Site traffic shows GA4 figures with their change against the previous peri
 
   const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
   expect(tabs.getAllByRole('tab').map(tab => tab.getAttribute('aria-label'))).toEqual([
-    'Sessions 4.5K, up 6.4% on the previous period',
-    'Users 2.5K, up 6.1% on the previous period',
-    'Organic sessions 2.8K, up 7.0% on the previous period',
-    'Engagement rate 60.8%, down 0.5% on the previous period',
+    'Sessions 4.5K, up 6.4% vs prior 30 days, an improvement',
+    'Users 2.5K, up 6.1% vs prior 30 days, an improvement',
+    'Organic sessions 2.8K, up 7.0% vs prior 30 days, an improvement',
+    // Whether a change is good news is said in words, never by colour alone.
+    'Engagement rate 60.8%, down 0.5% vs prior 30 days, a decline',
     // The server sent no change: it reads as missing, never as 0%.
     'Key events 146, no earlier data',
   ])
@@ -951,7 +1694,7 @@ test('a falling bounce rate reads as good news', async () => {
   const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
   // Put Bounce rate in the fifth slot through its picker.
   fireEvent.change(screen.getByRole('combobox', { name: 'Figure 5' }), { target: { value: 'bounceRate' } })
-  const bounce = await tabs.findByRole('tab', { name: 'Bounce rate 39.2%, down 1.8% on the previous period' })
+  const bounce = await tabs.findByRole('tab', { name: 'Bounce rate 39.2%, down 1.8% vs prior 30 days, an improvement' })
   expect(within(bounce).getByText('1.8%').className).toContain('text-positive')
 })
 
@@ -1050,4 +1793,99 @@ test('a disconnected GA4 keeps the range picker and the AI traffic history on th
   expect(within(sectionByHeading('Site traffic')).getByRole('group', { name: 'Traffic time period' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'AI traffic history', level: 2 })).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'Traffic by channel' })).toBeNull()
+})
+
+/**
+ * A source whose syncs keep failing (an expired token answered every sync with
+ * HTTP 403) holds its watermark still, and the days after it came back as 0.
+ * The chart drew them as crawlers stopping. The API now marks them unmeasured
+ * and names `recordedThrough`; the chart bands them like the stretch before
+ * recording began, and the latest-day strip says so instead of reading 0.
+ */
+test('AI traffic history bands the days after the last sync as not measured', async () => {
+  const days = ['2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20']
+  // Two unmeasured edges: recording began on Nov 14, and the last sync was Nov 17.
+  const measured = (i: number) => i >= 2 && i <= 5
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 480, crawlerContentHits: 480, aiUserFetchHits: 12, aiReferralHits: 8, aiReferralLandedHits: 8 },
+        series: {
+          granularity: 'day', coverageStart: '2026-11-14T00:00:00.000Z', recordedThrough: '2026-11-17T21:01:15.344Z',
+          partialBuckets: ['2026-11-17'],
+          trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map((bucket, i) => ({
+            bucket, crawlerHits: measured(i) ? 120 : 0, crawlerContentHits: measured(i) ? 120 : 0,
+            aiUserFetchHits: measured(i) ? 3 : 0, aiReferralHits: measured(i) ? 2 : 0, aiReferralLandedHits: measured(i) ? 2 : 0,
+            measured: measured(i),
+          })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'error' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={43200} />
+    </QueryClientProvider>,
+  )
+
+  const stopped = new Date(Date.UTC(2026, 10, 17)).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
+  expect(await screen.findByText(`No new data since ${stopped}.`, { exact: false })).toBeTruthy()
+  expect(screen.getByText('Not measured.')).toBeTruthy()
+  // The strip no longer reads the unmeasured day as zero crawls.
+  const strip = screen.getByText('Latest day (UTC)').parentElement as HTMLElement
+  expect(within(strip).queryByText('pages crawled')).toBeNull()
+  expect(within(strip).queryByText('still filling')).toBeNull()
+
+  // Both edges are banded, on the machines chart and on the server visits panel.
+  const bands = screen.getAllByTestId('reference-area').map((band) => [band.getAttribute('data-from'), band.getAttribute('data-to'), band.textContent])
+  expect(bands).toEqual([
+    ['2026-11-12', '2026-11-13', 'not measured'],
+    ['2026-11-18', '2026-11-20', 'not measured'],
+    ['2026-11-12', '2026-11-13', 'not measured'],
+    ['2026-11-18', '2026-11-20', 'not measured'],
+  ])
+  // GA4 kept counting on its own, so its view carries no server band.
+  fireEvent.click(screen.getByRole('button', { name: 'GA4' }))
+  expect(screen.getAllByTestId('reference-area')).toHaveLength(2)
+})
+
+test('AI traffic history says recording stopped when the whole window is past the last sync', async () => {
+  const days = ['2026-11-18', '2026-11-19', '2026-11-20']
+  const restoreFetch = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/ga/ai-referral-daily')) return jsonResponse({ days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0 })
+    if (path.endsWith('/projects/test-project/traffic/events')) {
+      return jsonResponse({
+        events: [], eventRows: { total: 0, returned: 0, truncated: false },
+        totals: { crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0 },
+        series: {
+          granularity: 'day', coverageStart: '2026-05-21T22:00:00.000Z', recordedThrough: '2026-11-17T21:01:15.344Z',
+          partialBuckets: [], trends: { crawlerContentHits: null, aiUserFetchHits: null, aiReferralLandedHits: null },
+          points: days.map((bucket) => ({ bucket, crawlerHits: 0, crawlerContentHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, measured: false })),
+        },
+      })
+    }
+    return jsonResponse({ sources: [{ id: 's1', status: 'error' }] })
+  })
+  onTestFinished(restoreFetch)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AiTrafficHistoryPanel projectName="test-project" sinceMinutes={4320} />
+    </QueryClientProvider>,
+  )
+
+  const stopped = new Date(Date.UTC(2026, 10, 17)).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
+  expect(await screen.findByText(`No AI activity recorded, and no new data since ${stopped}.`)).toBeTruthy()
+  // Not the measured-empty message, which would claim the window was measured.
+  expect(screen.queryByText('No AI activity recorded in this period.')).toBeNull()
 })

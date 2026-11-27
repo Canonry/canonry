@@ -39,13 +39,27 @@ pnpm run dev:web            # Run web dashboard in dev mode
 ## Project Structure
 
 ```
-packages/canonry/         Single publishable npm package (CLI + server + bundled SPA)
-packages/api-routes/      Shared Fastify route plugins
-packages/contracts/       DTOs, enums, config schema
-packages/db/              Drizzle ORM schema + migrations (SQLite)
-packages/provider-*/      Provider adapters (Gemini, OpenAI, Claude, local)
-apps/web/                 Vite SPA source (bundled into packages/canonry/assets/)
+packages/canonry/                 Single publishable npm package: CLI, server, MCP adapter, built-in Aero agent, bundled SPA
+packages/api-routes/              Shared Fastify route plugins and the OpenAPI spec
+packages/api-client-generated/    Typed SDK generated from the OpenAPI spec (`pnpm gen`)
+packages/contracts/               DTOs, enums, config schema, error codes, shared utilities
+packages/config/                  Typed environment parsing
+packages/db/                      Drizzle ORM schema, SQLite client, migrations
+packages/intelligence/            Insight and health analysis over snapshots
+packages/provider-*/              Answer-engine adapters (Gemini, OpenAI, Claude, Perplexity, OpenRouter, Muse, local, CDP, answer services)
+packages/integration-*/           Third-party integrations (Google, GA4, Business Profile, Bing, Cloudflare, Vercel, Cloud Run, WordPress, ads, sentiment, ...)
+packages/wordpress-traffic-logger-plugin/  PHP plugin that sends WordPress traffic events to Canonry
+apps/web/                         Vite SPA source (bundled into packages/canonry/assets/)
+apps/api/                         Cloud Run REST entry point over packages/api-routes
+apps/mcp-gateway/                 Remote MCP gateway, deployed separately from Canonry instances
+skills/                           Canonical agent skills (`canonry`, `aero`) and their references
+plugins/                          Claude Code and Codex plugins, mirrored from skills/ by `pnpm plugin:sync`
+docs/                             Architecture, data model, setup guides, testing (start at docs/README.md)
+evals/                            Offline evaluation corpora and scorers
+scripts/, eslint-rules/           Build, sync and smoke scripts; custom lint rules
 ```
+
+`docs/CODEMAP.md` indexes key source files, and each package's `AGENTS.md` holds its rules.
 
 `@canonry/canonry` is the application package. All other packages are private workspace dependencies under `@canonry` and are bundled by tsup at build time.
 
@@ -84,7 +98,7 @@ It stops at the first failure. Report each completed check separately. Never cla
 - [ ] Ran the required tests and recorded pass/fail/skip counts. Covered the relevant regressions and both Simple and Advanced paths.
 - [ ] Passed the required typechecks, type-aware lint, and generated-file checks. `pnpm check` alone is insufficient.
 - [ ] Built and smoke-checked affected CLI, API, MCP, and UI surfaces. Included installed-package checks for packaging changes.
-- [ ] Checked code style against the applicable `AGENTS.md` rules. For UI changes, also checked `PRODUCT.md`, `DESIGN.md`, desktop/mobile layout, and keyboard use. Attached before/after screenshots.
+- [ ] Checked code style against the applicable `AGENTS.md` rules. For UI changes, also checked `PRODUCT.md`, `DESIGN.md`, desktop/mobile layout, and keyboard use, and kept every existing metric, table, and competitor figure reachable. Attached before/after screenshots, including the empty and zero states of every figure that moved.
 - [ ] Recorded the tested commit SHA, exact commands, results, and evidence for the submitted head.
 
 Keep evidence brief: one result line per command, with sanitized logs in a collapsed `<details>` block or linked artifact.
@@ -103,12 +117,12 @@ Outside contributions still need full CI after submission. Skipped or absent CI 
 `pnpm install` installs the Git hooks. Ordinary code commits lint staged JS/TS content, including partially staged files.
 It runs syntax rules and repository guards without loading TypeScript projects. It never changes files or the index.
 Both use oxlint, which is fast enough to need no result cache.
-Documentation-only commits skip the linter. The commit-message hook checks Conventional Commits. Pushes run the three drift gates below.
+Documentation-only commits skip the linter. The commit-message hook checks Conventional Commits.
 
 See [the testing guide](docs/testing.md) for the local and CI commands.
 
-API changes need `pnpm gen`. Review and stage the generated files before `pnpm gen:check`.
-The check compares temporary output and the Git index without changing either.
-Pre-push runs the three drift gates and requires their inputs and output to match the pushed commit.
+After API changes, run `pnpm gen`. Review and stage the generated files before you run `pnpm gen:check`.
+The check compares temporary output with the Git index. It leaves the index unchanged.
+Pre-push runs `pnpm gen:check --committed` and `pnpm plugin:check`. The drift inputs must match the pushed commit.
 Changes to `.oxlintrc.json` or `eslint-rules/` trigger full typed lint. Ordinary commits keep the staged-file check.
 Codegen and dashboard builds reuse cached results only when their inputs and output contents match.

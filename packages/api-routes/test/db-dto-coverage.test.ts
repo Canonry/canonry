@@ -16,6 +16,12 @@ import {
   bingConnectionDtoSchema,
   bingCoverageSnapshotDtoSchema,
   bingKeywordStatsDtoSchema,
+  bingTrafficDayDtoSchema,
+  bingCrawlStatsDayDtoSchema,
+  bingSitemapDtoSchema,
+  engineSitemapDtoSchema,
+  bingSiteSnapshotDtoSchema,
+  bingKeywordWeekDtoSchema,
   bingUrlInspectionDtoSchema,
   ccReleaseSyncDtoSchema,
   competitorDtoSchema,
@@ -50,6 +56,7 @@ import {
   notificationDtoSchema,
   projectDtoSchema,
   providerBatchSummaryDtoSchema,
+  providerConnectionLastTestDtoSchema,
   queryDtoSchema,
   querySnapshotDtoSchema,
   recommendationExplanationDtoSchema,
@@ -75,7 +82,7 @@ import {
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
-  userDtoSchema,
+  userDtoSchema, userInvitationDtoSchema,
   measurementQuerySetSchema,
   measurementQueryTemplateSchema,
 } from '@canonry/canonry-contracts'
@@ -223,6 +230,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Storage rows are projected into OperationalLogEntryDto; sequence, raw storage columns, and byte accounting never leave the log store.',
   },
+  socialMentions: {
+    kind: 'internal-only',
+    reason: 'Social monitoring storage only; its public DTO arrives with the social monitoring API (#98).',
+  },
+  socialConnections: {
+    kind: 'internal-only',
+    reason: 'Social connection metadata only (secrets live in config.yaml); its public DTO arrives with the social monitoring API (#98).',
+  },
   runtimeLogMetadata: {
     kind: 'internal-only',
     reason: 'Private cursor namespace and sequence accounting; only explicit retention/loss metadata is returned by the log store.',
@@ -233,6 +248,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: projectDtoSchema,
     internal: {
       icpDescription: 'Aero analyst context; not exposed on the public project DTO.',
+      socialPlatforms: 'Social monitoring storage only; no API reads or writes it until the social monitoring API (#98).',
     },
   },
   queries: {
@@ -265,6 +281,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
+      providerFailures: 'Exposed as `providerFailures` on the run detail while the run is queued or running; a finished run reports them in `error`.',
+      plannedAnswers: 'Exposed as `plannedAnswers` on the run detail once a sweep records it, and as `progress.answersPlanned` on the setup read.',
     },
   },
   runFills: {
@@ -295,6 +313,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Maps each batch line\'s custom_id to its slot for ingest; answers surface as query snapshots.',
   },
+  providerConnectionTests: {
+    kind: 'dto',
+    dto: providerConnectionLastTestDtoSchema,
+    internal: {
+      provider: 'The row key; the result is returned as lastTest on that provider connection, not as a row of its own.',
+      fingerprint: 'Keyed hash of the registration the test checked; it only decides whether the row still describes the active settings and never leaves the server.',
+    },
+  },
   querySnapshots: {
     kind: 'dto',
     dto: querySnapshotDtoSchema,
@@ -313,6 +339,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: scheduleDtoSchema,
     internal: {
       enabledAt: 'When the schedule last turned on; the SEO refresh doctor check grades only that enabled period, so time spent disabled is never overdue.',
+      siteAuditChecks: 'Exposed as `siteAudit` on the schedule DTO, with the defaults filled in (null for kinds other than site-audit).',
     },
   },
   siteAuditSnapshots: {
@@ -611,6 +638,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Last graded website probe per project, plus the consecutive-failure count and whether the current outage was paged. It exists only so site-down alerting can wait for two failed passes and send one recovery for a paged outage. Alerting bookkeeping, not a measurement: the probe result is served live by GET /projects/:name/doctor?check=site.reachability, and exposing a cached copy would invite readers to trust a stale up or down verdict.',
   },
+  siteHealthNotifyState: {
+    kind: 'internal-only',
+    reason: 'Which critical page problems the site-health.issue.new webhook already reported, per project, so an unfixed problem is reported once. Alerting bookkeeping in the sense doctorHealthState is, not a measurement: the problems themselves are served live by GET /projects/:name/technical-aeo/issues from the stored crawl.',
+  },
   doctorHealthState: {
     kind: 'internal-only',
     reason: 'Last observed doctor outcome per project, kept only so health alerting can fire on transitions rather than on every scheduled pass. It is alerting bookkeeping, not a measurement: the report itself is served live by GET /projects/:name/doctor, and exposing a cached copy would invite readers to trust a stale health verdict.',
@@ -753,6 +784,81 @@ const COVERAGE: Record<string, CoverageEntry> = {
       createdAt: 'Row creation timestamp.',
     },
   },
+  bingTrafficDaily: {
+    kind: 'dto',
+    dto: bingTrafficDayDtoSchema,
+    internal: {
+      id: 'Surrogate key; days are addressed by (project, date).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'Internal sync timestamp.',
+    },
+  },
+  bingQueryStats: {
+    kind: 'internal-only',
+    reason: 'Weekly Bing query buckets. Callers read them summed over a window (BingQueryTotalsRowDto) or per week (BingWeeklyTotalsRowDto) from /bing/queries, never as raw rows.',
+  },
+  bingPageStats: {
+    kind: 'internal-only',
+    reason: 'Weekly Bing page buckets, read summed through /bing/pages (BingPageTotalsRowDto / BingWeeklyTotalsRowDto), never as raw rows.',
+  },
+  bingCrawlStats: {
+    kind: 'dto',
+    dto: bingCrawlStatsDayDtoSchema,
+    internal: {
+      id: 'Surrogate key; days are addressed by (project, date).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'Internal sync timestamp.',
+    },
+  },
+  bingSitemaps: {
+    kind: 'dto',
+    dto: bingSitemapDtoSchema,
+    internal: {
+      id: 'Surrogate key; sitemaps are addressed by (project, url).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+    },
+  },
+  gscSitemaps: {
+    kind: 'dto',
+    dto: engineSitemapDtoSchema,
+    internal: {
+      id: 'Surrogate key; sitemaps are addressed by (project, url).',
+      projectId: 'Implied by the route scope.',
+      isPending: 'Folded into `state` and `statusLabel` (Processing).',
+      lastDownloadedAt: 'Exposed as `lastReadAt`, the shared name for both engines.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'The list-level read time is `syncedAt` on the engine block, from sitemap_list_syncs.',
+    },
+  },
+  sitemapListSyncs: {
+    kind: 'internal-only',
+    reason: 'When each engine\'s sitemap list was last read in full; surfaced only as `syncedAt` on the engine block of GET /sitemaps, and what makes an empty list mean "none".',
+  },
+  bingSiteSnapshots: {
+    kind: 'dto',
+    dto: bingSiteSnapshotDtoSchema,
+    internal: {
+      id: 'Surrogate key; settings are addressed by (project, kind).',
+      projectId: 'Implied by the route scope.',
+      syncRunId: 'Internal sync provenance.',
+    },
+  },
+  bingKeywordDemand: {
+    kind: 'dto',
+    dto: bingKeywordWeekDtoSchema,
+    internal: {
+      id: 'Surrogate key.',
+      projectId: 'Implied by the route scope.',
+      query: 'Carried on the BingKeywordDemandRowDto summary row, not on each week.',
+      country: 'Reported once as the response market.',
+      language: 'Reported once as the response market.',
+      syncRunId: 'Internal sync provenance.',
+      syncedAt: 'Summarised as syncedAt on the BingKeywordDemandRowDto.',
+    },
+  },
   gaConnections: {
     kind: 'dto',
     dto: ga4ConnectionDtoSchema,
@@ -764,7 +870,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
   },
   gaLeadEventsDaily: {
     kind: 'internal-only',
-    reason: 'Typed GA4 attributed lead-event foundation; its public read model lands in the follow-up measurement API PR.',
+    reason: 'Read only as aggregates (measurement analysis lead periods and the /ga/traffic social platform conversions); no row-level DTO.',
+  },
+  gaSyncCoverage: {
+    kind: 'internal-only',
+    reason: 'Per-day ingestion receipts decide which GA4 dates to fetch; report values remain on the existing GA DTOs.',
   },
   gaMeasurementSyncStates: {
     kind: 'internal-only',
@@ -929,6 +1039,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
       lastWorkerVersion: 'Semver reported by the most recently ingested Cloudflare Worker batch, whether direct or Queue. Surfaced through the doctor check, not the source DTO.',
       syncLeaseOwner: 'Ephemeral owner of a pull-source sync lease; internal concurrency state.',
       syncLeaseExpiresAt: 'Expiry for stale pull-source lease recovery; internal concurrency state.',
+      aiReferralOlderCountUntil: 'End of the older AI-referral arrival count; surfaced as `aiReferralCountingChangedAt` on traffic events and analytics, not on the source DTO.',
+      aiUserFetchOlderCountUntil: 'End of the older browser-agent AI user fetch count; surfaced as `aiUserFetchCountingChangedAt` on traffic events and analytics, not on the source DTO.',
     },
   },
 
@@ -963,6 +1075,28 @@ const COVERAGE: Record<string, CoverageEntry> = {
   dashboardSessions: {
     kind: 'internal-only',
     reason: 'API-key-bound dashboard session token digests and expiry; no public row DTO.',
+  },
+  userExternalIdentities: {
+    kind: 'internal-only',
+    reason: 'Sign in with ChatGPT identity links (issuer, client, subject); /auth/chatgpt/status exposes only linked and the email.',
+  },
+  userInvitations: {
+    kind: 'dto',
+    dto: userInvitationDtoSchema,
+    internal: {
+      emailKey: 'Lower-cased email a verified ChatGPT email is matched against; the DTO shows the address as typed.',
+      createdById: 'Inviting account, kept for audit; the audit log carries the attribution.',
+      acceptedUserId: 'Account the invitation created; the DTO shows its name as acceptedUserName.',
+      revokedAt: 'Revocation time; the DTO folds it into status.',
+    },
+  },
+  chatgptPlanConnections: {
+    kind: 'internal-only',
+    reason: 'Encrypted ChatGPT plan tokens and refresh bookkeeping; /auth/chatgpt/status exposes only plan status, model and connect time.',
+  },
+  chatgptLoginTransactions: {
+    kind: 'internal-only',
+    reason: 'Single-use in-flight ChatGPT sign-in digests; never returned.',
   },
   measurementPlans: {
     kind: 'internal-only',
@@ -1058,6 +1192,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Aero session state (transcript + queue). Exposed via the agent transcript composite, not as a direct row DTO.',
   },
+  agentProviderCooldowns: {
+    kind: 'internal-only',
+    reason: 'Install-wide credential digests and failure identities are private. The providers composite exposes only safe reason, retry time and recovery action.',
+  },
   agentMemory: {
     kind: 'internal-only',
     reason: 'Aero durable notes. Surfaced via AgentMemoryEntryDto (TS interface only — not a Zod schema, so out of scope for this DTO-shape check).',
@@ -1105,6 +1243,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
   unrecognizedAgentNotifyState: {
     kind: 'internal-only',
     reason: 'Which unrecognized agent names already had a traffic.agent.discovered decision; notifier bookkeeping, never returned.',
+  },
+  sentimentAlertRuns: {
+    kind: 'internal-only',
+    reason: 'Which sweeps already had a sentiment.unfavorable decision, so each sweep alerts once; notifier bookkeeping, never returned. The verdicts themselves are served by GET /projects/:name/sentiment/evidence and /sentiment/compare.',
   },
   aiUserFetchLikelyFakeHourly: {
     kind: 'internal-only',
@@ -1160,6 +1302,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
   agentScannerClients: {
     kind: 'internal-only',
     reason: 'Ingest state: each client\'s latest scanner probe window, keyed by a hash of its IP, so a burst split across batches is still marked; never exposed.',
+  },
+  aiReferralVisitors: {
+    kind: 'internal-only',
+    reason: 'Ingest state: each visitor\'s latest AI-referral arrival, keyed by a hash of IP and user agent, so later requests of that visit in a later batch are not counted as arrivals; never exposed.',
   },
   migrationsTable: {
     kind: 'internal-only',

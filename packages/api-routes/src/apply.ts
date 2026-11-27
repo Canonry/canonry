@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
-import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, scheduleEnabledAt, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, scheduleEnabledAt, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, requireSiteAuditDomains, resolveSiteAuditDomains, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
 import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -208,6 +208,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           specCompetitorNames,
         )
 
+    // Present = the exact list, which must be the spec's own owned domains;
+    // absent keeps the stored list, minus domains the spec no longer owns.
+    const siteAuditDomainOwner = { canonicalDomain: config.spec.canonicalDomain, ownedDomains: config.spec.ownedDomains ?? [] }
+    const specSiteAuditDomains = config.spec.siteAuditDomains === undefined
+      ? undefined
+      : requireSiteAuditDomains(siteAuditDomainOwner, config.spec.siteAuditDomains, 'siteAuditDomains')
+
     // All validation done — wrap all writes in a single transaction
     let projectId: string
     const lifecycle = { projectCreated: false, competitorAliasesChanged: false, competitorsAdded: false }
@@ -267,6 +274,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           // Present sets (null = full site); absent leaves the stored budget alone.
           ...(config.spec.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: config.spec.siteAuditMaxPages } : {}),
+          siteAuditDomains: specSiteAuditDomains ?? resolveSiteAuditDomains(siteAuditDomainOwner, existing.siteAuditDomains).domains,
           // Present sets; absent leaves the stored detection mode alone.
           ...(config.spec.competitorAutoAliases !== undefined ? { competitorAutoAliases: config.spec.competitorAutoAliases } : {}),
           configSource: 'config-file',
@@ -307,6 +315,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
           siteAuditMaxPages: config.spec.siteAuditMaxPages ?? null,
+          siteAuditDomains: specSiteAuditDomains ?? [],
           competitorAutoAliases: config.spec.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
           configSource: 'config-file',
           configRevision: 1,
@@ -523,6 +532,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       autoExtractBacklinks: project.autoExtractBacklinks,
       negativeReviewMaxStars: readNegativeReviewMaxStars(app.db, project.id),
       siteAuditMaxPages: project.siteAuditMaxPages ?? null,
+      siteAuditDomains: project.siteAuditDomains,
       competitorAutoAliases: project.competitorAutoAliases,
       configSource: project.configSource,
       configRevision: project.configRevision,

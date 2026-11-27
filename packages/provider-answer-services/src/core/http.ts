@@ -241,9 +241,10 @@ function retryOptions(options: AnswerServiceTransportOptions, isRetryable: (erro
   return {
     maxRetries: 2,
     baseDelayMs: 2000,
-    isRetryable: (error: unknown) => !options.signal?.aborted && isRetryable(error),
+    isRetryable,
     computeDelayMs: (_attempt: number, error: unknown, delay: number) => retryAfterDelayMs(error) ?? delay,
     ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   }
 }
 

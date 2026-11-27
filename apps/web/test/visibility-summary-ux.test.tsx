@@ -40,7 +40,10 @@ function fixture(kind: 'project' | 'group' | 'property' = 'project'): Visibility
 }
 
 test('labels aggregate answer coverage separately from property reach and explains the chart', () => {
-  render(<VisibilityReportView report={fixture()} onSelectionChange={() => {}} />)
+  const report = fixture()
+  const first = report.populations[0]!.trend[0]!
+  report.populations[0]!.trend.push({ ...first, runId: 'run-3', createdAt: '2026-09-02T10:00:00Z', continuity: { state: 'comparable', comparedRunId: first.runId } })
+  render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
   expect(screen.getByText('Answers mentioning a property')).toBeTruthy()
   expect(screen.getByText('Answers citing a property')).toBeTruthy()
   expect(screen.getByText('Properties mentioned')).toBeTruthy()
@@ -53,8 +56,7 @@ test('labels aggregate answer coverage separately from property reach and explai
   expect(screen.queryByText('Trend data and comparability')).toBeNull()
   const data = screen.getByRole('table', { name: 'Non-brand queries trend data' })
   expect(data.parentElement!.classList.contains('sr-only')).toBe(true)
-  expect(within(data).getAllByRole('row')).toHaveLength(2)
-  expect(screen.getByText('First measurement. A trend appears after another comparable run.')).toBeTruthy()
+  expect(within(data).getAllByRole('row')).toHaveLength(3)
   const trend = screen.getByRole('img', { name: /mention and citation trend/ })
   const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
   expect(trend.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
@@ -65,7 +67,7 @@ test('labels aggregate answer coverage separately from property reach and explai
  * The whole explanation, asserted verbatim. It is the accessible name of the
  * trigger, so a screen reader user and a sighted user read the same sentence.
  */
-const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured, including one whose answers all came from engines that return no sources: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 
 function outcomesDisclosure() {
   return screen.getByText('Property outcomes', { selector: 'summary > span' }).closest('details')!

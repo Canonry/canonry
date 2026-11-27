@@ -90,11 +90,20 @@ export function verificationOf(event: TrafficEventEntry): string | null {
 
 export function bucketKeyFor(tsHour: string, granularity: EventGranularity): string {
   if (granularity === 'hour') return tsHour
-  const d = new Date(tsHour)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  // The server buckets days by UTC date (`substr(ts_hour, 1, 10)`). A local
+  // date put an evening row under the next or previous day's bar.
+  return tsHour.slice(0, 10)
+}
+
+/**
+ * The exact span of one chart bucket, as the `since`/`until` of the events
+ * route (both inclusive, compared against each row's hour). An hour bucket is
+ * its own hour; a day bucket is that UTC day. Fetching a clicked bar's rows by
+ * its span finds them however many newer rows the window holds.
+ */
+export function bucketTimeRange(bucket: string, granularity: EventGranularity): { since: string; until: string } {
+  if (granularity === 'hour') return { since: bucket, until: bucket }
+  return { since: `${bucket}T00:00:00.000Z`, until: `${bucket}T23:59:59.999Z` }
 }
 
 export function filterTrafficEvents(

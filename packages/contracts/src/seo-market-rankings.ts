@@ -5,7 +5,7 @@ import {
   type SeoMarketRankingOutcome, type SeoMarketRankingRow, type SeoMarketRankingSort,
 } from './seo.js'
 
-const PAGE_ONE_LAST_RANK = 10
+export const SEO_MARKET_PAGE_ONE_LAST_RANK = 10
 const CLOSE_LAST_RANK = 20
 
 /** The best organic rank among the tracked competitors in one results page, or null when none ranked. */
@@ -26,7 +26,7 @@ function outcomeOf(row: SeoMarketRanking): SeoMarketRankingOutcome {
     case SeoMarketRankingSearchStatuses.partial: {
       const rank = row.rankOrganic
       if (rank === null) return row.searchStatus === SeoMarketRankingSearchStatuses.partial ? SeoMarketRankingOutcomes['partly-checked'] : SeoMarketRankingOutcomes['not-ranked']
-      if (rank <= PAGE_ONE_LAST_RANK) return SeoMarketRankingOutcomes['page-1']
+      if (rank <= SEO_MARKET_PAGE_ONE_LAST_RANK) return SeoMarketRankingOutcomes['page-1']
       return rank <= CLOSE_LAST_RANK ? SeoMarketRankingOutcomes['ranks-11-20'] : SeoMarketRankingOutcomes['ranks-21-plus']
     }
     default: {

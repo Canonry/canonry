@@ -37,6 +37,18 @@ export const DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS = 4 * 60_000
 export const DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES = 300
 
 /**
+ * Waits before pulling again after consecutive empty pulls while Cloudflare
+ * still reports at least a full batch waiting. Cloudflare answers pulls empty
+ * now and then while messages wait (about 3 pulls in 10 on a busy Queue); a
+ * drain that stopped after two empty pulls in a row left about 1,000 messages
+ * behind on every sync, and requests reached the dashboard up to 45 minutes
+ * late. The drain stops only after every wait came back empty, and never
+ * waits past its deadline. Under a full batch, two empty pulls in a row still
+ * end the drain without a wait.
+ */
+export const DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS: readonly number[] = [500, 1_000, 2_000, 4_000, 8_000]
+
+/**
  * Residual backlog after a sync that still reads as normal: messages that
  * arrived while the drain ran. More than this means the drain stopped at its
  * deadline or cap before the Queue was empty.

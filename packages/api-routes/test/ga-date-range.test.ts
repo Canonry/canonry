@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll, expect } from 'vitest'
+import { describe, it, beforeAll, afterAll, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -138,6 +138,30 @@ describe('GA4 routes: explicit date ranges', () => {
     // The month total is the whole point: 31 days x 10 sessions, and not one
     // session from the April or June rows sitting either side of it.
     expect(body.reduce((sum, r) => sum + r.sessions, 0)).toBe(310)
+  })
+
+  it('keeps every traffic read on the same 180-day range', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-28T12:00:00Z'))
+    try {
+      // May 1 is exactly 180 days ago. April rows must stay outside.
+      for (const [surface, sessions] of [['session-history', 330], ['ai-referral-history', 99], ['social-referral-history', 66]] as const) {
+        const response = await app.inject({ method: 'GET', url: `/api/v1/projects/date-range/ga/${surface}?window=180d` })
+        expect(response.statusCode).toBe(200)
+        const rows = response.json<Array<{ date: string; sessions: number }>>()
+        expect(rows).toHaveLength(33)
+        expect(rows[0]!.date).toBe('2026-05-01')
+        expect(rows.reduce((sum, row) => sum + row.sessions, 0)).toBe(sessions)
+      }
+      const daily = await app.inject({ method: 'GET', url: '/api/v1/projects/date-range/ga/ai-referral-daily?window=180d' })
+      expect(daily.statusCode).toBe(200)
+      expect(daily.json()).toMatchObject({ totalSessions: 99 })
+      const traffic = await app.inject({ method: 'GET', url: '/api/v1/projects/date-range/ga/traffic?window=180d' })
+      expect(traffic.statusCode).toBe(200)
+      expect(traffic.json()).toMatchObject({ totalSessions: 330, aiSessionsDeduped: 99 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('GET /ga/session-history honours startDate alone as an open-ended lower bound', async () => {

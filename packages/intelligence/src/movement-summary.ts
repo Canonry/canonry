@@ -1,5 +1,7 @@
 import {
   CitationStates,
+  isCitationStateMeasured,
+  type CitationState,
   type MetricTone,
   type MovementComparisonDto,
   type MovementSummaryDto,
@@ -7,7 +9,8 @@ import {
 
 export interface MovementSummarySnapshot {
   queryId: string
-  citationState: string
+  /** As read through `readCitationState`. */
+  citationState: CitationState
   answerMentioned?: boolean | null
 }
 
@@ -29,7 +32,9 @@ type SignalPredicate = (snapshot: MovementSummarySnapshot) => boolean
  *
  * When both sweeps exist, only query IDs present in both baskets participate.
  * Added or removed queries belong to `buildMovementComparison`; they must not
- * masquerade as citation gains or losses.
+ * masquerade as citation gains or losses. For citation, a query is in a
+ * basket only through an answer whose sources were checked: an answer without
+ * sources observed nothing, so it can neither gain nor lose a citation.
  */
 export function buildMovementSummary(
   currentSnapshots: readonly MovementSummarySnapshot[],
@@ -41,6 +46,7 @@ export function buildMovementSummary(
     previousSnapshots,
     snapshot => snapshot.citationState === CitationStates.cited,
     options,
+    snapshot => isCitationStateMeasured(snapshot.citationState),
   )
 }
 
@@ -120,6 +126,8 @@ function buildSignalMovementSummary(
   previousSnapshots: readonly MovementSummarySnapshot[],
   isActive: SignalPredicate,
   options: MovementSummaryOptions,
+  /** Which answers observed the signal at all; the comparable cohort is built from them. */
+  observes: SignalPredicate = () => true,
 ): MovementSummaryDto {
   if (previousSnapshots.length === 0) {
     const activeIds = collectActiveQueryIds(currentSnapshots, isActive)
@@ -137,8 +145,8 @@ function buildSignalMovementSummary(
   }
 
   const comparableIds = intersection(
-    collectQueryIds(currentSnapshots),
-    collectQueryIds(previousSnapshots),
+    collectQueryIds(currentSnapshots.filter(observes)),
+    collectQueryIds(previousSnapshots.filter(observes)),
   )
   const currentActive = intersection(collectActiveQueryIds(currentSnapshots, isActive), comparableIds)
   const previousActive = intersection(collectActiveQueryIds(previousSnapshots, isActive), comparableIds)

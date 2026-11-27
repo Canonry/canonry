@@ -2,12 +2,14 @@ import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { isDeepStrictEqual } from 'node:util'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
-import { and, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, inArray, lt, lte, sql, type SQL } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
+import { trafficRecordedThrough } from './traffic-recording.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
+  DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS,
   DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES,
   DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS,
   DEFAULT_VERCEL_SYNC_DEADLINE_MS,
@@ -30,6 +32,8 @@ import {
 } from '@canonry/canonry-db'
 import {
   aiReferralClassCounts,
+  credentialRedactionValues,
+  redactKnownSecrets,
   nextScheduleUpdatedAt,
   notFound,
   operationInProgress,
@@ -43,13 +47,19 @@ import {
   TrafficSourceTypes,
   TrafficSourceAuthModes,
   TrafficEventKinds,
+  parseTrafficEventKindFilter,
+  TRAFFIC_EVENT_KIND_FILTER_HINT,
+  parseTrafficEventGroupBy,
+  TRAFFIC_EVENT_GROUP_BY_HINT,
   TrafficSeriesGranularities,
+  trafficSeriesGranularitySchema,
   CloudflareTrafficDeliveryModes,
   CloudflareQueueDrainStopReasons,
   type CloudflareQueueDrainStopReason,
   type CloudflareQueueDrainSummary,
   type CloudflareTrafficDeliveryMode,
   cloudflareTrafficSourceConfigSchema,
+  trafficConnectCloudRunRequestSchema,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
   trafficResetRequestSchema,
@@ -65,6 +75,8 @@ import {
   OutcomeStatuses,
 } from '@canonry/canonry-contracts'
 import type {
+  CloudflareWorkerIngestResponse,
+  CloudRunTrafficSetup,
   NormalizedTrafficRequest,
   OutcomeReasonCode,
   RunStatus,
@@ -81,6 +93,7 @@ import type {
   TrafficCrawlerEventEntry,
   TrafficAiUserFetchEventEntry,
   TrafficEventEntry,
+  TrafficEventGroup,
   TrafficEventKind,
   TrafficEventsResponse,
   TrafficSeriesGranularity,
@@ -142,6 +155,8 @@ import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from 
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import { planScannerBursts, saveScannerBursts } from './agent-scanner-bursts.js'
+import { aiReferralOlderCountUntil, planAiReferralArrivals, saveAiReferralArrivals } from './ai-referral-arrivals.js'
+import { aiUserFetchOlderCountAfterBackfill, aiUserFetchOlderCountUntil } from './ai-user-fetch-counting.js'
 import { addLikelyFakeAgentHits, clearLikelyFakeAgentHits } from './likely-fake-agent-rollup.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
@@ -162,9 +177,26 @@ import {
   retainedRawEventSampleTimestamp,
 } from './raw-event-sample-retention.js'
 import { releaseTrafficSyncLease, tryClaimTrafficSyncLease } from './traffic-sync-lease.js'
+import {
+  compareTrafficEventGroups,
+  decodeTrafficEventCursor,
+  mergeTrafficEventPages,
+  optionalQueryString,
+  readTrafficEventCursorWindow,
+  toTrafficEventGroup,
+  TRAFFIC_EVENT_TABLES,
+  trafficEventCursorPredicate,
+  trafficEventFilterPredicates,
+  trafficEventGroupColumns,
+  trafficEventOrder,
+  type RankedTrafficEventRow,
+  type TrafficEventFilters,
+  type TrafficEventTable,
+} from './traffic-events-read.js'
 
 export interface CloudRunCredentialRecord {
   projectName: string
+  projectId?: string
   gcpProjectId: string
   serviceName?: string
   location?: string
@@ -182,6 +214,50 @@ export interface CloudRunCredentialStore {
   getConnection: (projectName: string) => CloudRunCredentialRecord | undefined
   upsertConnection: (record: CloudRunCredentialRecord) => CloudRunCredentialRecord
   deleteConnection: (projectName: string) => boolean
+}
+
+function sameCloudRunTarget(
+  saved: CloudRunCredentialRecord | Record<string, unknown>,
+  config: Record<string, unknown>,
+): boolean {
+  return saved.authMode === config.authMode && saved.gcpProjectId === config.gcpProjectId
+    && (saved.serviceName ?? null) === (config.serviceName ?? null)
+    && (saved.location ?? null) === (config.location ?? null)
+}
+
+function matchesCloudRunTarget(
+  credential: CloudRunCredentialRecord | undefined,
+  projectName: string,
+  config: Record<string, unknown>,
+): credential is CloudRunCredentialRecord {
+  return credential?.projectName === projectName && sameCloudRunTarget(credential, config)
+}
+
+export function hasCloudRunCredentialForSource(
+  credential: CloudRunCredentialRecord | undefined,
+  projectName: string,
+  source: Pick<typeof trafficSources.$inferSelect, 'projectId' | 'configJson'>,
+): credential is CloudRunCredentialRecord {
+  return matchesCloudRunTarget(credential, projectName, source.configJson)
+    && (credential.projectId === undefined || credential.projectId === source.projectId)
+}
+
+function hasCloudRunServiceAccount(credential: CloudRunCredentialRecord): boolean {
+  return credential.authMode === TrafficSourceAuthModes['service-account']
+    && typeof credential.clientEmail === 'string' && credential.clientEmail.trim() !== ''
+    && typeof credential.privateKey === 'string' && credential.privateKey.trim() !== ''
+}
+
+function cloudRunSetupLinks(projectName: string, setup: CloudRunTrafficSetup, opts: TrafficRoutesOptions) {
+  const query = new URLSearchParams({ connectCloudRun: JSON.stringify(setup) })
+  const formPath = `/projects/${encodeURIComponent(projectName)}/traffic?${query}`
+  const dashboardPath = `${(opts.dashboardPath ?? '/').replace(/\/$/, '')}${formPath}`
+  const publicBase = opts.publicUrl ? URL.parse(opts.publicUrl) : null
+  if (!publicBase || !['https:', 'http:'].includes(publicBase.protocol) || publicBase.username || publicBase.password) {
+    return { dashboardPath }
+  }
+  const publicPath = publicBase.pathname === '/' ? dashboardPath : publicBase.pathname.replace(/\/$/, '') + formPath
+  return { dashboardPath, dashboardUrl: publicBase.origin + publicPath }
 }
 
 export interface WordpressTrafficCredentialRecord {
@@ -310,6 +386,8 @@ export interface TrafficIngestedEvent {
 }
 
 export interface TrafficRoutesOptions {
+  dashboardPath?: string
+  publicUrl?: string
   claimScheduledSync?: ScheduledSyncClaim
   /**
    * Install secret for AI visitor journey keys (a keyed hash per visitor). When
@@ -372,6 +450,8 @@ export interface TrafficRoutesOptions {
   cloudflareQueueMaxBatches?: number
   /** Wall-clock budget for one Queue sync's drain (default 4 minutes). */
   cloudflareQueueSyncDeadlineMs?: number
+  /** Waits (ms) after consecutive empty pulls while a full batch or more waits; the drain stops once every wait came back empty. */
+  cloudflareQueueEmptyPullBackoffMs?: readonly number[]
   /** Override the canonry ingest URL embedded into generated Worker scripts (for tests). */
   cloudflareTrafficIngestUrl?: string
   /** Per-source direct-push request budget per minute. Invalid auth is budgeted by caller IP. */
@@ -527,6 +607,19 @@ const TRAFFIC_BACKFILL_LEASE_TTL_MS = 5 * 60_000
 const TRAFFIC_BACKFILL_LEASE_RENEW_MS = 60_000
 const DEFAULT_CLOUDFLARE_INGEST_RATE_LIMIT_MAX = 6_000
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
+
+/**
+ * A browser agent's requests other than page loads go to no bucket, so every
+ * write path reports how many it left out: in its response where it has one,
+ * and in the log, the only trace a scheduled sync or a backfill leaves.
+ */
+function logBrowserAgentNonPageHits(log: FastifyBaseLogger, fields: { sourceId: string, runId: string, hits: number }): void {
+  if (fields.hits === 0) return
+  log.info(
+    { sourceId: fields.sourceId, runId: fields.runId, aiUserFetchBrowserNonPageHits: fields.hits },
+    'Browser agent requests other than page loads were not counted as AI user fetches',
+  )
+}
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex')
@@ -822,30 +915,60 @@ function emptyTrafficSeriesPoint(bucket: string): TrafficSeriesPoint {
   return { bucket, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, aiReferralLandedHits: 0, crawlerContentHits: 0, measured: true }
 }
 
+/**
+ * Characters of an ISO instant that name its series bucket: `YYYY-MM` for a
+ * month, `YYYY-MM-DD` for a day; an hour bucket is `ts_hour` itself.
+ */
+const SERIES_BUCKET_LENGTH: Record<TrafficSeriesGranularity, number | null> = {
+  [TrafficSeriesGranularities.hour]: null,
+  [TrafficSeriesGranularities.day]: 10,
+  [TrafficSeriesGranularities.month]: 7,
+}
+
+function seriesBucketSql(tsHour: SQLiteColumn, granularity: TrafficSeriesGranularity): SQLiteColumn | SQL<string> {
+  const length = SERIES_BUCKET_LENGTH[granularity]
+  return length === null ? tsHour : sql<string>`substr(${tsHour}, 1, ${sql.raw(String(length))})`
+}
+
+/** The bucket an ISO instant falls in, in the same form `seriesBucketSql` returns. */
+function seriesBucketOf(iso: string, granularity: TrafficSeriesGranularity): string {
+  const length = SERIES_BUCKET_LENGTH[granularity]
+  return length === null ? iso.slice(0, 13) : iso.slice(0, length)
+}
+
+/** Epoch ms where a bucket starts, and where the next one does. */
+function seriesBucketStartMs(bucket: string, granularity: TrafficSeriesGranularity): number {
+  if (granularity === TrafficSeriesGranularities.month) return Date.parse(`${bucket}-01T00:00:00.000Z`)
+  if (granularity === TrafficSeriesGranularities.day) return Date.parse(`${bucket}T00:00:00.000Z`)
+  // An hour bucket is `ts_hour`, a full instant; `seriesBucketOf` gives its first 13 characters.
+  return Date.parse(bucket.length === 13 ? `${bucket}:00:00.000Z` : bucket)
+}
+
+function nextSeriesBucketStartMs(startMs: number, granularity: TrafficSeriesGranularity): number {
+  if (granularity === TrafficSeriesGranularities.month) {
+    const start = new Date(startMs)
+    return Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1)
+  }
+  return startMs + (granularity === TrafficSeriesGranularities.day ? 86_400_000 : 3_600_000)
+}
+
 function completeTrafficSeries(
   windowStart: Date,
   windowEnd: Date,
   granularity: TrafficSeriesGranularity,
   pointsByBucket: ReadonlyMap<string, TrafficSeriesPoint>,
 ): TrafficSeriesPoint[] {
-  const cursor = new Date(windowStart)
-  const last = new Date(windowEnd)
-  if (granularity === TrafficSeriesGranularities.day) {
-    cursor.setUTCHours(0, 0, 0, 0)
-    last.setUTCHours(0, 0, 0, 0)
-  } else {
-    cursor.setUTCMinutes(0, 0, 0)
-    last.setUTCMinutes(0, 0, 0)
-  }
-
+  const firstBucket = seriesBucketOf(windowStart.toISOString(), granularity)
+  const lastBucketStartMs = seriesBucketStartMs(seriesBucketOf(windowEnd.toISOString(), granularity), granularity)
   const points: TrafficSeriesPoint[] = []
-  while (cursor <= last) {
-    const bucket = granularity === TrafficSeriesGranularities.day
-      ? cursor.toISOString().slice(0, 10)
-      : cursor.toISOString()
+  for (
+    let ms = seriesBucketStartMs(firstBucket, granularity);
+    ms <= lastBucketStartMs;
+    ms = nextSeriesBucketStartMs(ms, granularity)
+  ) {
+    const iso = new Date(ms).toISOString()
+    const bucket = granularity === TrafficSeriesGranularities.hour ? iso : seriesBucketOf(iso, granularity)
     points.push(pointsByBucket.get(bucket) ?? emptyTrafficSeriesPoint(bucket))
-    if (granularity === TrafficSeriesGranularities.day) cursor.setUTCDate(cursor.getUTCDate() + 1)
-    else cursor.setUTCHours(cursor.getUTCHours() + 1)
   }
   return points
 }
@@ -1019,6 +1142,20 @@ function aiUserFetchVerificationProvenance(
     .orderBy(aiUserFetchVerificationManifestsHourly.manifestId)
     .all()
   return buildVerificationProvenance(events, rows)
+}
+
+/**
+ * What to redact for a WordPress credential: the password itself (and each
+ * word of it) plus the Basic auth value built from it, which a transport
+ * error could quote instead.
+ */
+function wordpressRedactionValues(username: string, applicationPassword: string): string[] {
+  return [
+    ...credentialRedactionValues(applicationPassword),
+    // WordPress accepts the password with or without its group spaces.
+    applicationPassword.replace(/\s+/g, ''),
+    Buffer.from(`${username.trim()}:${applicationPassword.trim()}`, 'utf8').toString('base64'),
+  ]
 }
 
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
@@ -1229,6 +1366,8 @@ interface RunBackfillTaskOptions {
    * source type.
    */
   pullErrorPrefix: string
+  /** Credential values to take out of a pull failure before it is stored. */
+  pullSecrets?: readonly string[]
   /** See `TrafficRoutesOptions.journeyKeySecret`. */
   journeyKeySecret?: string
 }
@@ -1348,7 +1487,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
     // exact range, while the existing source state is left intact so its
     // regular forward sync remains healthy.
     markFailed(
-      `${pullErrorPrefix}: ${describeError(e)}`,
+      `${pullErrorPrefix}: ${redactKnownSecrets(describeError(e), options.pullSecrets ?? [])}`,
       e instanceof VercelRetentionClampError,
     )
     reportBackfill(failedOutcome(e, e instanceof VercelRetentionClampError ? OutcomeReasonCodes.NO_DATA : undefined))
@@ -1395,7 +1534,12 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
 
   // Read now, stored with the rollups below. An older window never replaces a newer one.
   const bursts = planScannerBursts(app.db, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret })
-  const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT, scannerBurstEventIds: bursts.eventIds })
+  const referralArrivals = planAiReferralArrivals(app.db, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret })
+  const report = buildTrafficProbeReport(allEvents, {
+    sampleLimit: BACKFILL_SAMPLE_LIMIT,
+    scannerBurstEventIds: bursts.eventIds,
+    aiReferralFollowOnEventIds: referralArrivals.followOnEventIds,
+  })
   // Self-traffic exclusion is never silent. The backfill response already
   // returned, so the log is the surfacing channel here.
   if (report.totals.selfTrafficExcluded > 0) {
@@ -1734,6 +1878,7 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         outerActive: () => app.db.$client.inTransaction,
       })
       saveScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, windows: bursts.windows, now: finishedAt })
+      saveAiReferralArrivals(tx, { projectId: project.id, sourceId: sourceRow.id, arrivals: referralArrivals.arrivals, now: finishedAt })
       recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt, scannerBurstEventIds: bursts.eventIds }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic backfill') },
         outerActive: () => app.db.$client.inTransaction,
@@ -1748,6 +1893,34 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
         && Number.isFinite(recordedSkipMs)
         && windowStart.getTime() <= recordedSkipMs
 
+      // Replacement rows use the current arrival rule even at old event dates.
+      // Reuse v211's write-time test: a journey recount may already have moved
+      // the source's cutoff earlier than the original v207 rule change.
+      let olderCountUntil = latestSource.aiReferralOlderCountUntil
+      if (olderCountUntil !== null) {
+        const ruleChange = tx.get<{ appliedAt: string | null } | undefined>(sql`
+          SELECT strftime('%Y-%m-%dT%H:%M:%fZ', applied_at) AS appliedAt
+          FROM _migrations WHERE version = 207
+        `)
+        if (ruleChange?.appliedAt) {
+          const olderReferral = tx.select({ sourceId: aiReferralEventsHourly.sourceId }).from(aiReferralEventsHourly)
+            .where(and(
+              eq(aiReferralEventsHourly.sourceId, sourceRow.id),
+              lt(aiReferralEventsHourly.createdAt, ruleChange.appliedAt),
+            )).limit(1).get()
+          if (!olderReferral) olderCountUntil = null
+        }
+      }
+      // Replacement rows count a browser agent's page loads only. Hours before
+      // the window keep the count they were made under: the marker moves back
+      // to the end of the last browser-agent hour among them, or clears.
+      const userFetchOlderCountUntil = aiUserFetchOlderCountAfterBackfill(
+        tx,
+        { projectId: project.id, sourceId: sourceRow.id },
+        latestSource.aiUserFetchOlderCountUntil,
+        windowStartIso,
+      )
+
       tx
         .update(trafficSources)
         .set({
@@ -1755,6 +1928,8 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           lastSyncedAt: nextLastSyncedAt,
           lastError: null,
           lastEventIds: newRingBuffer,
+          aiReferralOlderCountUntil: olderCountUntil,
+          aiUserFetchOlderCountUntil: userFetchOlderCountUntil,
           ...(skipRecovered ? { skippedThroughAt: null } : {}),
           updatedAt: finishedAt,
         })
@@ -1783,6 +1958,8 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           reasonCode: commitOutcome === 'source-inactive' ? OutcomeReasonCodes.NOT_CONNECTED : OutcomeReasonCodes.UNSUPPORTED,
         })
     if (commitOutcome === 'source-inactive' || commitOutcome === 'wordpress-backfill-unsupported') return
+    // The backfill response already returned, so the log reports what the replaced window left out.
+    logBrowserAgentNonPageHits(app.log, { sourceId: sourceRow.id, runId, hits: report.totals.aiUserFetchBrowserNonPageHits })
   } catch (e) {
     markFailed(`Backfill rollup write failed: ${describeError(e)}`)
     reportBackfill(failedOutcome(e))
@@ -1806,8 +1983,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   const readQueueRetentionSeconds = opts.getCloudflareQueueRetentionSeconds ?? getCloudflareQueueRetentionSeconds
   const cloudflareQueueMaxBatches = opts.cloudflareQueueMaxBatches ?? DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES
   const cloudflareQueueSyncDeadlineMs = opts.cloudflareQueueSyncDeadlineMs ?? DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS
+  const cloudflareQueueEmptyPullBackoffMs = opts.cloudflareQueueEmptyPullBackoffMs ?? DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS
   if (!Number.isInteger(cloudflareQueueMaxBatches) || cloudflareQueueMaxBatches < 1 || cloudflareQueueMaxBatches > 1_000) {
     throw new RangeError('cloudflareQueueMaxBatches must be an integer from 1 to 1000')
+  }
+  if (cloudflareQueueEmptyPullBackoffMs.some(ms => !Number.isFinite(ms) || ms < 0)) {
+    throw new RangeError('cloudflareQueueEmptyPullBackoffMs must hold non-negative milliseconds')
   }
   const allowLoopback = opts.allowLoopbackWebhooks === true
 
@@ -1875,6 +2056,17 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       cloudflareIngestRateLimitKey(request, opts.cloudflareTrafficCredentialStore, app.db),
   })
 
+  function requireCloudRunSourceCredential(source: typeof trafficSources.$inferSelect, projectName: string) {
+    if (!opts.cloudRunCredentialStore) {
+      throw validationError('Cloud Run credential storage is not configured for this deployment')
+    }
+    const credential = opts.cloudRunCredentialStore.getConnection(projectName)
+    if (!hasCloudRunCredentialForSource(credential, projectName, source)) {
+      throw validationError('Cloud Run credential is not configured for this source')
+    }
+    return credential
+  }
+
   function validateTrafficSourceCredential(
     source: typeof trafficSources.$inferSelect,
     projectName: string,
@@ -1905,15 +2097,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       return { usesPullSchedule: false }
     }
     if (source.sourceType === TrafficSourceTypes['cloud-run']) {
-      const credential = opts.cloudRunCredentialStore?.getConnection(projectName)
-      if (!credential
-        || credential.authMode !== TrafficSourceAuthModes['service-account']
-        || !credential.clientEmail?.trim()
-        || !credential.privateKey?.trim()
-        || credential.gcpProjectId !== source.configJson.gcpProjectId
-        || source.configJson.authMode !== TrafficSourceAuthModes['service-account']
-        || (credential.serviceName ?? null) !== (source.configJson.serviceName ?? null)
-        || (credential.location ?? null) !== (source.configJson.location ?? null)) {
+      if (!hasCloudRunServiceAccount(requireCloudRunSourceCredential(source, projectName))) {
         throw validationError('Cloud Run credential is not configured for this source')
       }
       return { usesPullSchedule: true }
@@ -1945,60 +2129,49 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // POST /projects/:name/traffic/connect/cloud-run
   app.post<{
     Params: { name: string }
-    Body: {
-      gcpProjectId?: string
-      serviceName?: string
-      location?: string
-      displayName?: string
-      keyJson?: string
-    }
   }>('/projects/:name/traffic/connect/cloud-run', connectionRoute(app, () => ({ integration: 'traffic_cloud_run', action: 'connect' }), async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
-    const body = request.body ?? {}
-    const { gcpProjectId, serviceName, location, displayName, keyJson } = body
-
-    if (!gcpProjectId || typeof gcpProjectId !== 'string') {
-      throw validationError('gcpProjectId is required')
+    const parsedBody = trafficConnectCloudRunRequestSchema.safeParse(request.body)
+    if (!parsedBody.success) {
+      throw validationError(parsedBody.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
     }
-    if (!keyJson) {
-      throw validationError(
-        'keyJson is required for v1 (service-account JSON content). OAuth-mode Cloud Run is not yet supported.',
-      )
-    }
-    if (!opts.cloudRunCredentialStore) {
+    const { gcpProjectId, serviceName, location, displayName, keyJson, startFromNow } = parsedBody.data
+    const store = opts.cloudRunCredentialStore
+    if (!store) {
       throw validationError('Cloud Run credential storage is not configured for this deployment')
     }
-
-    let parsed: { client_email?: string; private_key?: string }
-    try {
-      parsed = JSON.parse(keyJson) as { client_email?: string; private_key?: string }
-    } catch {
-      throw validationError('Invalid JSON in keyJson')
-    }
-    if (!parsed.client_email || !parsed.private_key) {
-      throw validationError('Service-account JSON must contain client_email and private_key')
-    }
-
     const now = new Date().toISOString()
-    const existing = opts.cloudRunCredentialStore.getConnection(project.name)
-    if (existing) attempt.update({ action: 'reauth' })
-    opts.cloudRunCredentialStore.upsertConnection({
-      projectName: project.name,
-      gcpProjectId,
-      serviceName: serviceName ?? undefined,
-      location: location ?? undefined,
-      authMode: TrafficSourceAuthModes['service-account'],
-      clientEmail: parsed.client_email,
-      privateKey: parsed.private_key,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    })
-
+    const existing = store.getConnection(project.name)
     const config: Record<string, unknown> = {
       gcpProjectId,
       serviceName: serviceName ?? null,
       location: location ?? null,
       authMode: TrafficSourceAuthModes['service-account'],
+    }
+    let uploadedCredential: CloudRunCredentialRecord | undefined
+    if (keyJson !== undefined) {
+      let parsed: { client_email?: unknown; private_key?: unknown } | null
+      try {
+        parsed = JSON.parse(keyJson) as typeof parsed
+      } catch {
+        throw validationError('Invalid JSON in keyJson')
+      }
+      if (typeof parsed?.client_email !== 'string' || !parsed.client_email.trim()
+        || typeof parsed.private_key !== 'string' || !parsed.private_key.trim()) {
+        throw validationError('Service-account JSON must contain client_email and private_key')
+      }
+      uploadedCredential = {
+        projectName: project.name,
+        projectId: project.id,
+        gcpProjectId,
+        serviceName: serviceName ?? undefined,
+        location: location ?? undefined,
+        authMode: TrafficSourceAuthModes['service-account'],
+        clientEmail: parsed.client_email,
+        privateKey: parsed.private_key,
+        createdAt: now,
+        updatedAt: now,
+      }
     }
     const fallbackName = displayName ?? `Cloud Run · ${gcpProjectId}${serviceName ? ` / ${serviceName}` : ''}`
 
@@ -2010,17 +2183,62 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .where(eq(trafficSources.projectId, project.id)).all()
         .find(row => row.sourceType === TrafficSourceTypes['cloud-run']
           && row.status !== TrafficSourceStatuses.archived)
-      const sourceId = activeSource?.id ?? crypto.randomUUID()
+      // A legacy config entry has only a reusable project name. Its matching
+      // source row proves ownership before this request creates or edits one.
+      const matchesExistingSource = activeSource && hasCloudRunCredentialForSource(existing, project.name, activeSource)
+      const sameOwner = existing?.projectId === project.id || matchesExistingSource
+      let credentialToSave = uploadedCredential
+      if (credentialToSave && matchesCloudRunTarget(existing, project.name, config) && sameOwner) {
+        attempt.update({ action: 'reauth' })
+        credentialToSave = { ...credentialToSave, createdAt: existing.createdAt }
+      } else if (!credentialToSave) {
+        if (!matchesCloudRunTarget(existing, project.name, config) || !hasCloudRunServiceAccount(existing)
+          || !sameOwner) {
+          const setup = { gcpProjectId, serviceName, location, displayName, startFromNow }
+          throw validationError(
+            'Open the Cloud Run setup form in your Canonry dashboard to upload a service-account key for this target.',
+            { reason: 'cloud-run-credential-required', ...cloudRunSetupLinks(project.name, setup, opts) },
+          )
+        }
+        if (existing.projectId === undefined) {
+          credentialToSave = { ...existing, projectId: project.id, updatedAt: now }
+        }
+      }
+      const sameSource = activeSource && sameCloudRunTarget(activeSource.configJson, config) ? activeSource : undefined
+      const sourceId = sameSource?.id ?? crypto.randomUUID()
+      if (!uploadedCredential && sameSource && matchesExistingSource) {
+        // A keyless retry confirms the existing source. Its sync generation and
+        // error survive, including when the operator changes only its label.
+        if (displayName !== undefined && displayName !== sameSource.displayName) {
+          tx.update(trafficSources).set({ displayName }).where(eq(trafficSources.id, sourceId)).run()
+          writeAuditLog(tx, {
+            projectId: project.id, actor: 'api', action: 'traffic.cloud-run.renamed',
+            entityType: 'traffic_source', entityId: sourceId,
+          })
+        }
+        if (credentialToSave) store.upsertConnection(credentialToSave)
+        return { sourceRow: { ...sameSource, displayName: displayName ?? sameSource.displayName }, scheduleChanged: false }
+      }
       const sourceStatus = trafficConnectStatus(tx, project.id, activeSource)
-      if (activeSource) {
+      if (sameSource ? sameSource.configJson.startFromNow === true : startFromNow) {
+        // The initial lower bound is the source's creation time. lastSyncedAt
+        // stays empty until logs have actually been pulled.
+        config.startFromNow = true
+      }
+      if (sameSource) {
         tx.update(trafficSources).set({
-          displayName: fallbackName,
+          displayName: displayName ?? sameSource.displayName,
           status: sourceStatus,
           lastError: null,
           configJson: config,
           updatedAt: now,
         }).where(eq(trafficSources.id, sourceId)).run()
       } else {
+        // Prior events, deduplication IDs and sync progress belong to the old log target.
+        if (activeSource) {
+          tx.update(trafficSources).set({ status: TrafficSourceStatuses.archived, archivedAt: now, updatedAt: now })
+            .where(eq(trafficSources.id, activeSource.id)).run()
+        }
         tx.insert(trafficSources).values({
           id: sourceId,
           projectId: project.id,
@@ -2046,6 +2264,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         entityType: 'traffic_source',
         entityId: sourceId,
       })
+      if (credentialToSave) store.upsertConnection(credentialToSave)
       return {
         sourceRow: tx.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!,
         scheduleChanged: scheduleBinding.changed,
@@ -2106,14 +2325,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
     } catch (e) {
       attempt.failed(e, e instanceof EgressRefusedError ? 'BLOCKED_UNSAFE_URL' : e instanceof EgressFailedError ? 'NETWORK' : undefined)
+      // The password travels as Basic auth; neither it nor the encoded header
+      // value may come back in the message.
+      const secrets = wordpressRedactionValues(username, applicationPassword)
       if (e instanceof WordpressTrafficApiError) {
-        throw providerError(
+        throw providerError(redactKnownSecrets(
           `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
-        )
+          secrets,
+        ))
       }
       // The name answered differently for the probe than for the check above.
       if (e instanceof EgressRefusedError && !e.redirected) throw validationError(`WordPress baseUrl rejected: ${e.message}`)
-      const msg = describeError(e)
+      const msg = redactKnownSecrets(describeError(e), secrets)
       throw providerError(`WordPress traffic probe failed: ${msg}`)
     }
 
@@ -2247,12 +2470,16 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
     } catch (e) {
       attempt.failed(e)
+      // An adapter error can quote the request it failed on. The token is in
+      // hand here, so take it out of anything shown back to the caller.
+      const secrets = credentialRedactionValues(token)
       if (e instanceof VercelLogsApiError) {
-        throw providerError(
+        throw providerError(redactKnownSecrets(
           `Vercel traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
-        )
+          secrets,
+        ))
       }
-      const msg = describeError(e)
+      const msg = redactKnownSecrets(describeError(e), secrets)
       throw providerError(`Vercel traffic probe failed: ${msg}`)
     }
 
@@ -2816,8 +3043,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // normalizes each event into `NormalizedTrafficRequest`, runs the shared
   // classifier + rollup pipeline, and updates `last_worker_version`.
   //
-  // Auth: opt-out of the global cnry_* bearer check (see `auth.ts`
-  // `shouldSkipAuth`). The handler reads `X-Canonry-Source-Id` to resolve
+  // The handler reads `X-Canonry-Source-Id` to resolve
   // the credential row, then verifies bearer hash + HMAC. Any failure
   // returns a single 401 — never disambiguate which leg failed to a caller
   // (defends against credential-leg enumeration).
@@ -2846,6 +3072,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
     },
     config: {
+      skipInstanceAuth: true,
       rateLimit: {
         hook: 'onRequest',
         max: opts.cloudflareIngestIpRateLimitMax ?? DEFAULT_CLOUDFLARE_INGEST_RATE_LIMIT_MAX,
@@ -2862,7 +3089,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         opts.onTrafficIngested?.('failure' in outcome
           ? {
               sourceType: TrafficSourceTypes.cloudflare, status: 'failed', events: 0, crawlerHits: 0, aiReferralHits: 0,
-              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs, ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
+              aiUserFetchHits: 0, durationMs: Date.now() - ingestStartedMs,
+              ...routeOutcomeFailure(outcome.failure, outcome.reasonCode),
             }
           : { sourceType: TrafficSourceTypes.cloudflare, status: 'succeeded', ...outcome, durationMs: Date.now() - ingestStartedMs })
       } catch {
@@ -2974,7 +3202,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchHits: writeResult.aiUserFetchHits,
     })
 
-    return reply.status(200).send({
+    const response: CloudflareWorkerIngestResponse = {
       acceptedEvents: writeResult.acceptedEvents,
       droppedEvents: normalizationDrops + writeResult.duplicateEvents,
       workerVersionAck: workerVersion,
@@ -2982,7 +3210,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchBucketRows: writeResult.aiUserFetchBucketRows,
       aiReferralBucketRows: writeResult.aiReferralBucketRows,
       sampleRows: writeResult.sampleRows,
-    })
+      aiUserFetchBrowserNonPageHits: writeResult.aiUserFetchBrowserNonPageHits,
+    }
+    return reply.status(200).send(response)
   })
 
   // POST /projects/:name/traffic/sources/:id/sync
@@ -3042,6 +3272,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       let crawlerHits = 0
       let aiUserFetchHits = 0
       let aiUserFetchLikelyFakeHits = 0
+      let aiUserFetchBrowserNonPageHits = 0
       let aiReferralHits = 0
       let unknownHits = 0
       let crawlerBucketRows = 0
@@ -3079,6 +3310,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           projectId: project.id, actor: 'api', action: 'traffic.cloudflare.queue-synced',
           entityType: 'traffic_source', entityId: sourceRow.id,
         })
+        logBrowserAgentNonPageHits(request.log, { sourceId: sourceRow.id, runId, hits: aiUserFetchBrowserNonPageHits })
         try {
           opts.onTrafficSynced?.({
             status: 'completed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,
@@ -3089,7 +3321,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         } catch { /* telemetry never blocks Queue acknowledgement */ }
         return {
           sourceId: sourceRow.id, runId, syncedAt: committedAt, pulledEvents: acceptedEvents,
-          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiUserFetchLikelyFakeHits, aiReferralHits, unknownHits,
+          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiUserFetchLikelyFakeHits, aiUserFetchBrowserNonPageHits, aiReferralHits, unknownHits,
           crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
           remainingBacklogCount,
           queueDrain,
@@ -3239,6 +3471,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           crawlerHits += writeResult.crawlerHits
           aiUserFetchHits += writeResult.aiUserFetchHits
           aiUserFetchLikelyFakeHits += writeResult.aiUserFetchLikelyFakeHits
+          aiUserFetchBrowserNonPageHits += writeResult.aiUserFetchBrowserNonPageHits
           aiReferralHits += writeResult.aiReferralHits
           unknownHits += writeResult.unknownHits
           crawlerBucketRows += writeResult.crawlerBucketRows
@@ -3259,12 +3492,27 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               stopReason = CloudflareQueueDrainStopReasons['unleased-only']
               break
             }
-            // A pull can come back empty for a moment while messages wait;
-            // two in a row means the rest is leased or not yet visible.
             consecutiveEmptyPulls = pulled.skippedUnleasedMessageCount === 0 ? consecutiveEmptyPulls + 1 : 0
-            if (consecutiveEmptyPulls >= 2) {
-              stopReason = CloudflareQueueDrainStopReasons['empty-pulls']
-              break
+            if (consecutiveEmptyPulls > 0) {
+              // Cloudflare answers a pull empty now and then while messages
+              // wait. With a full batch or more waiting, wait a little longer
+              // after each empty pull and stop only when every wait came back
+              // empty. Less than a full batch is mostly what arrived during
+              // the drain: one quick retry, then the next sync takes it, so
+              // the drain never chases a trickle of new messages.
+              const waits = remainingBacklogCount >= CLOUDFLARE_QUEUE_BATCH_SIZE ? cloudflareQueueEmptyPullBackoffMs : [0]
+              if (consecutiveEmptyPulls > waits.length) {
+                stopReason = CloudflareQueueDrainStopReasons['empty-pulls']
+                break
+              }
+              const waitMs = waits[consecutiveEmptyPulls - 1]!
+              if (waitMs > 0) {
+                if (waitMs >= drainDeadlineMs - Date.now()) {
+                  stopReason = CloudflareQueueDrainStopReasons.deadline
+                  break
+                }
+                await new Promise(resolve => setTimeout(resolve, waitMs))
+              }
             }
           } else {
             consecutiveEmptyPulls = 0
@@ -3351,6 +3599,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // because its continuation state is durable; Cloud Run and Vercel need it
     // so a scheduled tick waits out a running backfill, which holds the same
     // lease, instead of committing into the window the backfill replaces.
+    const cloudRunCredential = sourceRow.sourceType === TrafficSourceTypes['cloud-run']
+      ? requireCloudRunSourceCredential(sourceRow, project.name) : undefined
     const isWordpressSource = sourceRow.sourceType === TrafficSourceTypes.wordpress
     const syncLeaseOwner = crypto.randomUUID()
     if (!tryClaimTrafficSyncLease({
@@ -3458,53 +3708,38 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // boundary when an adaptive drain stops at its deadline mid-window.
     let effectiveWindowEnd = windowEnd
 
-    if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
+    if (cloudRunCredential) {
       auditAction = 'traffic.cloud-run.synced'
-      const credentialStore = opts.cloudRunCredentialStore
-      if (!credentialStore) {
-        throw validationError('Cloud Run credential storage is not configured for this deployment')
-      }
-      const credential = credentialStore.getConnection(project.name)
-      if (!credential) {
-        throw validationError(
-          `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
-        )
-      }
-
-      const config = parseSourceConfig(sourceRow)
-      const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
-      const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
-      const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+      const { gcpProjectId, serviceName, location } = cloudRunCredential
 
       const requestedMinutes = request.body?.sinceMinutes
       const windowMinutes = Number.isFinite(requestedMinutes) && requestedMinutes && requestedMinutes > 0
         ? Math.floor(requestedMinutes)
         : syncWindowMinutes
 
-      // Clamp windowStart forward to lastSyncedAt so back-to-back syncs don't
-      // re-pull the previous window and double-count via the `hits + ?` upsert.
+      // Never pull before the last committed window or a new source's
+      // explicitly selected collection start.
       const requestedStartMs = windowEnd.getTime() - windowMinutes * 60_000
-      const lastSyncedMs = sourceRow.lastSyncedAt
-        ? new Date(sourceRow.lastSyncedAt).getTime()
+      const lowerBound = sourceRow.lastSyncedAt ?? (sourceRow.configJson.startFromNow === true ? sourceRow.createdAt : null)
+      const lowerBoundMs = lowerBound
+        ? new Date(lowerBound).getTime()
         : Number.NEGATIVE_INFINITY
       windowStart = new Date(
-        Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
+        Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lowerBoundMs)),
       )
 
       let accessToken: string
       try {
-        accessToken = await resolveAccessToken(credential)
+        accessToken = await resolveAccessToken(cloudRunCredential)
       } catch (e) {
         const msg = describeError(e)
         markFailed(msg, 'PROVIDER_AUTH')
         throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
       }
 
-      // Tell the Cloud Run client this is a first-time backfill if no prior
-      // cursor exists, so its bounded page budget targets the most-recent
-      // entries instead of exhausting on the oldest. Adapter-specific pull
-      // strategy lives in @canonry/canonry-integration-cloud-run, not here.
-      const isFirstSync = !sourceRow.lastSyncedAt
+      // The adapter's bounded history scan starts with the newest logs.
+      // A source with a collection start uses the incremental pull strategy.
+      const isFirstSync = !lowerBound
       try {
         const page = await pullEvents(accessToken, {
           gcpProjectId,
@@ -3687,7 +3922,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         allEvents = collected
         nextCursor = cursor
       } catch (e) {
-        const msg = describeError(e)
+        // Stored as the run's and the source's error, which health alerts quote.
+        const msg = redactKnownSecrets(describeError(e), wordpressRedactionValues(credential.username, credential.applicationPassword))
         markFailed(msg, 'PROVIDER_PULL')
         // The stored URL now resolves to a refused address: the same 400 the
         // check above gives. A refused redirect is the site's failure.
@@ -3845,7 +4081,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         }
         allEvents = drained.events
       } catch (e) {
-        const msg = describeError(e)
+        // Stored as the run's and the source's error, which health alerts quote.
+        const msg = redactKnownSecrets(describeError(e), credentialRedactionValues(credential.token))
         // A 401/403 is the credential's problem, not the pull's: the token was
         // rejected, or lacks access to this team, project or plan's request
         // logs. Either way every sync fails until the token or its scope
@@ -3869,6 +4106,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let crawlerHitsCount = 0
     let aiUserFetchHitsCount = 0
     let aiUserFetchLikelyFakeHitsCount = 0
+    let aiUserFetchBrowserNonPageHitsCount = 0
     let aiReferralHitsCount = 0
     let unknownHitsCount = 0
 
@@ -3945,7 +4183,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       finishedAt = new Date().toISOString()
       const bursts = planScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret })
       saveScannerBursts(tx, { projectId: project.id, sourceId: sourceRow.id, windows: bursts.windows, now: finishedAt })
-      const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit, scannerBurstEventIds: bursts.eventIds })
+      const referralArrivals = planAiReferralArrivals(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret })
+      saveAiReferralArrivals(tx, { projectId: project.id, sourceId: sourceRow.id, arrivals: referralArrivals.arrivals, now: finishedAt })
+      const report = buildTrafficProbeReport(dedupedEvents, {
+        sampleLimit,
+        scannerBurstEventIds: bursts.eventIds,
+        aiReferralFollowOnEventIds: referralArrivals.followOnEventIds,
+      })
       const rawSampleCutoff = enforceRawEventSampleRetention(
         tx,
         sourceRow.id,
@@ -3956,6 +4200,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       crawlerHitsCount = report.totals.crawlerHits
       aiUserFetchHitsCount = report.totals.aiUserFetchHits
       aiUserFetchLikelyFakeHitsCount = report.totals.aiUserFetchLikelyFakeHits
+      aiUserFetchBrowserNonPageHitsCount = report.totals.aiUserFetchBrowserNonPageHits
       aiReferralHitsCount = report.totals.aiReferralHits
       unknownHitsCount = report.totals.unknownHits
 
@@ -4284,6 +4529,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         'Dropped Canonry self-traffic before rollup; excluded from pulledEvents',
       )
     }
+    logBrowserAgentNonPageHits(request.log, { sourceId: sourceRow.id, runId, hits: aiUserFetchBrowserNonPageHitsCount })
 
     // Fire-and-forget telemetry. Never let a hook block the response.
     try {
@@ -4311,6 +4557,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       crawlerHits: crawlerHitsCount,
       aiUserFetchHits: aiUserFetchHitsCount,
       aiUserFetchLikelyFakeHits: aiUserFetchLikelyFakeHitsCount,
+      aiUserFetchBrowserNonPageHits: aiUserFetchBrowserNonPageHitsCount,
       aiReferralHits: aiReferralHitsCount,
       unknownHits: unknownHitsCount,
       crawlerBucketRows,
@@ -4403,23 +4650,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // runBackfillTask after the run row is in place.
     let pullForBackfill: BackfillPullFn
     let pullErrorPrefix: string
+    let pullSecrets: string[] = []
 
     if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
-      const credentialStore = opts.cloudRunCredentialStore
-      if (!credentialStore) {
-        throw validationError('Cloud Run credential storage is not configured for this deployment')
-      }
-      const credential = credentialStore.getConnection(project.name)
-      if (!credential) {
-        throw validationError(
-          `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
-        )
-      }
-
-      const config = parseSourceConfig(sourceRow)
-      const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
-      const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
-      const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+      const credential = requireCloudRunSourceCredential(sourceRow, project.name)
+      const { gcpProjectId, serviceName, location } = credential
 
       pullErrorPrefix = 'Cloud Run pull failed'
       pullForBackfill = async () => {
@@ -4468,6 +4703,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         ?? credential.environment
 
       pullErrorPrefix = 'Vercel pull failed'
+      pullSecrets = credentialRedactionValues(credential.token)
       pullForBackfill = async (signal) => {
         const collected: NormalizedTrafficRequest[] = []
         const seenEventIds = new Set<string>()
@@ -4562,6 +4798,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       windowEnd,
       pullForBackfill,
       pullErrorPrefix,
+      pullSecrets,
     }).catch(() => {
       // runBackfillTask handles its own error recording. The catch here
       // exists only so an unhandled rejection cannot crash the process if
@@ -4913,7 +5150,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // GET /projects/:name/traffic/events
   app.get<{
     Params: { name: string }
-    Querystring: { since?: string; until?: string; kind?: string; limit?: string; sourceId?: string; granularity?: string; sinceMinutes?: string }
+    Querystring: {
+      since?: string; until?: string; kind?: string; limit?: string; sourceId?: string; granularity?: string; sinceMinutes?: string
+      path?: string; agent?: string; cursor?: string; groupBy?: string
+    }
   }>('/projects/:name/traffic/events', async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -4932,8 +5172,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const sinceParam = request.query?.since
     const untilParam = request.query?.until
-    const since = sinceParam ? new Date(sinceParam) : defaultSince
-    const until = untilParam ? new Date(untilParam) : now
+    // A later page keeps the first page's window. Without that, a default
+    // window that ends "now" moves between pages and a cursor would skip or
+    // repeat rows. An explicit bound that disagrees with the cursor is refused.
+    const cursorParam = optionalQueryString(request.query?.cursor, 'cursor')
+    const cursorWindow = cursorParam === null ? null : readTrafficEventCursorWindow(cursorParam)
+    const since = cursorWindow ? new Date(cursorWindow.since) : sinceParam ? new Date(sinceParam) : defaultSince
+    const until = cursorWindow ? new Date(cursorWindow.until) : untilParam ? new Date(untilParam) : now
     if (Number.isNaN(since.getTime())) {
       throw validationError('"since" must be an ISO-8601 timestamp')
     }
@@ -4943,22 +5188,36 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (since.getTime() > until.getTime()) {
       throw validationError('"since" must be ≤ "until"')
     }
-
-    const kindParam = request.query?.kind
-    let kind: TrafficEventKind | 'all' = 'all'
-    if (kindParam !== undefined) {
-      if (
-        kindParam === 'all'
-        || kindParam === TrafficEventKinds.crawler
-        || kindParam === TrafficEventKinds['ai-user-fetch']
-        || kindParam === TrafficEventKinds['ai-referral']
-      ) {
-        kind = kindParam
-      } else {
-        throw validationError(
-          `"kind" must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-user-fetch']}, ${TrafficEventKinds['ai-referral']}`,
-        )
+    if (cursorWindow) {
+      const sameBound = (param: string | undefined, bound: string) =>
+        param === undefined || (!Number.isNaN(new Date(param).getTime()) && new Date(param).toISOString() === bound)
+      if (!sameBound(sinceParam, cursorWindow.since) || !sameBound(untilParam, cursorWindow.until)) {
+        throw validationError('"cursor" keeps the first page\'s window. Leave "since" and "until" out, or repeat the first page\'s values.')
       }
+    }
+
+    // One kind, "all", or a comma-separated list. A list lets a caller ask for
+    // exactly the series it shows: with the crawler hidden, "all" under the row
+    // cap returns almost only crawler rows and the AI rows never load.
+    const kindParam: unknown = request.query?.kind
+    const kindList = kindParam === undefined
+      ? parseTrafficEventKindFilter('all')
+      // A repeated `kind` arrives as an array; only the comma form is accepted.
+      : typeof kindParam === 'string' ? parseTrafficEventKindFilter(kindParam) : null
+    if (!kindList) {
+      throw validationError(`"kind" must be ${TRAFFIC_EVENT_KIND_FILTER_HINT}`)
+    }
+    const kinds = new Set<TrafficEventKind>(kindList)
+
+    // Path (a page and the pages under it, case counting) and agent (bot ID, or the
+    // AI product on AI-referral rows). Every part of the response honors them:
+    // totals, series, rows and groups describe the same slice.
+    const pathFilter = optionalQueryString(request.query?.path, 'path')
+    const agentFilter = optionalQueryString(request.query?.agent, 'agent')
+    const groupByParam = optionalQueryString(request.query?.groupBy, 'groupBy')
+    const groupBy = groupByParam === null ? null : parseTrafficEventGroupBy(groupByParam)
+    if (groupByParam !== null && !groupBy) {
+      throw validationError(`"groupBy" must be ${TRAFFIC_EVENT_GROUP_BY_HINT}`)
     }
 
     const limitParam = request.query?.limit
@@ -4971,23 +5230,56 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     const granularityParam = request.query?.granularity
     let granularity: TrafficSeriesGranularity = TrafficSeriesGranularities.hour
     if (granularityParam !== undefined) {
-      if (
-        granularityParam === TrafficSeriesGranularities.hour
-        || granularityParam === TrafficSeriesGranularities.day
-      ) {
-        granularity = granularityParam
+      const parsed = trafficSeriesGranularitySchema.safeParse(granularityParam)
+      if (parsed.success) {
+        granularity = parsed.data
       } else {
         throw validationError(
-          `"granularity" must be one of: ${TrafficSeriesGranularities.hour}, ${TrafficSeriesGranularities.day}`,
+          `"granularity" must be one of: ${trafficSeriesGranularitySchema.options.join(', ')}`,
         )
       }
     }
 
-    const sourceIdParam = request.query?.sourceId
+    // Guarded like the other filters: a repeated sourceId arrives as an array.
+    const sourceIdParam = optionalQueryString(request.query?.sourceId, 'sourceId') ?? undefined
     const sinceIso = since.toISOString()
     const untilIso = until.toISOString()
+    const readFilters: TrafficEventFilters = {
+      kinds: kindList,
+      sourceId: sourceIdParam || null,
+      path: pathFilter,
+      agent: agentFilter,
+    }
+    const cursor = cursorParam === null ? null : decodeTrafficEventCursor(cursorParam, readFilters, sinceIso, untilIso)
+    const pageRows = <T extends { tsHour: string }>(table: TrafficEventTable, where: SQL | undefined, read: (where: SQL | undefined, order: SQL[], take: number) => T[]): RankedTrafficEventRow<T>[] =>
+      read(cursor ? and(where, trafficEventCursorPredicate(table, cursor)) : where, trafficEventOrder(table), limit + 1)
+        .map((row) => ({
+          rank: table.rank,
+          tsHour: row.tsHour,
+          keys: table.keyFields.map((field) => (row as unknown as Record<string, string | number>)[field]!),
+          row,
+        }))
+    const rankedPages: RankedTrafficEventRow<TrafficEventEntry>[][] = []
+    const groupEntries: TrafficEventGroup[] = []
+    const collectGroups = (table: TrafficEventTable, where: SQL | undefined) => {
+      if (!groupBy) return
+      const columns = trafficEventGroupColumns(table, groupBy)
+      const groupColumns = Object.values(columns)
+      const rows = app.db
+        .select({
+          ...columns,
+          hits: sql<number>`COALESCE(SUM(${table.hits}), 0)`,
+          rows: sql<number>`COUNT(*)`,
+          firstHour: sql<string>`MIN(${table.tsHour})`,
+          lastHour: sql<string>`MAX(${table.tsHour})`,
+        })
+        .from(table.table)
+        .where(where)
+        .groupBy(...groupColumns)
+        .all() as unknown as Parameters<typeof toTrafficEventGroup>[1][]
+      for (const row of rows) groupEntries.push(toTrafficEventGroup(table.kind, row))
+    }
 
-    const events: TrafficEventEntry[] = []
     let crawlerTotal = 0
     let crawlerSegments = { content: 0, sitemap: 0, robots: 0, asset: 0, other: 0 }
     let aiUserFetchTotal = 0
@@ -4998,14 +5290,16 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let totalEventRows = 0
     const seriesByBucket = new Map<string, TrafficSeriesPoint>()
 
-    if (kind === 'all' || kind === TrafficEventKinds.crawler) {
+    if (kinds.has(TrafficEventKinds.crawler)) {
       const crawlerFilters = [
         eq(crawlerEventsHourly.projectId, project.id),
         gte(crawlerEventsHourly.tsHour, sinceIso),
         lte(crawlerEventsHourly.tsHour, untilIso),
       ]
       if (sourceIdParam) crawlerFilters.push(eq(crawlerEventsHourly.sourceId, sourceIdParam))
+      crawlerFilters.push(...trafficEventFilterPredicates(TRAFFIC_EVENT_TABLES.crawler, readFilters))
       const crawlerWhere = and(...crawlerFilters)
+      collectGroups(TRAFFIC_EVENT_TABLES.crawler, crawlerWhere)
 
       // Segment the FULL window by path class (not just the limit-truncated row
       // slice below) so the totals reflect every hit. Buckets sum to the
@@ -5031,9 +5325,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         + crawlerSegments.other
       totalEventRows += pathTotals.reduce((sum, row) => sum + Number(row.rows), 0)
 
-      const crawlerSeriesBucket = granularity === TrafficSeriesGranularities.day
-        ? sql<string>`substr(${crawlerEventsHourly.tsHour}, 1, 10)`
-        : crawlerEventsHourly.tsHour
+      const crawlerSeriesBucket = seriesBucketSql(crawlerEventsHourly.tsHour, granularity)
       // Content-vs-infrastructure is decided per PATH, but grouping the series by
       // (bucket, path) materializes one row per path per bucket, which on a large
       // site is millions of rows for a 90-day window. Instead: read the DISTINCT
@@ -5105,15 +5397,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         }
       }
 
-      const rows = app.db
-        .select()
-        .from(crawlerEventsHourly)
-        .where(crawlerWhere)
-        .orderBy(desc(crawlerEventsHourly.tsHour))
-        .limit(limit)
-        .all()
-      for (const r of rows) {
-        events.push({
+      const crawlerPage = pageRows(
+        TRAFFIC_EVENT_TABLES.crawler,
+        crawlerWhere,
+        (where, order, take) => app.db.select().from(crawlerEventsHourly).where(where).orderBy(...order).limit(take).all(),
+      )
+      rankedPages.push(crawlerPage.map(({ row: r, ...ranked }) => ({
+        ...ranked,
+        row: {
           kind: TrafficEventKinds.crawler,
           sourceId: r.sourceId,
           tsHour: r.tsHour,
@@ -5126,18 +5417,20 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pathClass: classifyTrafficPath(r.pathNormalized),
           status: r.status,
           hits: r.hits,
-        })
-      }
+        },
+      })))
     }
 
-    if (kind === 'all' || kind === TrafficEventKinds['ai-user-fetch']) {
+    if (kinds.has(TrafficEventKinds['ai-user-fetch'])) {
       const userFetchFilters = [
         eq(aiUserFetchEventsHourly.projectId, project.id),
         gte(aiUserFetchEventsHourly.tsHour, sinceIso),
         lte(aiUserFetchEventsHourly.tsHour, untilIso),
       ]
       if (sourceIdParam) userFetchFilters.push(eq(aiUserFetchEventsHourly.sourceId, sourceIdParam))
+      userFetchFilters.push(...trafficEventFilterPredicates(TRAFFIC_EVENT_TABLES['ai-user-fetch'], readFilters))
       const userFetchWhere = and(...userFetchFilters)
+      collectGroups(TRAFFIC_EVENT_TABLES['ai-user-fetch'], userFetchWhere)
 
       const total = app.db
         .select({
@@ -5150,9 +5443,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       aiUserFetchTotal = Number(total?.total ?? 0)
       totalEventRows += Number(total?.rows ?? 0)
 
-      const userFetchSeriesBucket = granularity === TrafficSeriesGranularities.day
-        ? sql<string>`substr(${aiUserFetchEventsHourly.tsHour}, 1, 10)`
-        : aiUserFetchEventsHourly.tsHour
+      const userFetchSeriesBucket = seriesBucketSql(aiUserFetchEventsHourly.tsHour, granularity)
       const userFetchSeries = app.db
         .select({
           bucket: userFetchSeriesBucket,
@@ -5166,15 +5457,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         trafficSeriesPoint(seriesByBucket, row.bucket).aiUserFetchHits = Number(row.hits)
       }
 
-      const rows = app.db
-        .select()
-        .from(aiUserFetchEventsHourly)
-        .where(userFetchWhere)
-        .orderBy(desc(aiUserFetchEventsHourly.tsHour))
-        .limit(limit)
-        .all()
-      for (const r of rows) {
-        events.push({
+      const userFetchPage = pageRows(
+        TRAFFIC_EVENT_TABLES['ai-user-fetch'],
+        userFetchWhere,
+        (where, order, take) => app.db.select().from(aiUserFetchEventsHourly).where(where).orderBy(...order).limit(take).all(),
+      )
+      rankedPages.push(userFetchPage.map(({ row: r, ...ranked }) => ({
+        ...ranked,
+        row: {
           kind: TrafficEventKinds['ai-user-fetch'],
           sourceId: r.sourceId,
           tsHour: r.tsHour,
@@ -5186,18 +5476,20 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           pathNormalized: r.pathNormalized,
           status: r.status,
           hits: r.hits,
-        })
-      }
+        },
+      })))
     }
 
-    if (kind === 'all' || kind === TrafficEventKinds['ai-referral']) {
+    if (kinds.has(TrafficEventKinds['ai-referral'])) {
       const aiFilters = [
         eq(aiReferralEventsHourly.projectId, project.id),
         gte(aiReferralEventsHourly.tsHour, sinceIso),
         lte(aiReferralEventsHourly.tsHour, untilIso),
       ]
       if (sourceIdParam) aiFilters.push(eq(aiReferralEventsHourly.sourceId, sourceIdParam))
+      aiFilters.push(...trafficEventFilterPredicates(TRAFFIC_EVENT_TABLES['ai-referral'], readFilters))
       const aiWhere = and(...aiFilters)
+      collectGroups(TRAFFIC_EVENT_TABLES['ai-referral'], aiWhere)
 
       // The paid/organic/unknown classes are computed over LANDED hits only: a
       // redirect hop's paid tags are not a paid session, and every other
@@ -5225,9 +5517,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       )
       totalEventRows += Number(total?.rows ?? 0)
 
-      const referralSeriesBucket = granularity === TrafficSeriesGranularities.day
-        ? sql<string>`substr(${aiReferralEventsHourly.tsHour}, 1, 10)`
-        : aiReferralEventsHourly.tsHour
+      const referralSeriesBucket = seriesBucketSql(aiReferralEventsHourly.tsHour, granularity)
       const referralSeries = app.db
         .select({
           bucket: referralSeriesBucket,
@@ -5244,35 +5534,39 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         point.aiReferralLandedHits = Number(row.landed)
       }
 
-      const rows = app.db
-        .select()
-        .from(aiReferralEventsHourly)
-        .where(aiWhere)
-        .orderBy(desc(aiReferralEventsHourly.tsHour))
-        .limit(limit)
-        .all()
-      for (const r of rows) {
+      const referralPage = pageRows(
+        TRAFFIC_EVENT_TABLES['ai-referral'],
+        aiWhere,
+        (where, order, take) => app.db.select().from(aiReferralEventsHourly).where(where).orderBy(...order).limit(take).all(),
+      )
+      rankedPages.push(referralPage.map(({ row: r, ...ranked }) => {
         const counts = aiReferralClassCounts(r.sessionsOrHits, r.paidSessionsOrHits, r.organicSessionsOrHits)
-        events.push({
-          kind: TrafficEventKinds['ai-referral'],
-          sourceId: r.sourceId,
-          tsHour: r.tsHour,
-          product: r.product,
-          operator: r.operator,
-          sourceDomain: r.sourceDomain,
-          evidenceType: r.evidenceType,
-          landingPathNormalized: r.landingPathNormalized,
-          status: r.status,
-          hits: counts.total,
-          paidHits: counts.paid,
-          organicHits: counts.organic,
-          unknownHits: counts.unknown,
-        })
-      }
+        return {
+          ...ranked,
+          row: {
+            kind: TrafficEventKinds['ai-referral'],
+            sourceId: r.sourceId,
+            tsHour: r.tsHour,
+            product: r.product,
+            operator: r.operator,
+            sourceDomain: r.sourceDomain,
+            evidenceType: r.evidenceType,
+            landingPathNormalized: r.landingPathNormalized,
+            status: r.status,
+            hits: counts.total,
+            paidHits: counts.paid,
+            organicHits: counts.organic,
+            unknownHits: counts.unknown,
+          },
+        }
+      }))
     }
 
-    events.sort((a, b) => (a.tsHour < b.tsHour ? 1 : a.tsHour > b.tsHour ? -1 : 0))
-    const trimmed = events.slice(0, limit)
+    // Newest hour first, then crawler, AI user-fetch, AI-referral, then each
+    // table's keys: a fixed order, so a cursor never repeats or skips a row.
+    const { page: rankedPage, nextCursor } = mergeTrafficEventPages(rankedPages, limit, readFilters, sinceIso, untilIso)
+    const trimmed: TrafficEventEntry[] = rankedPage.map((ranked) => ranked.row)
+    groupEntries.sort(compareTrafficEventGroups)
     const trimmedCrawlerEvents = trimmed.filter(
       (event): event is TrafficCrawlerEventEntry => event.kind === TrafficEventKinds.crawler,
     )
@@ -5317,6 +5611,15 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             .from(aiReferralEventsHourly)
             .where(coverageScope(aiReferralEventsHourly.projectId, aiReferralEventsHourly.sourceId)).get()?.v,
         ].filter((v): v is string => typeof v === 'string' && v.length > 0)
+        // Referral hours counted by the older arrival rule can read high and cannot
+        // be recounted. Same selection scope as coverage, and likewise not
+        // window-bound.
+        const referralCountingChangedAt = aiReferralOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
+        const referralCountingChangedMs = referralCountingChangedAt === null ? null : Date.parse(referralCountingChangedAt)
+        // User-fetch hours whose browser-agent requests were counted under
+        // older rules can read high or low, and were not recounted.
+        const userFetchCountingChangedAt = aiUserFetchOlderCountUntil(app.db, { projectId: project.id, sourceId: sourceIdParam })
+        const userFetchCountingChangedMs = userFetchCountingChangedAt === null ? null : Date.parse(userFetchCountingChangedAt)
         const coverageStart = firsts.length ? firsts.slice().sort()[0]! : null
         // A DAY bucket is `YYYY-MM-DD` (`substr(ts_hour, 1, 10)`) and needs a time
         // appended; an HOUR bucket IS `ts_hour`, ALREADY a full ISO instant
@@ -5324,31 +5627,41 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // `...000Z:00:00.000Z`, which parses to NaN, so the `Number.isFinite`
         // guard below always failed and the partial-hour exclusion was dead code
         // on the hourly series: flat traffic read mid-hour reported a decline.
-        const bucketStartMs = (bucket: string): number => Date.parse(
-          granularity === TrafficSeriesGranularities.day ? `${bucket}T00:00:00.000Z` : bucket,
-        )
+        const bucketStartMs = (bucket: string): number => seriesBucketStartMs(bucket, granularity)
         // The newest bucket is partial whenever `until` lands inside it rather
         // than on its boundary, which is the default case (`until` = now).
-        const bucketMs = granularity === TrafficSeriesGranularities.day ? 86_400_000 : 3_600_000
         const lastBucket = points.length ? points[points.length - 1]!.bucket : null
         const lastBucketStartMs = lastBucket === null ? null : bucketStartMs(lastBucket)
         const trailingBucketIsPartial = lastBucketStartMs !== null
           && Number.isFinite(lastBucketStartMs)
-          && until.getTime() < lastBucketStartMs + bucketMs
+          && until.getTime() < nextSeriesBucketStartMs(lastBucketStartMs, granularity)
         // A bucket before coverage reads 0 because nothing was recording, not
         // because nothing happened. Compare on the bucket's own granularity so
         // the day coverage began is measured, not half-measured.
-        const coverageKey = coverageStart === null
-          ? null
-          : (granularity === TrafficSeriesGranularities.day ? coverageStart.slice(0, 10) : coverageStart.slice(0, 13))
+        const coverageKey = coverageStart === null ? null : seriesBucketOf(coverageStart, granularity)
         for (const pt of points) {
-          pt.measured = coverageKey === null
-            ? false
-            : (granularity === TrafficSeriesGranularities.day ? pt.bucket.slice(0, 10) : pt.bucket.slice(0, 13)) >= coverageKey
+          pt.measured = coverageKey === null ? false : seriesBucketOf(pt.bucket, granularity) >= coverageKey
         }
-        // The FIRST measured bucket is itself partial whenever recording began
-        // INSIDE it rather than on its boundary. `measured` cannot see that: it
-        // compares at bucket granularity, so the bucket holding `coverageStart`
+        // The other end. A source whose syncs keep failing holds its watermark
+        // still, so every day after it read as a measured zero: an expired
+        // token looked like crawlers had stopped visiting. A bucket that begins
+        // after every selected source's watermark was not measured; one that
+        // ends after the oldest watermark holds only part of the traffic (a
+        // source stopped inside it, or stopped while another kept reporting).
+        const recorded = trafficRecordedThrough(app.db, project.id, sourceIdParam)
+        const stoppedBuckets = new Set<string>()
+        for (const pt of points) {
+          if (!pt.measured) continue
+          const startMs = bucketStartMs(pt.bucket)
+          if (recorded.anyThroughMs !== null && startMs >= recorded.anyThroughMs) {
+            pt.measured = false
+          } else if (recorded.allThroughMs !== null && nextSeriesBucketStartMs(startMs, granularity) > recorded.allThroughMs) {
+            stoppedBuckets.add(pt.bucket)
+          }
+        }
+        // The FIRST measured bucket is itself partial whenever recording or the
+        // requested range began INSIDE it rather than on its boundary.
+        // `measured` compares at bucket granularity, so that first bucket
         // reads as fully measured while holding only the tail of one. Left in,
         // a site flat at 10 hits/hour whose source connected at 14:00 contributes
         // a 100-hit first day against 240-hit neighbours, and the fit returns a
@@ -5359,8 +5672,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const leadingBucketIsPartial = firstMeasuredIdx >= 0
           && coverageStartMs !== null
           && Number.isFinite(coverageStartMs)
-          // Strict: coverage starting exactly on the boundary is a WHOLE bucket.
-          && coverageStartMs > bucketStartMs(points[firstMeasuredIdx]!.bucket)
+          // Strict: recording and range starting on the boundary leave a WHOLE bucket.
+          && Math.max(coverageStartMs, since.getTime()) > bucketStartMs(points[firstMeasuredIdx]!.bucket)
         // Fitted server-side so the CLI and every other consumer get the same
         // line the chart draws (the UI/CLI parity rule). Points are densified,
         // so a quiet day is a real 0 in the fit rather than a gap.
@@ -5368,13 +5681,25 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           granularity,
           points,
           coverageStart,
+          aiReferralCountingChangedAt: referralCountingChangedAt,
+          aiUserFetchCountingChangedAt: userFetchCountingChangedAt,
+          recordedThrough: recorded.anyThroughMs === null ? null : new Date(recorded.anyThroughMs).toISOString(),
+          // The buckets the fits leave out as partial, in bucket order, named for
+          // a chart to draw as partial. An unmeasured bucket is never partial.
+          partialBuckets: points.filter((pt, i) => pt.measured && (
+            (i === firstMeasuredIdx && leadingBucketIsPartial)
+            || stoppedBuckets.has(pt.bucket)
+            || (i === points.length - 1 && trailingBucketIsPartial)
+          )).map((pt) => pt.bucket),
           // Two edges are excluded from the fit, both for the same reason: a
           // bucket that is not a full reading must not be treated as one.
           //
-          // Leading: unmeasured buckets predate recording, so they are the
-          // ABSENCE of a reading, not a reading of zero. The first MEASURED
-          // bucket goes too when recording began inside it, since a fraction of
-          // a bucket read as a whole one slopes the fit up out of nothing.
+          // Leading: unmeasured buckets predate recording (or follow every
+          // source's last sync), so they are the ABSENCE of a reading, not a
+          // reading of zero. Buckets a source stopped reporting inside or before
+          // go too, for the same reason. The first MEASURED
+          // bucket goes too when recording or the range began inside it, since
+          // a fraction of a bucket read as a whole slopes the fit up out of nothing.
           //
           // Trailing: `until` defaults to now, so the newest bucket holds only
           // the elapsed fraction of the current period. A site flat at 500/day
@@ -5383,19 +5708,30 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           // error as the leading edge, and the one the leading guard alone
           // would have left in place.
           //
+          // The referral fit also drops every bucket that begins before the
+          // arrival rule changed, the bucket it changed inside included: those
+          // hours were counted by an older rule that can read high, and a line
+          // across the change slopes down for traffic that held steady. The
+          // user-fetch fit does the same at the browser-agent counting change.
+          //
           // linearTrend skips nulls while surviving points keep their true
           // index, so dropping an edge does not compress the x-axis.
           trends: (() => {
             const usable = (pt: TrafficSeriesPoint, i: number) =>
               pt.measured
               && !(i === firstMeasuredIdx && leadingBucketIsPartial)
+              && !stoppedBuckets.has(pt.bucket)
               && !(i === points.length - 1 && trailingBucketIsPartial)
-            const series = (pick: (pt: TrafficSeriesPoint) => number) =>
-              linearTrend(points.map((pt, i) => (usable(pt, i) ? pick(pt) : null)))
+            const countedByCurrentRule = (pt: TrafficSeriesPoint) =>
+              referralCountingChangedMs === null || bucketStartMs(pt.bucket) >= referralCountingChangedMs
+            const countedByPageLoads = (pt: TrafficSeriesPoint) =>
+              userFetchCountingChangedMs === null || bucketStartMs(pt.bucket) >= userFetchCountingChangedMs
+            const series = (pick: (pt: TrafficSeriesPoint) => number, include: (pt: TrafficSeriesPoint) => boolean = () => true) =>
+              linearTrend(points.map((pt, i) => (usable(pt, i) && include(pt) ? pick(pt) : null)))
             return {
               crawlerContentHits: series((pt) => pt.crawlerContentHits),
-              aiUserFetchHits: series((pt) => pt.aiUserFetchHits),
-              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits),
+              aiUserFetchHits: series((pt) => pt.aiUserFetchHits, countedByPageLoads),
+              aiReferralLandedHits: series((pt) => pt.aiReferralLandedHits, countedByCurrentRule),
             }
           })(),
         }
@@ -5413,12 +5749,25 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         aiReferralOrganicHits: aiReferralCounts.organic,
         aiReferralUnknownHits: aiReferralCounts.unknown,
       },
+      filters: readFilters,
       eventRows: {
         total: totalEventRows,
         returned: trimmed.length,
-        truncated: trimmed.length < totalEventRows,
+        truncated: nextCursor !== null,
+        nextCursor,
       },
       events: eventsWithProvenance,
+      ...(groupBy
+        ? {
+            groups: {
+              by: groupBy,
+              total: groupEntries.length,
+              returned: Math.min(groupEntries.length, limit),
+              truncated: groupEntries.length > limit,
+              entries: groupEntries.slice(0, limit),
+            },
+          }
+        : {}),
     }
     return response
   })

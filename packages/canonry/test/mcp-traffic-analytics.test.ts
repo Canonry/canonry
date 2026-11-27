@@ -61,3 +61,22 @@ describe('traffic analytics MCP transport', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 })
+
+describe('traffic events MCP kind filter', () => {
+  it('passes a comma-separated kind list through to the API', async () => {
+    const { client, requests } = await connect({ events: [] })
+    const result = await client.callTool({ name: 'canonry_traffic_events', arguments: { project: 'simple', kind: 'ai-user-fetch,ai-referral' } })
+    expect(result.isError).not.toBe(true)
+    expect(requests).toHaveLength(1)
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe('/canonry/api/v1/projects/simple/traffic/events')
+    expect(url.searchParams.get('kind')).toBe('ai-user-fetch,ai-referral')
+  })
+
+  it('rejects a kind list with an unknown member before any API request', async () => {
+    const { client, fetch } = await connect()
+    const result = await client.callTool({ name: 'canonry_traffic_events', arguments: { project: 'simple', kind: 'crawler,bogus' } })
+    expect(result.isError).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})

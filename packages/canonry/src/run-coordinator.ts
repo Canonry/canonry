@@ -15,7 +15,7 @@ import {
   type RunKind,
   describeError,
 } from '@canonry/canonry-contracts'
-import { measurementRunCompleteness } from '@canonry/canonry-api-routes'
+import { isScopedRun, measurementRunCompleteness } from '@canonry/canonry-api-routes'
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
@@ -125,6 +125,21 @@ export class RunCoordinator {
       catch (err) { log.error('answers-recorded.failed', { runId, projectId, error: describeError(err) }) }
     }
 
+    // A spot check (a list of queries, or a slice of a plan) measured a few
+    // queries on purpose. Its answers are real, so the evidence hook above
+    // ran and `run.completed` still goes out, but nothing is derived from it:
+    // insights, a health row, sentiment work or an Aero wake-up would each
+    // describe a 2-query check as though it were the project.
+    if (kind === RunKinds['answer-visibility'] && runRow && isScopedRun(runRow)) {
+      log.info('spot-check.skip-derived', { runId, projectId })
+      try {
+        await this.notifier.onRunCompleted(runId, projectId)
+      } catch (err) {
+        log.error('notifier.failed', { runId, error: describeError(err) })
+      }
+      return
+    }
+
     // A plan run that did not fill every slot its manifest promised has not
     // measured the plan. Deriving insights from it, or waking Aero with it,
     // would state a conclusion about questions nobody answered — the same
@@ -230,6 +245,13 @@ export class RunCoordinator {
     } catch (err) {
       log.error('notifier.failed', { runId, error: describeError(err) })
     }
+    if (kind === RunKinds['site-audit']) {
+      try {
+        await this.notifier.onSiteAuditCompleted(runId, projectId)
+      } catch (err) {
+        log.error('site-health-webhook.failed', { runId, error: describeError(err) })
+      }
+    }
 
     // 3. Aero — enqueue + drain so the built-in agent wakes up unprompted.
     if (this.onAeroEvent) {
@@ -307,6 +329,7 @@ function analysisResultFromInsights(insights: Insight[]): AnalysisResult {
       overallMentionRate: 0,
       totalPairs: 0,
       citedPairs: 0,
+      citationNotMeasuredPairs: 0,
       mentionedPairs: 0,
       providerBreakdown: {},
     },

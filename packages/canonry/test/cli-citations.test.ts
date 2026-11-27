@@ -1,4 +1,5 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
+import type { CitationVisibilityResponse } from '@canonry/canonry-contracts'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -133,6 +134,7 @@ describe('citation visibility CLI + parity', () => {
 
   afterEach(async () => {
     await close()
+    db.$client.close()
     if (origConfigDir === undefined) {
       delete process.env.CANONRY_CONFIG_DIR
     } else {
@@ -175,9 +177,71 @@ describe('citation visibility CLI + parity', () => {
     expect(out).toContain('rival.com')
   })
 
-  it('CLI --format json matches the API response byte-for-byte', async () => {
-    const apiResponse = await client.getCitationVisibility('example')
-    const cliOut = await captureStdout(() => showCitationVisibility('example', { format: 'json' }))
-    expect(JSON.parse(cliOut)).toEqual(apiResponse)
+  it('prints an engine without sources as not measured and keeps it out of the cited base', async () => {
+    // Local answers query A (naming the project) and is the only engine on query C.
+    const project = db.select().from(projects).get()!
+    db.update(projects).set({ providers: ['gemini', 'claude', 'local'] }).run()
+    const runId = db.select().from(runs).get()!.id
+    const queryA = db.select().from(queries).all().find(row => row.query === 'query A')!
+    const queryC = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(queries).values({ id: queryC, projectId: project.id, query: 'query C', createdAt: now }).run()
+    for (const queryId of [queryA.id, queryC]) {
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(), runId, queryId, provider: 'local', citationState: 'not-measured', retrievalStatus: 'not-applicable',
+        answerMentioned: true, citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
+      }).run()
+    }
+
+    const out = await captureStdout(() => showCitationVisibility('example', {}))
+    // Gemini cites query A; Local's citations were never measured.
+    expect(out).toContain('Cited in sources:     1/2 engines (1 not measured: no sources)')
+    expect(out).toContain('Mentioned in answers: 1/3 engines')
+    expect(out).toContain('citation not measured (no sources): 1')
+    expect(out).toContain('·=not measured')
+    const row = (query: string) => out.split('\n').find(line => line.startsWith(query))!
+    // Columns: claude, gemini, local, then Cite and Ment.
+    expect(row('query A').split(/\s{2,}/).slice(1)).toEqual(['cm', 'Cm', '·M', '1/2', '1/3'])
+    expect(row('query C').split(/\s{2,}/).slice(1)).toEqual(['–', '–', '·M', '·', '1/1'])
+  })
+
+  it('reads every engine as checked from a server that predates the not-measured counts', async () => {
+    // An older server sends none of the not-measured counts: it counted every engine as checked.
+    const { summary: { providersCitationNotMeasured: _engines, queriesCitationNotMeasured: _queries, ...summary }, byQuery, ...rest } = await client.getCitationVisibility('example')
+    const older = { ...rest, summary, byQuery: byQuery.map(({ citationNotMeasured: _answers, ...row }) => row) } as CitationVisibilityResponse
+    const read = vi.spyOn(ApiClient.prototype, 'getCitationVisibility').mockResolvedValue(older)
+    try {
+      const out = await captureStdout(() => showCitationVisibility('example', {}))
+      expect(out.split('\n')).toContain('Cited in sources:     1/2 engines')
+      expect(out).not.toContain('citation not measured (no sources)')
+      const row = (query: string) => out.split('\n').find(line => line.startsWith(query))!
+      // Columns: claude, gemini, then Cite and Ment.
+      expect(row('query A').split(/\s{2,}/).slice(1)).toEqual(['cm', 'Cm', '1/2', '0/2'])
+      expect(row('query B').split(/\s{2,}/).slice(1)).toEqual(['cm', 'cm', '0/2', '0/2'])
+      expect(out).not.toContain('NaN')
+    } finally {
+      read.mockRestore()
+    }
+  })
+
+  describe.each(['json', 'jsonl'])('--format %s', format => {
+    it('matches the complete API response', async () => {
+      const apiResponse = await client.getCitationVisibility('example')
+      const cliOut = await captureStdout(() => showCitationVisibility('example', { format }))
+      expect(JSON.parse(cliOut)).toEqual(apiResponse)
+    })
+
+    it.each(['no-queries', 'no-runs-yet'])('preserves the %s response', async reason => {
+      if (reason === 'no-queries') {
+        db.delete(queries).run()
+      } else {
+        db.delete(querySnapshots).run()
+      }
+      const apiResponse = await client.getCitationVisibility('example')
+      expect(apiResponse.status).toBe('no-data')
+      expect(apiResponse.reason).toBe(reason)
+      const cliOut = await captureStdout(() => showCitationVisibility('example', { format }))
+      expect(JSON.parse(cliOut)).toEqual(apiResponse)
+    })
   })
 })

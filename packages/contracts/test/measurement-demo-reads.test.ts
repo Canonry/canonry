@@ -195,7 +195,7 @@ describe('advanced measurement demo reads', () => {
         {
           resultId: 'result-cedar-01', queryId: 'question-cedar-01', text: 'Which homes are near Cedar Bay?',
           class: 'non-brand', provider: 'demo-engine', requestedModel: 'demo-model-a', servedModel: null,
-          location: 'Cedar Bay, EX', status: 'answered', mentioned: false, cited: true,
+          location: 'Cedar Bay, EX', status: 'answered', mentioned: false, cited: true, citationMeasured: true,
           recommendedInstead: ['Harborline Homes'], answerExcerpt: 'A compact synthetic answer.',
         },
         {
@@ -237,6 +237,7 @@ describe('advanced measurement demo reads', () => {
       },
       mentioned: false,
       cited: true,
+      citationMeasured: true,
       recommendedInstead: ['Harborline Homes'],
       answer: 'A full synthetic answer.',
       sources: [{

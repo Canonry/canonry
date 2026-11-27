@@ -20,8 +20,10 @@ function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, tar
     const queryIds = [...new Set(market.usageEdges.filter(edge => nonBrand.has(`${edge.targetKey}:${edge.queryId}`)).map(edge => edge.queryId))]
     return queryIds.map((queryId, index) => {
       const queryText = text.get(queryId)!
-      // The resort ranks near the top, villas lower, the last villa outside the checked results; the older refresh ranked lower.
-      const rank = index === 3 ? null : [3, 7, 14][index]! + (daysAgo === 1 ? 0 : 2)
+      // The resort ranks near the top, villas lower, and the last villa stays outside the checked results.
+      const marketIndex = (plan.reportingScopes ?? []).indexOf(market)
+      const agePenalty = daysAgo >= 105 ? 8 : daysAgo >= 70 ? 5 : daysAgo >= 38 ? 4 : daysAgo >= 8 ? 2 : 0
+      const rank = index === 3 ? null : [3, 7, 14][index]! + agePenalty + (daysAgo === 1 ? 0 : marketIndex % 3)
       const context = { marketKey: market.stableKey, marketLabel: market.label, regionKey: market.groupKey ?? null, regionLabel: market.groupKey ? plan.groups.find(group => group.stableKey === market.groupKey)?.label ?? null : null, queryId, queryText, queryClass: queryClassSchema.enum['non-brand'] }
       const provenance: SeoProvenance = { provider: SeoProviders.dataforseo, dataset: 'demo-market-rankings', engine: 'google', locationCode: location.locationCode, languageCode: input.languageCode, device: settings.device, collectedAt: capturedAt, sourceUpdatedAt: capturedAt }
       return {
@@ -75,9 +77,11 @@ export function seedDemoSeo(db: DatabaseClient, context: DemoSeedContext): void 
         } })
       }
       for (const { id: profileId, input } of profiles) {
-        const createdAt = new Date(context.now.getTime() - 8 * 86_400_000).toISOString()
+        const rankingProfile = input.capabilities.includes(SeoCapabilities['domain-intelligence']) || input.capabilities.includes(SeoCapabilities['market-rankings'])
+        const history = rankingProfile ? [146, 105, 70, 38, 8, 1] : [8, 1]
+        const createdAt = new Date(context.now.getTime() - history[0]! * 86_400_000).toISOString()
         tx.insert(seoProfiles).values({ projectId: project.id, id: profileId, revision: 1, input, createdAt, updatedAt: createdAt }).run()
-        for (const daysAgo of [8, 1]) {
+        for (const [index, daysAgo] of history.entries()) {
           const capturedAt = new Date(context.now.getTime() - daysAgo * 86_400_000).toISOString()
           const runId = `demo-seo-${project.id}-${profileId}-${daysAgo}`
           tx.insert(runs).values({ id: runId, projectId: project.id, kind: RunKinds['seo-sync'], status: RunStatuses.completed, trigger: RunTriggers.manual, createdAt: capturedAt, startedAt: capturedAt, finishedAt: capturedAt }).run()
@@ -115,7 +119,9 @@ export function seedDemoSeo(db: DatabaseClient, context: DemoSeedContext): void 
                 }
               })
             } else if (capability === SeoCapabilities['domain-intelligence'] && target) {
-              results.domainIntelligence = [{ target, organicKeywords: plan ? 3240 : 486, estimatedOrganicTraffic: plan ? 18400 : 2750, estimatedOrganicTrafficValueUsd: plan ? 46200 : 9100, top1: plan ? 126 : 18, top2To3: plan ? 284 : 42, top4To10: plan ? 812 : 116, top11To20: plan ? 640 : 94, provenance }]
+              const scale = [0.61, 0.73, 0.79, 0.76, 0.92, 1][index]!
+              const count = (advanced: number, simple: number) => Math.round((plan ? advanced : simple) * scale)
+              results.domainIntelligence = [{ target, organicKeywords: count(3240, 486), estimatedOrganicTraffic: count(18400, 2750), estimatedOrganicTrafficValueUsd: count(46200, 9100), top1: count(126, 18), top2To3: count(284, 42), top4To10: count(812, 116), top11To20: count(640, 94), provenance }]
             } else if (capability === SeoCapabilities['ranked-keywords'] && target) {
               results.rankedKeywords = input.keywords.map((keyword, index) => ({
                 target, keyword, url: `https://${project.domain}${plan ? properties[index]!.path : ['/services/roof-repair/', '/services/roof-replacement/', '/services/metal-roofing/', '/services/emergency-roof-repair/', '/services/shingle-roofing/', '/services/storm-damage/', '/services/roof-inspection/', '/services/flat-roofing/'][index]}`,

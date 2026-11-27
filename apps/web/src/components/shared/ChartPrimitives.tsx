@@ -269,6 +269,8 @@ export interface TrendChartSeries {
   /** Higher is worse (ranking position): reverses the axis so up means better. */
   inverted?: boolean
   formatValue?: (value: number) => string
+  /** A standing level (indexed pages) persists across a missed reading, so its line bridges the gap. */
+  connectNulls?: boolean
 }
 
 /**
@@ -434,7 +436,7 @@ export function MultiAxisTrendChart({
             strokeWidth={2}
             dot={false}
             activeDot={{ r: 3 }}
-            connectNulls={false}
+            connectNulls={s.connectNulls ?? false}
             isAnimationActive={false}
           />
         ))}

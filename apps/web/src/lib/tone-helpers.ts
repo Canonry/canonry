@@ -39,6 +39,9 @@ export function toneFromCitationState(state: CitationInsightVm['citationState'])
       return 'caution'
     case 'not-cited':
       return 'caution'
+    // No sources to check: neither a miss nor a win.
+    case 'not-measured':
+      return 'neutral'
     case 'lost':
       return 'negative'
     case 'pending':

@@ -3,6 +3,7 @@ import {
   FEATURE_OPERATIONS,
   OUTCOME_COUNT_KEYS,
   bucketDuration,
+  buildOutcomeDiagnostics,
   classifyOutcomeError,
   featureCompletedPropertiesSchema,
   installStatePropertiesSchema,
@@ -88,7 +89,27 @@ describe('integration.connection', () => {
 })
 
 describe('feature.completed', () => {
-  it('accepts the widest outcome and fits the collector', () => {
+  it('carries bounded diagnostics through the strict outcome contract and collector budget', () => {
+    const error = Object.assign(new Error('secret token for https://private.example'), { status: 400, retryCount: 3, retryAfter: 600 })
+    const props = {
+      feature: 'bing', operation: 'inspect', operationKind: 'url-coverage',
+      operationId: '11223344-5566-4788-99aa-bbccddeeff03', status: 'partial', reasonCode: 'RATE_LIMITED',
+      surface: 'mcp-stdio', agent: 'a'.repeat(40), durationBucket: '30m_or_more', first: true,
+      counts: { urls: 12, attempts: 13, failures: 1, skipped: 37 },
+      diagnostics: buildOutcomeDiagnostics(error, { phase: 'provider-request', remainingWork: 38 }),
+    }
+    expect(featureCompletedPropertiesSchema.parse(props)).toEqual(props)
+    expect(props.diagnostics).toEqual({ phase: 'provider-request', httpStatus: 400, retryCount: 3, retryAfterBucket: '5m_to_30m', remainingWork: 38 })
+    expect(JSON.stringify(props)).not.toMatch(/secret|private/)
+    assertCollectorShape('feature.completed', props)
+    expect(buildOutcomeDiagnostics(undefined, { phase: 'unknown' })).toEqual({ phase: 'unknown' })
+    const hostile = Object.defineProperty({}, 'status', { get() { throw new Error('SDK getter failed') } })
+    expect(buildOutcomeDiagnostics(hostile, { phase: 'crawl' })).toEqual({ phase: 'crawl' })
+    expect(buildOutcomeDiagnostics({ status: 999, retryCount: -1 }, { phase: 'setup', remainingWork: Number.NaN })).toEqual({ phase: 'setup' })
+    expect(featureCompletedPropertiesSchema.safeParse({ ...props, diagnostics: { phase: 'crawl', message: 'secret' } }).success).toBe(false)
+    expect(featureCompletedPropertiesSchema.safeParse({ ...props, operationId: 'raw-project-id' }).success).toBe(false)
+  })
+  it('accepts a full legacy outcome and rejects additions beyond the collector property budget', () => {
     const counts = Object.fromEntries(OUTCOME_COUNT_KEYS.slice(0, 12).map(key => [key, 1e12]))
     const props = {
       feature: 'aero',
@@ -113,6 +134,7 @@ describe('feature.completed', () => {
     }
     expect(featureCompletedPropertiesSchema.parse(props)).toEqual(props)
     assertCollectorShape('feature.completed', props)
+    expect(featureCompletedPropertiesSchema.safeParse({ ...props, first: true, operationId: '11223344-5566-4788-99aa-bbccddeeff03', diagnostics: { phase: 'unknown' } }).success).toBe(false)
   })
 
   it('accepts every declared feature and operation pair', () => {
@@ -198,6 +220,8 @@ describe('helpers', () => {
     class GaxiosError extends Error { status = 403 }
     expect(classifyOutcomeError(new GaxiosError('The caller does not have permission for sc-domain:example.com'))).toEqual({ reasonCode: 'PERMISSION_MISSING', errorName: 'Error' })
     expect(classifyOutcomeError(Object.assign(new Error('x'), { code: 'ECONNREFUSED' })).reasonCode).toBe('NETWORK')
+    expect(classifyOutcomeError(Object.assign(new Error('TLS connection failed'), { code: 'EPROTO' })).reasonCode).toBe('NETWORK')
+    expect(classifyOutcomeError(new TypeError('fetch failed', { cause: Object.assign(new Error('TLS connection failed'), { code: 'EPROTO' }) })).reasonCode).toBe('NETWORK')
     expect(classifyOutcomeError(Object.assign(new Error('x'), { name: 'AbortError' }))).toEqual({ reasonCode: 'TIMEOUT', errorName: 'AbortError' })
     expect(classifyOutcomeError({ code: 'RATE_LIMITED' }).reasonCode).toBe('RATE_LIMITED')
     expect(classifyOutcomeError({ code: 'PROVIDER_AUTH' }).reasonCode).toBe('INVALID_CREDENTIALS')

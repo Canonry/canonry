@@ -54,7 +54,7 @@ describe('setup durable progress', () => {
     expect(isSuccessfulSetupRun('cancelled', 2)).toBe(false)
   })
 
-  it('resumes the project handed off by Site Health before another incomplete project', () => {
+  it('resumes the project handed off by Agent Readiness before another incomplete project', () => {
     const projects = [
       { project: { name: 'older-incomplete' }, queryCounts: { total: 0 } },
       { project: { name: 'mapped-project' }, queryCounts: { total: 0 } },

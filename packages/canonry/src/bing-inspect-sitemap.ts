@@ -2,13 +2,13 @@ import crypto from 'node:crypto'
 import { eq, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { runs, projects, bingUrlInspections, bingCoverageSnapshots } from '@canonry/canonry-db'
-import { RunStatuses, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
-import { BingApiError, getUrlInfo, getCrawlIssues } from '@canonry/canonry-integration-bing'
+import { RunStatuses, defaultSearchSitemapUrl, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomePhases, OutcomeOperationKinds, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
+import { BingApiError, getUrlInfo, getCrawlIssues, isBlockingCrawlIssue, parseBingDate } from '@canonry/canonry-integration-bing'
 import type { CanonryConfig } from './config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
-import { inspectUrlsPaced, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
+import { inspectUrlsPaced } from './gsc-inspect-paced.js'
 import type { PacedInspectDeps } from './gsc-inspect-paced.js'
-import { credentialGateKey } from './inspect-rate-gate.js'
+import { credentialGateKey, sharedRateGate } from './inspect-rate-gate.js'
 import { isRetryableHttpError } from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
 import { runFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
@@ -26,11 +26,24 @@ function bingRunFailure(err: unknown): ReturnType<typeof runFailure> {
  *
  * Twice the GSC figure, because Bing's ceiling is unpublished and the cost of
  * probing it is high: once the account throttles, the block outlasts the run
- * and takes every other project on the key with it. The volume does not need
- * the speed — a full daily refresh across all connected projects is ~100 URLs,
- * so 2s spacing finishes everything in about three minutes.
+ * and takes every other project on the key with it.
  */
 export const BING_INSPECT_SPACING_MS = 2_000
+
+/**
+ * Pages one run checks: never-checked pages first, then the stalest. The rest
+ * rotate in on later runs, so a 200-page sitemap is fully re-checked about
+ * every ten days of daily runs.
+ *
+ * Bing allows far fewer page checks than a sitemap holds. Measured on the
+ * shared key in November 2026: a lone project's run was throttled after about
+ * 70 Bing calls in two and a half minutes (its data sync's calls and about 33
+ * page checks), and a run that kept checking until Bing refused it ended
+ * partial every day on every project. A batch of 20 after the data sync's
+ * 25 to 35 calls stays well under that, so a run finishes the work it planned
+ * instead of being cut off, and leaves the key unthrottled for the next job.
+ */
+export const BING_INSPECT_RUN_MAX_URLS = 20
 
 interface BingInspectSitemapOptions {
   sitemapUrl?: string
@@ -44,32 +57,20 @@ interface BingInspectSitemapOptions {
   pacedDeps?: Pick<PacedInspectDeps, 'sleep' | 'jitter'>
 }
 
-function parseBingDate(value: string | undefined | null): string | null {
-  if (!value) return null
-  const match = /\/Date\((-?\d+)(?:[-+]\d+)?\)\//.exec(value)
-  if (!match) return null
-  const ms = parseInt(match[1]!, 10)
-  if (ms <= 0) return null
-  return new Date(ms).toISOString()
-}
-
-function isBlockingIssueType(issueType: string | null | undefined): boolean {
-  if (!issueType) return true
-  const trimmed = issueType.trim()
-  if (!trimmed) return true
-  return trimmed.split(/\s+/).some((flag) => !/^(?:None|Seo(?:Issues|Concerns))$/i.test(flag))
-}
-
 export async function executeBingInspectSitemap(
   db: DatabaseClient,
   runId: string,
   projectId: string,
   opts: BingInspectSitemapOptions,
 ): Promise<void> {
-  // Bing's coverage sweep is its only sync, so it reports as `bing` `sync`.
-  const reportOutcome = startRunOutcome(db, runId, FeatureNames.bing, 'sync')
+  // Coverage inspects URLs; `sync` is the separate Webmaster data refresh.
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.bing, 'inspect')
   // The error an all-failed sweep wraps, so the outcome reports its cause.
   let abortCause: unknown
+  let total = 0
+  let inspected = 0
+  let errors = 0
+  let phase: OutcomePhase = OutcomePhases.setup
   const startedAt = new Date().toISOString()
   db.update(runs).set({ status: RunStatuses.running, startedAt }).where(eq(runs.id, runId)).run()
 
@@ -93,10 +94,13 @@ export async function executeBingInspectSitemap(
       )
     }
 
-    const sitemapUrl = opts.sitemapUrl ?? `https://${project.canonicalDomain}/sitemap.xml`
+    const sitemapUrl = opts.sitemapUrl ?? defaultSearchSitemapUrl(conn.siteUrl, project.canonicalDomain)
+    if (!sitemapUrl) throw withOutcomeReason(new Error('Cannot determine a sitemap URL for this Bing site'), OutcomeReasonCodes.VALIDATION)
     log.info('sitemap.fetch', { runId, projectId, sitemapUrl })
 
+    phase = OutcomePhases.crawl
     const sitemapUrls = await fetchAndParseSitemap(sitemapUrl)
+    total = sitemapUrls.length
     log.info('sitemap.parsed', { runId, projectId, urlCount: sitemapUrls.length, sitemapUrl })
 
     if (sitemapUrls.length === 0) {
@@ -106,11 +110,15 @@ export async function executeBingInspectSitemap(
     // Diff vs already-tracked URLs so the log clearly distinguishes new
     // discoveries from re-inspections of the existing tracked set.
     const trackedRows = db
-      .select({ url: bingUrlInspections.url })
+      .select({ url: bingUrlInspections.url, inspectedAt: bingUrlInspections.inspectedAt })
       .from(bingUrlInspections)
       .where(eq(bingUrlInspections.projectId, projectId))
       .all()
     const trackedUrls = new Set(trackedRows.map((r) => r.url))
+    const lastInspected = new Map<string, string>()
+    for (const row of trackedRows) {
+      if (row.inspectedAt > (lastInspected.get(row.url) ?? '')) lastInspected.set(row.url, row.inspectedAt)
+    }
     const discovered = sitemapUrls.filter((u) => !trackedUrls.has(u))
     log.info('sitemap.diff', {
       runId,
@@ -120,14 +128,18 @@ export async function executeBingInspectSitemap(
       newlyDiscovered: discovered.length,
     })
 
-    // Fetch the blocking-crawl-issues set once so each URL's derivation can
-    // honor it without N extra HTTP calls. Failure here must not block the
-    // whole inspection — fall back to "no blocked URLs".
+    // Fetch blocking crawl issues once. An ordinary lookup error can fall
+    // back to no issues; an exhausted account throttle must stop all reads.
     let blockedUrls = new Set<string>()
+    phase = OutcomePhases['provider-request']
     try {
+      await sharedRateGate(credentialGateKey('bing', conn.apiKey)).take(
+        BING_INSPECT_SPACING_MS,
+        opts.pacedDeps?.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+      )
       const issues = await getCrawlIssues(conn.apiKey, conn.siteUrl)
       for (const issue of issues) {
-        if (issue.Url && isBlockingIssueType(issue.IssueType ?? null)) {
+        if (issue.Url && isBlockingCrawlIssue(issue.IssueType ?? null)) {
           blockedUrls.add(issue.Url)
         }
       }
@@ -138,33 +150,34 @@ export async function executeBingInspectSitemap(
         projectId,
         error: describeError(err),
       })
+      // The client has already exhausted retries and paused the account. A
+      // best-effort enrichment cannot justify starting another inspection.
+      if (err instanceof BingApiError && err.isThrottle) throw err
       blockedUrls = new Set()
     }
 
-    // Same budget guard as the GSC sweep: a sitemap larger than the daily
-    // allowance cannot finish, and grinding into the wall surfaces as a failure
-    // rather than as "the quota ran out".
-    const skipped = Math.max(0, sitemapUrls.length - INSPECT_SWEEP_MAX_URLS)
-    const targetUrls = skipped > 0 ? sitemapUrls.slice(0, INSPECT_SWEEP_MAX_URLS) : sitemapUrls
-    if (skipped > 0) {
-      log.warn('sitemap.over-budget', {
-        runId,
-        projectId,
-        sitemapUrls: sitemapUrls.length,
-        inspecting: targetUrls.length,
-        skipped,
-        dailyQuota: INSPECT_DAILY_QUOTA,
-        note: `Sitemap has ${sitemapUrls.length} pages; inspecting the first ${targetUrls.length}. ${skipped} pages will not have a verdict from this run.`,
-      })
-    }
+    // Saved successes are our resume cursor: finish never-inspected URLs
+    // first, then refresh the stalest. A batch or throttle must not keep
+    // replaying the same successful prefix of a sitemap forever.
+    const dueUrls = [...sitemapUrls].sort((a, b) => (lastInspected.get(a) ?? '').localeCompare(lastInspected.get(b) ?? ''))
+    const targetUrls = dueUrls.slice(0, BING_INSPECT_RUN_MAX_URLS)
+    // Pages left for later runs by the batch: planned, not missing work.
+    const rotated = sitemapUrls.length - targetUrls.length
+    log.info('inspect.batch', {
+      runId,
+      projectId,
+      sitemapUrls: sitemapUrls.length,
+      inspecting: targetUrls.length,
+      neverInspected: discovered.length,
+      rotated,
+    })
 
     // Narrowed once here — the guard above proves it, but TypeScript cannot
     // carry that through the callback closure below.
     const siteUrl = conn.siteUrl
 
-    let inspected = 0
-    let errors = 0
     let lastInspectError: unknown
+    let lastInspectFailurePhase: OutcomePhase | undefined
 
     // Paced through the shared driver rather than a bare setTimeout loop: it
     // adds jitter (so two overlapping sweeps don't phase-lock), per-URL retry,
@@ -179,8 +192,12 @@ export async function executeBingInspectSitemap(
     const outcome = await inspectUrlsPaced(
       targetUrls,
       {
-        inspectOne: (pageUrl) => getUrlInfo(conn.apiKey, siteUrl, pageUrl),
+        inspectOne: (pageUrl) => {
+          phase = OutcomePhases['provider-request']
+          return getUrlInfo(conn.apiKey, siteUrl, pageUrl)
+        },
         onResult: (pageUrl, result) => {
+          phase = OutcomePhases.persistence
           const inspectedAt = new Date().toISOString()
           const httpCode = result.HttpStatus ?? result.HttpCode ?? null
           const lastCrawledDate = parseBingDate(result.LastCrawledDate)
@@ -224,6 +241,7 @@ export async function executeBingInspectSitemap(
         onError: (pageUrl, err) => {
           errors++
           lastInspectError = err
+          lastInspectFailurePhase = phase
           log.error('inspect.url-failed', {
             runId,
             projectId,
@@ -234,6 +252,7 @@ export async function executeBingInspectSitemap(
       },
       {
         isRetryable: isRetryableHttpError,
+        abortOnError: (err) => err instanceof BingApiError && err.isThrottle,
         concurrency: 1,
         // Bing meters the ACCOUNT, and one API key serves every project here,
         // so all sweeps on that key must queue behind one clock. Without this
@@ -257,6 +276,8 @@ export async function executeBingInspectSitemap(
         projectId,
         inspected,
         errors,
+        attempted: inspected + errors,
+        remaining: total - inspected,
         note: 'Bing inspection stopped early after sustained failures; the remaining pages were not attempted.',
       })
     }
@@ -270,12 +291,12 @@ export async function executeBingInspectSitemap(
     // sitemapUrls=45), so a totally failed sweep was indistinguishable from a
     // mostly-successful one. The GSC sweep already throws in this situation;
     // this brings Bing in line.
-    if (outcome.aborted && inspected === 0) {
-      abortCause = outcome.abortError
+    if (inspected === 0 && errors > 0) {
+      abortCause = outcome.abortError ?? lastInspectError
       // `abortError` is `unknown`; stringifying it blind renders a plain object
       // as "[object Object]", which is exactly the useless error text this
       // branch exists to replace.
-      const detail = describeError(outcome.abortError)
+      const detail = describeError(abortCause)
       throw new Error(
         `Bing inspection failed for every URL attempted (${errors} of ${targetUrls.length}); ` +
           `coverage was left unchanged rather than re-dated from stored inspections. Last error: ${detail}`,
@@ -285,6 +306,7 @@ export async function executeBingInspectSitemap(
     // Coverage snapshot — pick the latest definitive (non-null) inspection per
     // URL across all history, mirroring the GET /bing/coverage logic so the
     // snapshot row matches what users see in the dashboard.
+    phase = OutcomePhases.persistence
     const allInspections = db
       .select()
       .from(bingUrlInspections)
@@ -336,16 +358,11 @@ export async function executeBingInspectSitemap(
       },
     }).run()
 
-    // Measured against what was ATTEMPTED, not against the sitemap. Comparing
-    // to `sitemapUrls.length` meant a breaker trip after 5 failures out of a
-    // 45-URL sitemap reported `partial` — five-of-five failed reads presented
-    // as a mostly-successful sweep.
-    const status: typeof RunStatuses[keyof typeof RunStatuses] =
-      errors > 0 && errors >= targetUrls.length
-        ? RunStatuses.failed
-        : errors > 0 || outcome.aborted
-          ? RunStatuses.partial
-          : RunStatuses.completed
+    // Zero-measurement failures were rejected above. A run that checked its
+    // whole batch is complete: the pages it left are the rotation's next
+    // batches, not missing work. Only a batch cut short (a failed page, or a
+    // throttle that stopped the run) is partial.
+    const status = errors > 0 || outcome.aborted ? RunStatuses.partial : RunStatuses.completed
 
     // A `partial` run used to carry a NULL error, so the one surface that could
     // have told the operator "0 of 45 URLs were inspected" said nothing at all.
@@ -354,7 +371,7 @@ export async function executeBingInspectSitemap(
       status === RunStatuses.completed
         ? null
         : outcome.aborted
-          ? `Stopped early after sustained failures; ${targetUrls.length - inspected} of ${targetUrls.length} pages were not inspected.`
+          ? `Stopped after provider failures; ${targetUrls.length - inspected} of ${targetUrls.length} pages in this run's batch were not inspected (${targetUrls.length - inspected - errors} not attempted).`
           : `${errors} of ${targetUrls.length} pages could not be inspected.`
 
     db.update(runs)
@@ -367,20 +384,28 @@ export async function executeBingInspectSitemap(
       projectId,
       inspected,
       errors,
+      attempted: inspected + errors,
+      remaining: total - inspected,
       total: sitemapUrls.length,
       newlyDiscovered: discovered.length,
       indexed: snapIndexed,
       notIndexed: snapNotIndexed,
       unknown: snapUnknown,
     })
-    const counts = { urls: inspected, failures: errors, skipped }
+    const counts = { urls: inspected, attempts: inspected + errors, failures: errors, skipped: total - inspected - errors }
+    const diagnostics = buildOutcomeDiagnostics(lastInspectError ?? outcome.abortError, {
+      phase: lastInspectFailurePhase ?? phase, remainingWork: total - inspected,
+    })
     if (status === RunStatuses.completed) {
-      reportOutcome({ status: OutcomeStatuses.succeeded, counts })
+      reportOutcome({ status: OutcomeStatuses.succeeded, operationKind: OutcomeOperationKinds['url-coverage'], counts, diagnostics })
     } else {
+      const failure = lastInspectError ?? outcome.abortError
       reportOutcome({
-        status: status === RunStatuses.partial ? OutcomeStatuses.partial : OutcomeStatuses.failed,
-        ...bingRunFailure(lastInspectError ?? outcome.abortError),
+        status: OutcomeStatuses.partial,
+        operationKind: OutcomeOperationKinds['url-coverage'],
+        ...(failure === undefined ? { reasonCode: OutcomeReasonCodes.QUOTA_EXCEEDED } : bingRunFailure(failure)),
         counts,
+        diagnostics,
       })
     }
   } catch (err) {
@@ -394,7 +419,10 @@ export async function executeBingInspectSitemap(
     const failure = bingRunFailure(abortCause ?? err)
     reportOutcome({
       status: failure.reasonCode === OutcomeReasonCodes.NO_DATA ? OutcomeStatuses.skipped : OutcomeStatuses.failed,
+      operationKind: OutcomeOperationKinds['url-coverage'],
       ...failure,
+      ...(total > 0 ? { counts: { urls: inspected, attempts: inspected + errors, failures: errors, skipped: total - inspected - errors } } : {}),
+      diagnostics: buildOutcomeDiagnostics(abortCause ?? err, { phase, ...(total > 0 ? { remainingWork: total - inspected } : {}) }),
     })
     throw err
   }

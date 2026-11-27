@@ -1,6 +1,7 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type {
   AnswerServiceProfileSummary,
+  ConnectionAction,
   ProviderCapabilities,
   ProviderCatalogEntryDto,
   ProviderKeyCheck,
@@ -10,25 +11,52 @@ import type {
   ProviderReloadRequest,
   ProviderRouteFamily,
   ProviderSettingsField,
+  ProviderConnectionConfigDto,
+  ProviderConnectionSettingsDto,
+  ProviderConnectionTestResultDto,
+  ProviderDisconnectRequest,
+  ProviderHealthcheckResult,
+  ProviderSettingsUpdateRequest,
+  SettingsDto,
 } from '@canonry/canonry-contracts'
 import {
   AppError,
+  classifyProviderErrorMessage,
+  ConnectionActions,
+  describeError,
+  IntegrationNames,
   validationError,
   notImplemented,
   internalError,
   OutcomeReasonCodes,
   OutcomeStatuses,
+  providerErrorOutcomeReason,
+  providerConnectionTestResultDtoSchema,
+  ProviderConnectionTestErrorReasons,
+  ProviderConnectionTestStatuses,
   providerReloadRequestSchema,
   providerReloadResponseDtoSchema,
+  redactLogString,
   ProviderKinds,
   providerRouteName,
   routeFamiliesOf,
+  notFound,
+  operationInProgress,
+  providerConnectionConfigDtoSchema,
+  providerConnectionSettingsDtoSchema,
+  ProviderConnectionsUnavailableReasons,
+  providerConnectionsUnavailableReasonSchema,
+  providerDisconnectRequestSchema,
+  providerSettingsUpdateRequestSchema,
+  providerSummaryEntryDtoSchema,
+  ProviderNames,
 } from '@canonry/canonry-contracts'
-import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
+import { isInstanceAdministrator, requireAdminSession, requireInstanceAdministrator, requirePaidReadScope, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
-import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
+import { connectionRoute, outcomeProviderName, type ConnectionSubject } from './connection-telemetry.js'
 import { withFeatureOutcome } from './feature-outcome.js'
 import { providerAdapterForName } from './provider-models.js'
+import { providerConnectionSettings } from './provider-settings-usage.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -112,6 +140,10 @@ function descriptorFields(adapter: ProviderAdapterInfo): Partial<ProviderCatalog
 }
 
 export interface SettingsRoutesOptions {
+  /** Every known connection, including disconnected ones. Stored and credential-free; never calls providers. */
+  getProviderConnections?: () => ProviderConnectionConfigDto[]
+  onProviderSettingsUpdate?: (name: string, input: ProviderSettingsUpdateRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | Promise<ProviderSummaryEntry>
+  onProviderDisconnect?: (name: string, expectedRevision: string | undefined, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => void | Promise<void>
   /** Cached, credential-free model metadata supplied by the execution host. */
   getProviderModels?: (name: string) => Promise<ProviderModelRegistry['knownModels']>
   providerSummary?: ProviderSummaryEntry[]
@@ -120,13 +152,128 @@ export interface SettingsRoutesOptions {
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
   /** Reload only this host's captured provider configuration; never select caller paths. */
   onProviderReload?: (input: ProviderReloadRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry[] | Promise<ProviderSummaryEntry[]>
+  /**
+   * Start one saved connection's own healthcheck now, a live provider call.
+   * Returns undefined when the connection is not configured on this host.
+   * Once `signal` aborts (the route stopped waiting), the check must send
+   * nothing more: pass it on to the adapter's healthcheck.
+   */
+  onProviderTest?: (name: string, signal: AbortSignal) => ProviderTestRun | undefined
+  /** How long a connection test waits for the host's check. Defaults to `PROVIDER_TEST_TIMEOUT_MS`. */
+  providerTestTimeoutMs?: number
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
   onBingUpdate?: (apiKey: string) => BingSettingsSummary | null
 }
 
+/** One connection test a host started. */
+export interface ProviderTestRun {
+  /** The saved connection's own healthcheck, already running. */
+  check: Promise<ProviderHealthcheckResult>
+  /**
+   * Keep the result the caller was given, for the settings this run checked
+   * (the host fixes those when the run starts). Absent: the host keeps no history.
+   */
+  record?: (result: ProviderConnectionTestResultDto) => void
+}
+
+/**
+ * How long a connection test waits for the host's check before reporting it
+ * failed. Healthchecks retry throttles and network errors, so a refused
+ * endpoint can take several seconds; an unreachable one would otherwise hang.
+ */
+export const PROVIDER_TEST_TIMEOUT_MS = 30_000
+
+type ProviderTestOutcome =
+  | { kind: 'checked'; check: ProviderHealthcheckResult; record?: ProviderTestRun['record'] }
+  | { kind: 'timed-out'; record?: ProviderTestRun['record'] }
+  | { kind: 'not-configured' }
+
+/**
+ * The host's check, bounded by `timeoutMs`. When the route stops waiting, the
+ * check's signal aborts, so its retries stop instead of spending on in the
+ * background. A late answer is dropped: the result returned is the one kept.
+ */
+async function runProviderTest(start: NonNullable<SettingsRoutesOptions['onProviderTest']>, name: string, timeoutMs: number): Promise<ProviderTestOutcome> {
+  // A deliberate refusal from the host keeps its status; anything else is this provider's failure.
+  const failure = (error: unknown): ProviderHealthcheckResult => {
+    if (error instanceof AppError) throw error
+    return { ok: false, provider: name, message: describeError(error) }
+  }
+  const controller = new AbortController()
+  let run: ProviderTestRun | undefined
+  try {
+    run = start(name, controller.signal)
+  } catch (error) {
+    return { kind: 'checked', check: failure(error) }
+  }
+  if (!run) return { kind: 'not-configured' }
+  const record = run.record
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<'timed-out'>(resolve => {
+    timer = setTimeout(() => resolve('timed-out'), timeoutMs)
+    timer.unref()
+  })
+  try {
+    const result = await Promise.race([run.check, timeout])
+    return result === 'timed-out' ? { kind: 'timed-out', record } : { kind: 'checked', check: result, record }
+  } catch (error) {
+    return { kind: 'checked', check: failure(error), record }
+  } finally {
+    clearTimeout(timer)
+    // Whatever the outcome, nothing of this test keeps running once the route answers.
+    controller.abort(new Error(`The ${name} connection test is over.`))
+  }
+}
+
+function secondsLabel(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
+}
+
+/**
+ * The `integration.connection` subject for a provider connection's test or
+ * disconnect, or nothing for a name the telemetry catalog does not list (an
+ * answer service), as with a key save.
+ */
+function providerConnectionSubject(name: string, action: ConnectionAction): ConnectionSubject | undefined {
+  const provider = outcomeProviderName(name)
+  return provider ? { integration: IntegrationNames.provider, provider, action } : undefined
+}
+
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
+  const connections = (): ProviderConnectionSettingsDto[] => {
+    if (!opts.getProviderConnections) throw notImplemented('Provider connection details are not supported in this deployment')
+    const configured = opts.getProviderConnections().map(value => providerConnectionConfigDtoSchema.parse(value))
+    return providerConnectionSettings(app.db, configured, opts.providerAdapters ?? []).map(value => providerConnectionSettingsDtoSchema.parse(value))
+  }
+  const connection = (name: string): ProviderConnectionSettingsDto => {
+    const found = connections().find(value => value.name === name)
+    if (!found) throw notFound('Provider connection', name)
+    return found
+  }
+  // The connection list reads the host's saved configuration and every
+  // project's saved selections. When it cannot be built, the rest of the
+  // settings (provider status, catalog, Google, Bing) must still answer.
+  const connectionState = (request: FastifyRequest): Pick<SettingsDto, 'providerConnections' | 'providerConnectionsUnavailable'> => {
+    if (!opts.getProviderConnections || !isInstanceAdministrator(request)) return {}
+    try {
+      return { providerConnections: connections() }
+    } catch (error) {
+      // A host refusal names its reason and a message written without secrets or paths.
+      if (error instanceof AppError) {
+        const reason = providerConnectionsUnavailableReasonSchema.safeParse(error.details?.reason)
+        if (reason.success) return { providerConnectionsUnavailable: { reason: reason.data, message: error.message } }
+      }
+      // Anything else may quote stored values, so only the server log sees it.
+      request.log.error({ err: error }, 'Provider connections could not be listed')
+      return { providerConnectionsUnavailable: {
+        reason: ProviderConnectionsUnavailableReasons['internal-error'],
+        message: 'Provider connections could not be loaded. Check the server log, then retry.',
+      } }
+    }
+  }
   // Settings describe which credentials this install holds and where its
   // providers point. That is administrator territory even to read, so a
   // view-only account is refused here at the server rather than merely being
@@ -135,6 +282,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
+      ...connectionState(request),
       providerCatalog: (await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
         const configured = opts.providerSummary?.some(provider => provider.name === adapter.name && provider.configured)
         const discovered = configured && opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
@@ -190,9 +338,35 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
   })
 
+  app.get<{ Params: { name: string } }>('/settings/providers/:name', async request => {
+    requireInstanceAdministrator(request)
+    return connection(request.params.name)
+  })
+
+  app.delete<{ Params: { name: string }; Body: ProviderDisconnectRequest }>('/settings/providers/:name', connectionRoute(app, (request) => (
+    providerConnectionSubject(request.params.name, ConnectionActions.disconnect)
+  ), async (request, _reply, attempt) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    requireInstanceAdministrator(request)
+    const parsed = providerDisconnectRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) throw validationError('Invalid provider disconnect request', parsed.error.flatten())
+    if (!opts.onProviderDisconnect) throw notImplemented('Provider disconnection is not supported in this deployment')
+    const current = connection(request.params.name)
+    if (!current.capabilities.disconnect) throw notImplemented('This provider connection is managed by the host and cannot be disconnected here')
+    const expected = parsed.data.expectedImpactRevision
+    if (expected !== undefined && expected !== current.impactRevision) {
+      throw operationInProgress('Provider settings or usage changed. Review the current connection before disconnecting.', { reason: 'provider-impact-changed' })
+    }
+    const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, { actor: 'api', action: 'provider.disconnected', entityType: 'provider' })
+    await opts.onProviderDisconnect(current.name, expected === undefined ? undefined : current.revision, { actor, userAgent, actorSession, requestId, credentialId })
+    // Nothing was saved to remove; the route still answers with the connection.
+    if (!current.configured) attempt.cancelled(OutcomeReasonCodes.NOT_CONNECTED)
+    return connection(current.name)
+  }))
+
   app.put<{
     Params: { name: string }
-    Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
+    Body: ProviderSettingsUpdateRequest
   }>('/settings/providers/:name', connectionRoute(app, (request) => {
     // A key or endpoint is a connection; a model or quota change alone is not.
     const provider = outcomeProviderName(request.params.name)
@@ -202,11 +376,14 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     return { integration: 'provider', provider, action: configured ? 'reauth' : 'connect' }
   }, async (request) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
-    const { apiKey, baseUrl, model, quota } = request.body ?? {}
+    const parsed = providerSettingsUpdateRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) throw validationError('Invalid provider settings', parsed.error.flatten())
+    const { apiKey, baseUrl, model, quota, reset, expectedRevision } = parsed.data
+    if (reset) requireInstanceAdministrator(request)
     const name = request.params.name
 
     const adapters = opts.providerAdapters ?? []
-    const apiAdapters = adapters.filter(a => a.mode === 'api')
+    const apiAdapters = adapters.filter(a => a.mode === 'api' || opts.onProviderSettingsUpdate !== undefined)
     const adapterInfo = apiAdapters.find(a => a.name === name)
     if (!adapterInfo) {
       const validNames = apiAdapters.map(a => a.name)
@@ -216,22 +393,13 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       })
     }
 
-    if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim())) {
-      throw validationError('apiKey must be a non-empty string when provided')
-    }
-    if (baseUrl !== undefined && (typeof baseUrl !== 'string' || !baseUrl.trim())) {
-      throw validationError('baseUrl must be a non-empty string when provided')
-    }
-    if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
-      throw validationError('model must be a non-empty string when provided')
-    }
-    if (apiKey === undefined && baseUrl === undefined && model === undefined && quota === undefined) {
-      throw validationError('at least one provider setting must be supplied')
-    }
-
     const existing = (opts.providerSummary ?? []).find(provider => provider.name === name)
     const configured = Boolean(existing?.configured)
-    if (!configured && name === 'local') {
+    if (adapterInfo.mode === 'browser') {
+      if (apiKey !== undefined || baseUrl !== undefined || model !== undefined || reset?.model || reset?.apiKey || reset?.baseUrl) {
+        throw validationError('Browser endpoint changes use /settings/cdp; only request limits can be changed here')
+      }
+    } else if (!configured && name === 'local') {
       if (!baseUrl) {
         throw validationError('baseUrl is required for local provider')
       }
@@ -253,10 +421,15 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     // (so the key can never be sent elsewhere) and each route pins its profile.
     if (adapterInfo.kind === ProviderKinds['answer-service']) {
       if (baseUrl !== undefined) throw validationError(`${adapterInfo.displayName} uses a fixed endpoint; baseUrl is not accepted.`, { provider: name })
+      if (reset?.baseUrl) throw validationError(`${adapterInfo.displayName} uses a fixed endpoint and has no endpoint override to reset.`, { provider: name })
       if (model !== undefined) throw validationError(`${adapterInfo.displayName} has no connection model; choose profiles per project instead.`, { provider: name })
+      if (reset?.model) throw validationError(`${adapterInfo.displayName} has no connection model to reset.`, { provider: name })
     }
+    if (reset?.apiKey && name !== ProviderNames.local) throw validationError('Only the optional local-provider API key can be cleared; disconnect other providers instead')
+    if (reset?.baseUrl && name === ProviderNames.local) throw validationError('A local provider requires an endpoint; disconnect it to remove the endpoint')
 
     if (model !== undefined) {
+      adapterInfo.modelValidationPattern.lastIndex = 0
       if (!adapterInfo.modelValidationPattern.test(model)) {
         throw validationError(
           `Invalid model "${model}" for provider "${name}" — ${adapterInfo.modelValidationHint}`,
@@ -264,25 +437,8 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       }
     }
 
-    if (!opts.onProviderUpdate) {
+    if (!opts.onProviderSettingsUpdate && (!opts.onProviderUpdate || reset || expectedRevision !== undefined)) {
       throw notImplemented('Provider configuration updates are not supported in this deployment')
-    }
-
-    if (quota !== undefined) {
-      if (typeof quota !== 'object' || quota === null) {
-        throw validationError('quota must be an object')
-      }
-      if (Object.keys(quota).length === 0) {
-        throw validationError('quota must include at least one field')
-      }
-      for (const [key, val] of Object.entries(quota)) {
-        if (!['maxConcurrency', 'maxRequestsPerMinute', 'maxRequestsPerDay'].includes(key)) {
-          throw validationError(`Unknown quota field: ${key}`)
-        }
-        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
-          throw validationError(`${key} must be a positive integer`)
-        }
-      }
     }
 
     // Only trusted identity and bounded correlation reach the host's audit writer;
@@ -290,12 +446,15 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
       actor: 'api', action: 'provider.updated', entityType: 'provider',
     })
-    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota, { actor, userAgent, actorSession, requestId, credentialId })
+    const context = { actor, userAgent, actorSession, requestId, credentialId }
+    const result = opts.onProviderSettingsUpdate
+      ? await opts.onProviderSettingsUpdate(name, parsed.data, context)
+      : opts.onProviderUpdate!(name, apiKey ?? '', model, baseUrl, quota, context)
     if (!result) {
       throw internalError('Failed to update provider configuration')
     }
 
-    return result
+    return providerSummaryEntryDtoSchema.parse(result)
   }))
 
   app.post('/settings/providers/reload', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'reload' }, async (settle) => {
@@ -315,6 +474,100 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     settle({ status: OutcomeStatuses.succeeded, counts: { providers: providers.filter(provider => provider.configured).length } })
     return providerReloadResponseDtoSchema.parse({ reloaded: true, providers })
   }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
+
+  // Connections with a test still running on this server: a repeat click waits
+  // for that result instead of stacking another check on the same quota.
+  const testsInFlight = new Set<string>()
+
+  // A POST because it calls the provider now. It changes no settings; the host
+  // keeps the result as the connection's `lastTest`.
+  // Reported as an `integration.connection` test, beside the connection's save
+  // and disconnect, as the webhook and CDP tests are.
+  app.post<{ Params: { name: string } }>('/settings/providers/:name/test', connectionRoute(app, (request) => (
+    providerConnectionSubject(request.params.name, ConnectionActions.test)
+  ), async (request, _reply, attempt): Promise<ProviderConnectionTestResultDto> => {
+    // The check spends on the operator's install-wide provider account with
+    // the saved key, so only an install administrator runs it, as with the
+    // connection's detail, reload and disconnect: never a viewer, a read-only
+    // key, a key scoped to something else, or a key confined to one project.
+    requireAdminSession(request)
+    requirePaidReadScope(request, [SETTINGS_WRITE_SCOPE], `Testing a provider connection calls the provider with its saved key, which requires the "${SETTINGS_WRITE_SCOPE}" scope on your API key.`)
+    requireInstanceAdministrator(request)
+    const name = request.params.name
+    const adapters = opts.providerAdapters ?? []
+    const adapter = adapters.find(item => item.name === name)
+    if (!adapter) {
+      const validNames = adapters.map(item => item.name)
+      throw validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, { provider: name, validProviders: validNames })
+    }
+    if (!opts.onProviderTest) throw notImplemented('Provider connection tests are not supported in this deployment')
+    if (testsInFlight.has(name)) {
+      throw operationInProgress(`A ${adapter.displayName} connection test is already running. Wait for its result, then test again.`, {
+        provider: name,
+        reason: ProviderConnectionTestErrorReasons['provider-test-in-progress'],
+      })
+    }
+
+    const startedAt = Date.now()
+    const timeoutMs = opts.providerTestTimeoutMs ?? PROVIDER_TEST_TIMEOUT_MS
+    testsInFlight.add(name)
+    let outcome: ProviderTestOutcome
+    try {
+      outcome = await runProviderTest(opts.onProviderTest, name, timeoutMs)
+    } finally {
+      testsInFlight.delete(name)
+    }
+    if (outcome.kind === 'not-configured') {
+      attempt.failed(undefined, OutcomeReasonCodes.NOT_CONNECTED)
+      throw validationError(`${adapter.displayName} is not configured. Save its connection, then test it.`, {
+        provider: name,
+        reason: ProviderConnectionTestErrorReasons['provider-not-configured'],
+      })
+    }
+    const check: ProviderHealthcheckResult = outcome.kind === 'checked'
+      ? outcome.check
+      : { ok: false, provider: name, message: `${adapter.displayName} did not answer within ${secondsLabel(timeoutMs)}. Check the endpoint and network, then test again.` }
+    const status = !check.ok
+      ? ProviderConnectionTestStatuses.failed
+      : check.verified === false ? ProviderConnectionTestStatuses['not-verified'] : ProviderConnectionTestStatuses.connected
+
+    switch (status) {
+      case ProviderConnectionTestStatuses.connected:
+        // Reported as succeeded once the route answers.
+        break
+      case ProviderConnectionTestStatuses['not-verified']:
+        // The service has no free key check, so the test proves nothing either way.
+        attempt.cancelled(OutcomeReasonCodes.UNSUPPORTED)
+        break
+      case ProviderConnectionTestStatuses.failed:
+        attempt.failed(undefined, outcome.kind === 'timed-out'
+          ? OutcomeReasonCodes.TIMEOUT
+          : providerErrorOutcomeReason(classifyProviderErrorMessage(check.message)))
+        break
+      default: {
+        const _exhaustive: never = status
+        return _exhaustive
+      }
+    }
+    const result = providerConnectionTestResultDtoSchema.parse({
+      provider: name,
+      displayName: adapter.displayName,
+      status,
+      ok: status !== ProviderConnectionTestStatuses.failed,
+      // Provider errors can quote a key fragment or an Authorization header.
+      message: redactLogString(check.message),
+      model: check.model ?? null,
+      checkedAt: new Date().toISOString(),
+      durationMs: Math.max(0, Date.now() - startedAt),
+    })
+    try {
+      outcome.record?.(result)
+    } catch (error) {
+      // The caller still gets the result; only its history is missing.
+      request.log.error({ err: error }, 'Provider connection test result could not be kept')
+    }
+    return result
+  }))
 
   app.put<{
     Body: { clientId?: string; clientSecret?: string }

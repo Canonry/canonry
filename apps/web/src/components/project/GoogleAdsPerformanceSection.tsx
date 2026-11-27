@@ -135,7 +135,7 @@ function campaignStatusLabel(status: GoogleAdsCampaignStatus): string {
 type ChangeDirection = 'up-good' | 'down-good' | 'none'
 
 /** Metrics with a matching per-day field on `daily`, so they can be plotted. */
-type SeriesKey = 'costMicros' | 'conversions' | 'clicks' | 'impressions'
+type SeriesKey = 'costMicros' | 'conversions' | 'clicks' | 'impressions' | 'ctr'
 
 function changeToneClass(ratio: number | null, direction: ChangeDirection): string {
   if (direction === 'none' || ratio === null || !Number.isFinite(ratio) || ratio === 0) return 'text-muted'
@@ -164,10 +164,9 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
   const header = (
     <div className="section-head section-head-inline">
       <div>
-        <p className="eyebrow">Google Ads</p>
         <div className="flex items-center gap-1.5">
           <h2 id="google-ads-performance-title" className="text-heading-20 text-heading">
-            Ad performance
+            Google Ads performance
           </h2>
           <InfoTooltip text={GOOGLE_ADS_PERFORMANCE_HELP} />
         </div>
@@ -301,8 +300,9 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
   const rateStrip: { key: string; label: string; value: string; seriesKey: SeriesKey | null }[] = [
     { key: 'clicks', label: 'Clicks', value: COUNT_FORMAT.format(totals.clicks), seriesKey: 'clicks' },
     { key: 'impressions', label: 'Impressions', value: COUNT_FORMAT.format(totals.impressions), seriesKey: 'impressions' },
-    // CTR and CPC have no per-day field on `daily`, so they are values only.
-    { key: 'ctr', label: 'CTR', value: formatGoogleAdsRatio(totals.ctr), seriesKey: null },
+    // The API sends each day's CTR, null on a day with no impressions. CPC has
+    // no per-day field on `daily`, so it is a value only.
+    { key: 'ctr', label: 'CTR', value: formatGoogleAdsRatio(totals.ctr), seriesKey: 'ctr' },
     { key: 'cpc', label: 'CPC', value: formatGoogleAdsMicros(totals.cpcMicros, currency), seriesKey: null },
   ]
 
@@ -316,6 +316,9 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
     // conversions as a flat line at roughly 4% of the scale.
     clicks: { label: 'Clicks', color: CHART_SERIES_COLORS[2]!, axisId: 'clicks', formatValue: (v) => COUNT_FORMAT.format(v) },
     impressions: { label: 'Impressions', color: CHART_SERIES_COLORS[3]!, axisId: 'impressions', formatValue: (v) => COUNT_FORMAT.format(v) },
+    // A rate on its own axis. A day with no impressions has no CTR and is a gap
+    // in the line, never a fall to zero.
+    ctr: { label: 'CTR', color: CHART_SERIES_COLORS[4]!, axisId: 'ctr', formatValue: (v) => formatGoogleAdsRatio(v) },
   }
 
   const chartSeries: TrendChartSeries[] = [...selectedSeries]
@@ -461,7 +464,10 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
             <li key={point.date}>
               {formatChartDateLabel(point.date)}:{' '}
               {chartSeries
-                .map((series) => `${series.label} ${SERIES_META[series.dataKey as SeriesKey].formatValue(point[series.dataKey as SeriesKey])}`)
+                .map((series) => {
+                  const value = point[series.dataKey as SeriesKey]
+                  return `${series.label} ${value === null ? GOOGLE_ADS_NOT_AVAILABLE : SERIES_META[series.dataKey as SeriesKey].formatValue(value)}`
+                })
                 .join(', ')}
               {point.origin === 'filled' ? ', no delivery reported' : ''}
             </li>
@@ -471,10 +477,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
 
       <div className="page-section-divider">
         <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">By campaign</p>
-            <h3 className="text-heading-16 text-heading">Campaign performance</h3>
-          </div>
+          <h3 className="text-heading-16 text-heading">Campaign performance</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="data-table w-full text-label-14">
@@ -524,16 +527,16 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-copy-13 text-muted">
-          Snapshot {formatObservedInstantLabel(observedInstant(source.capturedAt))}
-          {' · '}customer {source.customerId}
-          {' · '}latest closed day {formatChartDateLabel(source.asOfDate)}
-          {source.openDate ? <>{' · '}{formatChartDateLabel(source.openDate)} still open, excluded</> : null}
-          {/* Days close in the ACCOUNT time zone, not the reader's. Without it a
-              cross-time-zone operator cannot tell what "closed" means, and the
-              excluded open day looks arbitrary. */}
-          {source.timeZone ? <>{' · '}days close in {source.timeZone}</> : null}
-        </p>
+        <details className="inline-disclosure mt-3">
+          <summary>Performance data details</summary>
+          <dl className="mt-3 grid gap-x-6 gap-y-3 text-label-14 sm:grid-cols-2 lg:grid-cols-3">
+            <div><dt className="text-muted">Snapshot captured</dt><dd className="mt-1 text-secondary">{formatObservedInstantLabel(observedInstant(source.capturedAt))}</dd></div>
+            <div><dt className="text-muted">Google Ads customer</dt><dd className="mt-1 text-secondary">{source.customerId}</dd></div>
+            <div><dt className="text-muted">Latest closed day</dt><dd className="mt-1 text-secondary">{formatChartDateLabel(source.asOfDate)}</dd></div>
+            {source.openDate ? <div><dt className="text-muted">Open day excluded</dt><dd className="mt-1 text-secondary">{formatChartDateLabel(source.openDate)}</dd></div> : null}
+            {source.timeZone ? <div><dt className="text-muted">Account time zone</dt><dd className="mt-1 text-secondary">Days close in {source.timeZone}</dd></div> : null}
+          </dl>
+        </details>
       </div>
     </section>
   )

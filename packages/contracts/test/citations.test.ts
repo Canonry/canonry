@@ -15,10 +15,12 @@ describe('citationCoverageRowSchema', () => {
       providers: [
         { provider: 'gemini', citationState: 'cited' as const, cited: true, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
         { provider: 'claude', citationState: 'not-cited' as const, cited: false, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
+        { provider: 'local', citationState: 'not-measured' as const, cited: null, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
       ],
       citedCount: 1,
-      mentionedCount: 2,
-      totalProviders: 2,
+      mentionedCount: 3,
+      totalProviders: 3,
+      citationNotMeasured: 1,
     }
     expect(() => citationCoverageRowSchema.parse(row)).not.toThrow()
   })
@@ -31,6 +33,7 @@ describe('citationCoverageRowSchema', () => {
       citedCount: 0,
       mentionedCount: 0,
       totalProviders: 1,
+      citationNotMeasured: 0,
     }
     expect(() => citationCoverageRowSchema.parse(bad)).toThrow()
   })
@@ -43,6 +46,7 @@ describe('citationCoverageRowSchema', () => {
       citedCount: 1,
       mentionedCount: 0,
       totalProviders: 1,
+      citationNotMeasured: 0,
     }
     expect(() => citationCoverageRowSchema.parse(missing)).toThrow()
   })
@@ -69,11 +73,13 @@ describe('citationVisibilityResponseSchema', () => {
         providersConfigured: 4,
         providersCiting: 1,
         providersMentioning: 2,
+        providersCitationNotMeasured: 1,
         totalQueries: 10,
         queriesCitedAndMentioned: 1,
         queriesCitedOnly: 2,
         queriesMentionedOnly: 1,
-        queriesInvisible: 6,
+        queriesInvisible: 5,
+        queriesCitationNotMeasured: 1,
         latestRunId: 'run-1',
         latestRunAt: '2026-04-29T00:00:00Z',
       },
@@ -105,5 +111,8 @@ describe('citationStateToCited', () => {
   })
   it('maps not-cited to false', () => {
     expect(citationStateToCited('not-cited')).toBe(false)
+  })
+  it('maps not-measured to null, never a miss', () => {
+    expect(citationStateToCited('not-measured')).toBeNull()
   })
 })

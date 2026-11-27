@@ -82,6 +82,24 @@ describe('computeVisibilityStats (pure)', () => {
     expect(totals.mentionRate).toBe(0.5) // 1/2
   })
 
+  it('leaves answers from an engine without sources out of the cited denominator, never the mention one', () => {
+    const snapshots = [
+      snap({ provider: 'openai', citationState: 'cited', answerMentioned: true }),
+      snap({ provider: 'openai', citationState: 'not-cited', answerMentioned: false }),
+      // A local model's answers, stored since this release and before it.
+      snap({ provider: 'local', citationState: 'not-measured', retrievalStatus: 'not-applicable', answerMentioned: true }),
+      snap({ provider: 'local', citationState: 'not-cited', retrievalStatus: 'not-applicable', answerMentioned: false }),
+    ]
+    const { totals, byProvider } = computeVisibilityStats({ queries: Q, snapshots, groupBy: 'provider' })
+    // 1 cited of the 2 answers that could cite; the mention reads all 4.
+    expect(totals).toEqual({ total: 4, citationNotMeasured: 2, checked: 4, mentioned: 2, cited: 1, mentionRate: 0.5, citedRate: 0.5 })
+    // The local engine measured no citation at all: its rate is undefined, not 0%.
+    expect(byProvider!.map(({ firstObserved: _first, lastObserved: _last, ...counts }) => counts)).toEqual([
+      { provider: 'local', total: 2, citationNotMeasured: 2, checked: 2, mentioned: 1, cited: 0, mentionRate: 0.5, citedRate: null },
+      { provider: 'openai', total: 2, citationNotMeasured: 0, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5 },
+    ])
+  })
+
   it('returns null rates when the denominator is zero (rate undefined over no samples)', () => {
     // All unchecked → checked = 0 → mentionRate null. No snapshots at all → all null.
     const allNull = computeVisibilityStats({
@@ -195,6 +213,36 @@ describe('computeVisibilityStats (pure)', () => {
     expect(queries).toEqual([])
   })
 
+  it('splits totals by query class and tags each query, when classes are given', () => {
+    const queries = [...Q, { id: 'q3', query: 'Acme reviews' }]
+    const queryClasses = new Map([['q1', 'non-brand' as const], ['q3', 'branded' as const], ['q2', null]])
+    const stats = computeVisibilityStats({
+      queries,
+      groupBy: null,
+      queryClasses,
+      snapshots: [
+        snap({ queryId: 'q1', answerMentioned: false }),
+        snap({ queryId: 'q1', answerMentioned: true, citationState: 'cited' }),
+        snap({ queryId: 'q3', queryText: 'Acme reviews', answerMentioned: true, citationState: 'cited' }),
+        snap({ queryId: 'q2', queryText: 'how to optimize for AI search', answerMentioned: null }),
+      ],
+    })
+    expect(stats.byQueryClass).toEqual({
+      nonBrand: { total: 2, citationNotMeasured: 0, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5 },
+      branded: { total: 1, citationNotMeasured: 0, checked: 1, mentioned: 1, cited: 1, mentionRate: 1, citedRate: 1 },
+      unclassified: { total: 1, citationNotMeasured: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: 0 },
+    })
+    // The split adds back up to the pooled totals.
+    expect(stats.totals).toMatchObject({ total: 4, checked: 3, mentioned: 2, cited: 2 })
+    expect(Object.fromEntries(stats.queries.map((q) => [q.queryId, q.queryClass]))).toEqual({ q1: 'non-brand', q2: null, q3: 'branded' })
+  })
+
+  it('leaves the split out when no classes are given', () => {
+    const stats = computeVisibilityStats({ queries: Q, groupBy: null, snapshots: [snap({})] })
+    expect(stats.byQueryClass).toBeUndefined()
+    expect(stats.queries[0]).not.toHaveProperty('queryClass')
+  })
+
   it('rounds rates to the fraction wire precision', () => {
     // 1 of 3 checked → 0.33333… → 0.33333333; 2 of 3 cited → 0.66666… → 0.66666667.
     const snapshots = [
@@ -239,6 +287,8 @@ function seedRun(opts: {
     cited: boolean
     mentioned: boolean | null
     answerText?: string | null
+    /** Store the answer as an engine without sources does (`retrieval_status = 'not-applicable'`). */
+    noSources?: { citationState: 'not-cited' | 'not-measured' }
   }>
 }): string {
   const runId = crypto.randomUUID()
@@ -263,7 +313,8 @@ function seedRun(opts: {
         queryId: s.queryId,
         queryText: s.queryText,
         provider: s.provider,
-        citationState: s.cited ? 'cited' : 'not-cited',
+        citationState: s.noSources?.citationState ?? (s.cited ? 'cited' : 'not-cited'),
+        ...(s.noSources ? { retrievalStatus: 'not-applicable' as const } : {}),
         answerMentioned: s.mentioned,
         answerText: s.answerText ?? null,
         citedDomains: [],
@@ -348,12 +399,38 @@ describe('GET /projects/:name/visibility-stats', () => {
     expect(q.mentionRate).toBe(0.5)
   })
 
+  it('splits the totals by query class from the project\'s brand names, whatever queryClass asks', async () => {
+    const branded = crypto.randomUUID()
+    ctx.db.insert(queriesTable).values({ id: branded, projectId: ctx.projectId, query: 'Vis Stats reviews', createdAt: iso(30) }).run()
+    seedRun({
+      createdAt: iso(2),
+      snapshots: [
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false },
+        { queryId: ctx.q2, queryText: 'AI search optimization', provider: 'openai', cited: true, mentioned: true },
+        { queryId: branded, queryText: 'Vis Stats reviews', provider: 'openai', cited: true, mentioned: true },
+      ],
+    })
+    for (const qs of ['', '?queryClass=branded']) {
+      const { status, body } = await getStats(qs)
+      expect(status).toBe(200)
+      // queryClass scopes share of voice only: the pooled totals and the split are the same either way.
+      expect(body.totals).toMatchObject({ total: 3, mentioned: 2 })
+      expect(body.byQueryClass).toEqual({
+        nonBrand: { total: 2, citationNotMeasured: 0, checked: 2, mentioned: 1, cited: 1, mentionRate: 0.5, citedRate: 0.5 },
+        branded: { total: 1, citationNotMeasured: 0, checked: 1, mentioned: 1, cited: 1, mentionRate: 1, citedRate: 1 },
+        unclassified: { total: 0, citationNotMeasured: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null },
+      })
+      expect(body.queries.find((q) => q.query === 'Vis Stats reviews')?.queryClass).toBe('branded')
+      expect(body.queries.find((q) => q.query === 'best AEO platform')?.queryClass).toBe('non-brand')
+    }
+  })
+
   it('returns an empty, well-formed payload when there are no runs', async () => {
     const { status, body } = await getStats()
     expect(status).toBe(200)
     expect(body.window.runCount).toBe(0)
     expect(body.queries).toEqual([])
-    expect(body.totals).toMatchObject({ total: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null })
+    expect(body.totals).toMatchObject({ total: 0, citationNotMeasured: 0, checked: 0, mentioned: 0, cited: 0, mentionRate: null, citedRate: null })
   })
 
   it('filters by since/until on run createdAt', async () => {
@@ -647,6 +724,31 @@ describe('GET /projects/:name/visibility-stats', () => {
     })
     const { body } = await getStats('')
     expect(body.shareOfVoice).toBeUndefined()
+  })
+
+  it('reads stored answers without sources as not measured and leaves a probe run out', async () => {
+    seedRun({
+      createdAt: iso(5),
+      snapshots: [
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: true, mentioned: true },
+        // Stored before `not-measured` existed: not-cited with no retrieval step.
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'local', cited: false, mentioned: true, noSources: { citationState: 'not-cited' } },
+      ],
+    })
+    // A probe never enters the figures, however its answers were stored.
+    seedRun({
+      createdAt: iso(4),
+      trigger: 'probe',
+      snapshots: [
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'openai', cited: false, mentioned: false },
+        { queryId: ctx.q1, queryText: 'best AEO platform', provider: 'local', cited: false, mentioned: false, noSources: { citationState: 'not-measured' } },
+      ],
+    })
+    const { status, body } = await getStats('?groupBy=provider')
+    expect(status).toBe(200)
+    expect(body.window.runCount).toBe(1)
+    expect(body.totals).toEqual({ total: 2, citationNotMeasured: 1, checked: 2, mentioned: 2, cited: 1, mentionRate: 1, citedRate: 1 })
+    expect(body.byProvider!.find(entry => entry.provider === 'local')).toMatchObject({ total: 1, citationNotMeasured: 1, cited: 0, citedRate: null, mentionRate: 1 })
   })
 
   it('shareOfVoice excludes probe runs', async () => {

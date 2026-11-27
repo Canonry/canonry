@@ -115,9 +115,10 @@ test('admin research offers saved OpenRouter routes without exposing the bare co
 
   render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 
-  expect(await screen.findByRole('option', { name: 'google/gemini-2.5-pro via OpenRouter' })).toHaveProperty('value', route)
+  expect(await screen.findByRole('option', { name: 'Gemini 2.5 Pro via OpenRouter' })).toHaveProperty('value', route)
   expect(screen.queryByRole('option', { name: 'OpenRouter' })).toBeNull()
   fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: route } })
+  expect(screen.queryByRole('textbox', { name: 'Model' })).toBeNull()
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which answer engine cites sources?' } })
   const run = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(run.disabled).toBe(false))
@@ -174,7 +175,7 @@ test('admin research offers an active-v2 OpenRouter route absent from project pr
 
   render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
 
-  expect(await screen.findByRole('option', { name: 'anthropic/claude-3.7-sonnet via OpenRouter' })).toHaveProperty('value', route)
+  expect(await screen.findByRole('option', { name: 'Claude 3.7 Sonnet via OpenRouter' })).toHaveProperty('value', route)
   expect(screen.queryByRole('option', { name: 'OpenRouter' })).toBeNull()
   fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: route } })
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which answer engine cites sources?' } })
@@ -226,7 +227,7 @@ test('resets the selected query when switching research history batches', async 
   fireEvent.click(screen.getByRole('button', { name: 'First run selected query' }))
   expect(await screen.findByText('First run selected query answer')).toBeTruthy()
 
-  const secondRunButton = screen.getAllByRole('button').find(button => button.closest('tr')?.textContent?.includes('gpt-5-b'))
+  const secondRunButton = screen.getAllByRole('button').find(button => button.closest('tr')?.textContent?.includes('GPT-5 B'))
   expect(secondRunButton).toBeTruthy()
   fireEvent.click(secondRunButton!)
 
@@ -302,8 +303,8 @@ test('saved results retain their saved scope independently from the current form
   expect(results.getByText(RESEARCH_COPY.methodology)).toBeTruthy()
   expect(results.getByText('Matched')).toBeTruthy()
   expect(results.getByText('Not cited')).toBeTruthy()
-  expect(results.getByText('openai')).toBeTruthy()
-  expect(results.getByText('saved-model')).toBeTruthy()
+  expect(results.getByText('OpenAI')).toBeTruthy()
+  expect(results.getByText('Saved Model')).toBeTruthy()
   expect(results.getByText('Downtown')).toBeTruthy()
   expect(results.getByText('No location')).toBeTruthy()
   expect(results.queryByText('current-model')).toBeNull()
@@ -357,7 +358,7 @@ test.each([true, false])('key research uses server capability (%s) and safe prov
   render(<AccountProvider account={null} apiKey={{ id: 'research-key', scopes: ['read', 'research.run'], projectId: 'project_demo', readOnly: false }}>
     <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>
   </AccountProvider>)
-  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · gpt-test` })
+  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · GPT Test` })
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which platform fits?' } })
   const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
   await waitFor(() => expect(button.disabled).toBe(!canRun))
@@ -397,7 +398,7 @@ test('limited research submits a server-approved OpenRouter route and never offe
     <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>
   </AccountProvider>)
 
-  expect(await screen.findByRole('option', { name: 'anthropic/claude-3.7-sonnet via OpenRouter' })).toHaveProperty('value', route)
+  expect(await screen.findByRole('option', { name: 'Claude 3.7 Sonnet via OpenRouter' })).toHaveProperty('value', route)
   expect(screen.queryByRole('option', { name: 'OpenRouter' })).toBeNull()
   fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which platform fits?' } })
   const button = screen.getByRole('button', { name: RESEARCH_COPY.runAction }) as HTMLButtonElement
@@ -434,7 +435,7 @@ test('viewer research follows the visibility model, offers discovered alternativ
   render(<AccountProvider account={{ name: 'analyst', role: 'viewer' }}>
     <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" viewerResearchConfig={{ allowViewers: true, viewerDailyRunLimit: 20 }} /></QueryClientProvider>
   </AccountProvider>)
-  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · chat-latest` })
+  await screen.findByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · Chat Latest` })
   const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
   expect(model.value).toBe('')
   fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'best apartments' } })
@@ -453,11 +454,11 @@ test('viewer research follows the visibility model, offers discovered alternativ
   availableModels = []
   await queryClient.refetchQueries()
   expect(model.value).toBe('gpt-next')
-  expect(await screen.findByRole('option', { name: 'gpt-next' })).toBeTruthy()
+  expect(await screen.findByRole('option', { name: 'GPT Next' })).toBeTruthy()
   expect(model.value).toBe('gpt-next')
   fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: 'claude' } })
   expect(model.value).toBe('')
-  expect(screen.getByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · claude-sonnet-new` })).toBeTruthy()
+  expect(screen.getByRole('option', { name: `${RESEARCH_COPY.inheritedModel} · Claude Sonnet New` })).toBeTruthy()
   await submit()
   await waitFor(() => expect(bodies).toHaveLength(3))
   expect(bodies[2]).toMatchObject({ runs: [{ provider: 'claude', model: 'claude-sonnet-new' }] })

@@ -29,7 +29,7 @@
   --chart-tone-caution: #fbbf24;
   --chart-tone-negative: #fb7185;
   --chart-tone-neutral: #a1a1a1;
-  /* Site Health's four-way state palette is Okabe-Ito-derived. These literals
+  /* Agent Readiness's four-way state palette is Okabe-Ito-derived. These literals
      are WebGL-safe and remain distinct under common color-vision deficiencies. */
   --chart-site-health-eligible: #56b4e9;
   --chart-site-health-hidden: #e69f00;
@@ -327,6 +327,13 @@
     font: inherit;
   }
 
+  /* A click on a chart focuses one of Recharts' layer groups (tabindex -1),
+     and the browser rings the whole plot. Tab never reaches those groups: the
+     keyboard target is the chart surface, and its ring stays. */
+  .recharts-wrapper :focus:not(:focus-visible) {
+    outline: none;
+  }
+
   ::selection {
     background: color-mix(in oklab, var(--color-accent) 12%, transparent);
     color: var(--color-accent);
@@ -417,40 +424,14 @@
     @apply mt-0.5 text-muted text-label-12-mono;
   }
 
-  /* ── Update bubble ── */
-  /*
-   * A version notification replaces the static label when a newer Canonry
-   * version is available. It spans the sidebar lockup so long version strings
-   * can wrap without escaping the sidebar; click opens npm, × dismisses
-   * (per-version, persisted to localStorage). The bird plays a one-shot chirp
-   * animation when the notification appears.
-   */
-  .brand-lockup-wrapper {
-    @apply grid w-full max-w-full grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-3;
-  }
-
-  .brand-icon-link {
-    @apply block shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-caution-400/60 rounded-full;
-  }
-
-  .brand-lockup-wrapper .brand-icon-link {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .brand-lockup-wrapper .brand-copy {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
+  /* The update offer shares the topbar slot with installed release notes. */
   .brand-update-bubble {
-    @apply relative col-span-2 mt-2 flex w-full min-w-0 items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 text-caution-100 transition text-label-12-mono;
+    @apply relative flex max-w-56 min-w-0 items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 text-caution-100 transition text-label-12-mono;
     box-shadow:
       0 8px 20px -10px var(--color-caution-glow),
       inset 0 0 0 1px var(--color-caution-glow-inset);
     transform-origin: 0 50%;
-    /* Delayed so the bird "speaks" first, then the bubble appears as the chirp. */
-    animation: brand-bubble-pop 540ms cubic-bezier(0.34, 1.56, 0.64, 1) 100ms both;
+    animation: brand-bubble-pop 420ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both;
   }
 
   .brand-update-bubble:hover {
@@ -463,10 +444,6 @@
 
   .brand-update-bubble-link:focus-visible {
     @apply ring-2 ring-caution-400/60;
-  }
-
-  .brand-update-bubble-closing {
-    animation: brand-bubble-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
   }
 
   .brand-update-bubble-from,
@@ -501,52 +478,19 @@
     @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-caution-300;
   }
 
-  /* Bird chirps just before the bubble appears. Origin near the bird's
-   * feet so the rotation reads as a head tilt rather than a spin. The
-   * plugin icon's tile stays still: tilting it would rock the whole tile. */
-  .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon:not(.brand-icon-tile) {
-    animation: brand-bird-talk 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) 0ms both;
-    transform-origin: 50% 80%;
-  }
-
   @keyframes brand-bubble-pop {
     0% {
       opacity: 0;
-      transform: scale(0.4) translateY(-6px);
-    }
-    55% {
-      opacity: 1;
-      transform: scale(1.08) translateY(0);
-    }
-    75% {
-      transform: scale(0.97);
+      transform: scale(0.92) translateY(-4px);
     }
     100% {
       opacity: 1;
-      transform: scale(1);
+      transform: scale(1) translateY(0);
     }
-  }
-
-  @keyframes brand-bird-talk {
-    0%   { transform: translateY(0) rotate(0deg); }
-    12%  { transform: translateY(-2px) rotate(-6deg) scale(1.04); }
-    24%  { transform: translateY(1px) rotate(3deg) scale(0.98); }
-    38%  { transform: translateY(-1px) rotate(-3deg); }
-    52%  { transform: translateY(0) rotate(2deg); }
-    68%  { transform: translateY(-1px) rotate(-1deg); }
-    100% { transform: translateY(0) rotate(0deg); }
-  }
-
-  @keyframes brand-bubble-out {
-    0%   { opacity: 1; transform: scale(1); }
-    100% { opacity: 0; transform: scale(0.6) translateY(-4px); }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .brand-update-bubble {
-      animation: none;
-    }
-    .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon:not(.brand-icon-tile) {
       animation: none;
     }
   }
@@ -623,14 +567,6 @@
     @apply lg:pl-0;
   }
 
-  /* First-run focus mode (sidebar hidden) — drop the 224px sidebar gutter
-     so the wizard centers across the full viewport instead of being
-     offset right. Applied via the `app-shell-focus` modifier set by
-     App.tsx when the user is on /setup with zero projects. */
-  .app-shell-focus .main-area {
-    @apply lg:pl-0;
-  }
-
   .topbar {
     @apply sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:flex-nowrap md:px-6;
   }
@@ -661,6 +597,28 @@
 
   .topbar-actions {
     @apply ml-auto flex shrink-0 items-center gap-2;
+  }
+
+  @media (width < 40rem) {
+    .topbar:has([data-dashboard-release-control]) {
+      @apply gap-x-1 gap-y-1 px-2;
+    }
+
+    .topbar:has([data-dashboard-release-control]) .topbar-actions {
+      @apply min-w-0 max-w-full flex-wrap justify-end gap-1;
+    }
+
+    .topbar:has([data-dashboard-release-control]) .topbar-brand-mobile .brand-copy {
+      @apply sr-only;
+    }
+
+    .brand-update-bubble {
+      @apply max-w-32;
+    }
+
+    .brand-update-bubble-from, .brand-update-bubble-arrow {
+      @apply hidden;
+    }
   }
 
   .task-center {
@@ -718,8 +676,13 @@
   }
 
   @media (max-width: 639px) {
+    /* Anchor below the complete sticky header, including a wrapped row of controls. */
+    .task-center, .task-center-details {
+      @apply static;
+    }
+
     .task-center-panel {
-      @apply material-menu fixed left-4 right-4 top-12 w-auto;
+      @apply left-3 right-3 top-full mt-1.5 w-auto;
     }
   }
 
@@ -727,30 +690,6 @@
     .task-center-chevron {
       transition: none;
     }
-  }
-
-  .health-pill-row {
-    @apply hidden items-center gap-1.5 lg:flex;
-  }
-
-  .health-pill {
-    @apply rounded-full border px-2 py-0.5 normal-case text-label-12-strong;
-  }
-
-  .health-pill-ok {
-    @apply border-positive-500/20 bg-positive-500/8 text-positive-400;
-  }
-
-  .health-pill-checking {
-    @apply border-strong bg-bg-elevated text-secondary;
-  }
-
-  .health-pill-disabled {
-    @apply border-strong bg-bg-elevated text-secondary;
-  }
-
-  .health-pill-error {
-    @apply border-negative-500/20 bg-negative-500/8 text-negative-400;
   }
 
   .topbar-cta {
@@ -804,11 +743,11 @@
      RootLayout sets the class on .main-area; pages never pad for the bar.
      Product links and the version live in navigation, outside this lane. */
   .main-area-agent-bar {
-    padding-bottom: 6rem;
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   html:has(.main-area-agent-bar) {
-    scroll-padding-bottom: 6rem;
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
   .page-container {
@@ -1163,7 +1102,7 @@
      controls change future sweeps, so their inherited/override state needs a
      calm, scannable row layout rather than a modal. */
   .project-engine-settings {
-    @apply material-base mt-5 px-5 py-5;
+    @apply mt-8 border-t border-subtle pt-6;
   }
 
   .project-engine-fieldset {
@@ -1183,7 +1122,7 @@
   }
 
   .project-engine-list {
-    @apply material-base mt-3 divide-y divide-mono-800/40;
+    @apply mt-3 divide-y divide-mono-800/40;
   }
 
   .project-engine-row {
@@ -1341,6 +1280,32 @@
     @apply text-strong text-label-14-strong;
   }
 
+  .engine-comparison {
+    @apply w-full max-w-2xl table-fixed border-collapse;
+  }
+
+  .engine-comparison th,
+  .engine-comparison td {
+    @apply w-1/4 py-2 pl-6 text-right align-middle;
+  }
+
+  .engine-comparison th:first-child,
+  .engine-comparison td:first-child {
+    @apply w-1/2 pl-0 text-left;
+  }
+
+  .engine-comparison thead th {
+    @apply text-label-13 text-secondary;
+  }
+
+  .engine-comparison tbody tr + tr {
+    @apply border-t border-default;
+  }
+
+  .engine-comparison-metric {
+    @apply flex items-baseline justify-end gap-2.5 tabular-nums;
+  }
+
   /* A real space separates the figure for screen readers; the margin tops it
      up to the design's gap. */
   .av-of {
@@ -1467,15 +1432,6 @@
   /* A row's time that opens its run: reads as text, underlines on hover. */
   .av-link {
     @apply rounded-sm text-left underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
-  }
-
-  /* One labelled figure under a card's grid ("Competitor cited instead of you"). */
-  .av-card-line {
-    @apply mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-subtle pt-3;
-  }
-
-  .av-card-line-label {
-    @apply text-strong text-label-14-strong;
   }
 
   /* A list inside a Details bullet ("Company names in answers ▸"). Starts
@@ -1971,9 +1927,13 @@
     @apply relative mt-2 mb-4 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
   }
 
-  /* The tab bar already draws the line above a tab's first section; a divider
-     there drew a second one with an empty band between them. */
-  .project-subnav + .page-section-divider {
+  .visibility-checks {
+    @apply mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 sm:justify-end;
+  }
+
+  /* The tab bar supplies the top divider, including above AI Visibility checks. */
+  .project-subnav + .page-section-divider,
+  .visibility-checks + .page-section-divider {
     @apply mt-0 border-t-0 pt-0;
   }
 
@@ -1986,7 +1946,7 @@
   }
 
   .project-subnav-link {
-    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading text-label-14-strong;
+    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b border-transparent px-3 py-2.5 text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading text-label-14-strong;
   }
 
   .project-subnav-current {
@@ -2002,9 +1962,9 @@
     @apply border-mono-100 text-primary;
   }
 
-  /* Trailing group (overflow "More" + Settings), pushed to the far right. */
+  /* More follows the last section. It is not pinned to the far edge. */
   .project-subnav-trailing {
-    @apply ml-auto flex shrink-0 items-stretch gap-x-1;
+    @apply flex shrink-0 items-stretch gap-x-1;
   }
 
   .project-subnav-more {
@@ -2022,10 +1982,6 @@
 
   .project-subnav-menu-item {
     @apply rounded px-3 py-2 text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading text-label-14-strong;
-  }
-
-  .project-subnav-menu-item-active {
-    @apply bg-surface-inset text-primary;
   }
 
   /* ── Overview secondary grid (attention + activity) ── */
@@ -2065,36 +2021,33 @@
   }
 
   .hero-stack,
-  .compact-stack,
-  .run-list,
-  .project-list {
+  .run-list {
     @apply grid gap-3;
   }
 
-  /* Scrollable list containers — cap height, fade bottom edge */
+  .project-list,
+  .compact-stack {
+    @apply grid;
+  }
+
+  /* Scrollable list containers keep every visible row fully readable. */
 
   .project-list-scrollable {
     max-height: 32rem;
     overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
     padding-bottom: 0.5rem;
   }
 
-  .attention-list-scrollable {
-    max-height: 18rem;
-    overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    padding-bottom: 0.25rem;
-  }
-
-  .compact-stack-scrollable {
-    max-height: 18rem;
-    overflow-y: auto;
-    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
-    padding-bottom: 0.25rem;
+  /* Side by side on wide screens, each column scrolls on its own. Stacked on
+     a phone, they grow with their rows: a nested scroll there cut the last
+     row off. */
+  @media (min-width: 64rem) {
+    .attention-list-scrollable,
+    .compact-stack-scrollable {
+      max-height: 18rem;
+      overflow-y: auto;
+      padding-bottom: 0.25rem;
+    }
   }
 
   /* Thin scrollbar for scrollable containers */
@@ -2179,7 +2132,7 @@
   /* ── Compact run ── */
 
   .compact-run {
-    @apply material-base flex items-center justify-between gap-4 px-3.5 py-2.5 text-left transition hover:bg-surface-hover;
+    @apply flex items-center justify-between gap-4 border-b border-subtle px-3.5 py-2.5 text-left transition last:border-b-0 hover:bg-surface-hover;
   }
 
   .compact-run-detail {
@@ -2275,7 +2228,6 @@
 
   .insight-grid,
   .health-grid,
-  .settings-grid,
   .finding-grid,
   .competitor-grid {
     @apply grid gap-3 lg:grid-cols-3;
@@ -2389,11 +2341,20 @@
   }
 
   .setup-input {
-    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 text-label-14;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition text-label-14;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y text-copy-14-mono;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition resize-y text-copy-14-mono;
+  }
+
+  /* Focus outranks rest and hover in both themes: gray-900 sits beyond the
+     gray-600 hover border against either background, and the 1px ring makes
+     the edge 2px. Forced colors drop the ring, so a transparent outline takes
+     the system focus color there. */
+  .setup-input:focus-visible,
+  .setup-textarea:focus-visible {
+    @apply border-mono-400 ring-1 ring-mono-400 outline-hidden;
   }
 
   .setup-input:disabled,
@@ -2938,13 +2899,20 @@
     @apply border-b border-subtle;
   }
 
+  /* The column shrinks to its buttons, so spare width goes to the query, and
+     its opaque background covers the cells that scroll under it. */
   .measurement-table-actions {
     position: sticky;
     right: 0;
     z-index: 1;
+    width: 1px;
     white-space: nowrap;
     background-color: var(--color-bg);
-    box-shadow: -1px 0 0 var(--color-border);
+  }
+
+  /* The header cell keeps the header's band. */
+  .evidence-table thead .measurement-table-actions {
+    background-color: var(--color-surface-inset);
   }
 
   .measurement-results-table { table-layout: fixed; }
@@ -2997,6 +2965,8 @@
 
   .query-tracking-workspace { container-type: inline-size; }
   .tracking-query-cell { min-width: 18rem; }
+  /* Short labels and badges take only their own width, leaving the rest to the query. */
+  .tracking-fit-cell { width: 1px; white-space: nowrap; }
   .tracking-scope-cell { min-width: 12rem; max-width: 16rem; }
 
   @container (max-width: 60rem) {
@@ -3006,10 +2976,15 @@
     .query-tracking-workspace .measurement-responsive-table td { padding-inline: 0.75rem; }
     .tracking-query-cell { min-width: 14rem; }
     .tracking-scope-cell { min-width: 10rem; }
+    /* Advanced rows also carry Scope and Class, so their actions stack first. */
+    .tracking-table-advanced .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
+  }
+
+  @container (max-width: 40rem) {
     .tracking-row-actions { flex-direction: column; align-items: flex-start; gap: 0; }
   }
 
-  /* Site Health tables read as prose, not as a spec sheet: sentence-case
+  /* Agent Readiness tables read as prose, not as a spec sheet: sentence-case
      headers at body size instead of the all-caps letterspaced default. Scoped
      to this one surface so the shared .evidence-table stays as it is. */
   .site-health-table th {
@@ -3091,11 +3066,11 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply material-base grid gap-3 px-4 py-3.5 transition hover:bg-surface-hover lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 border-b border-subtle px-4 py-3.5 transition last:border-b-0 hover:bg-surface-hover lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-with-sentiment {
-    @apply lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_9rem_auto];
+    @apply lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_9rem_auto];
   }
 
   .project-row-primary {
@@ -3106,16 +3081,8 @@
     @apply min-w-0;
   }
 
-  .project-row-chart {
-    @apply hidden lg:block;
-  }
-
   .project-row-link {
     @apply justify-self-end;
-  }
-
-  .project-insight {
-    @apply mt-1.5 text-muted text-label-12;
   }
 
   /* Fixed 3-row template (label / value / caption) — every stat cell that
@@ -3162,6 +3129,26 @@
   }
 
   /* ── Run row ── */
+
+  .run-filters {
+    @apply mb-4 flex flex-wrap items-center gap-2;
+  }
+
+  .run-filter-control {
+    @apply h-9 min-w-0 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-600;
+  }
+
+  .run-filter-control[type='search'] {
+    @apply min-w-48 flex-1;
+  }
+
+  .run-filters select {
+    @apply max-w-56;
+  }
+
+  .runs-table {
+    @apply min-w-[52rem];
+  }
 
   .run-row {
     @apply material-base grid gap-4 px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
@@ -3242,11 +3229,7 @@
   /* ── Footer ── */
 
   .footer {
-    @apply flex shrink-0 flex-col gap-2 border-t border-subtle px-4 py-3 text-label-14;
-  }
-
-  .footer-brand {
-    @apply flex items-center gap-2 text-muted;
+    @apply flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-subtle px-4 py-3 text-label-14;
   }
 
   .footer-version {
@@ -3258,7 +3241,7 @@
   }
 
   .footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
+    @apply inline-flex size-7 items-center justify-center rounded-md text-secondary transition hover:bg-surface-inset-hover hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-current pointer-coarse:size-11;
   }
 
   /* ── Drawer ── */

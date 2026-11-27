@@ -1,7 +1,11 @@
+import { lookup } from 'node:dns/promises'
 import CDP from 'chrome-remote-interface'
 import type { CDPTarget } from './targets/types.js'
 import { CDPProviderError } from './targets/types.js'
 import { describeError } from '@canonry/canonry-contracts'
+
+/** How long a version check waits for Chrome; the request limit `CDP.Version` uses. */
+const VERSION_REQUEST_TIMEOUT_MS = 10_000
 
 interface TabEntry {
   client: CDP.Client
@@ -43,10 +47,23 @@ export class CDPConnectionManager {
     return `${this.host}:${this.port}`
   }
 
-  /** Check if Chrome is reachable via CDP */
-  async healthcheck(): Promise<CDPHealthResult> {
+  /**
+   * Check if Chrome is reachable via CDP by reading its `/json/version`. Once
+   * `signal` aborts, the request is cancelled. `CDP.Version` takes no signal,
+   * so this makes the same request itself, with the same 10-second limit and
+   * the host resolved first: Chrome refuses a Host header that names anything
+   * but an IP address or localhost.
+   */
+  async healthcheck(signal?: AbortSignal): Promise<CDPHealthResult> {
     try {
-      const info = await CDP.Version({ host: this.host, port: this.port })
+      const { address, family } = await lookup(this.host)
+      const host = family === 6 ? `[${address}]` : address
+      const timeout = AbortSignal.timeout(VERSION_REQUEST_TIMEOUT_MS)
+      const response = await fetch(`http://${host}:${this.port}/json/version`, {
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      })
+      if (!response.ok) return { connected: false }
+      const info = await response.json() as { Browser?: string; 'Protocol-Version'?: string }
       return {
         connected: true,
         version: info['Protocol-Version'],

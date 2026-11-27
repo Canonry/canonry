@@ -1,12 +1,14 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@canonry/canonry-db'
-import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscDataWatermarks } from '@canonry/canonry-db'
+import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscDataWatermarks, gscSitemaps, sitemapListSyncs } from '@canonry/canonry-db'
 import {
   fetchSearchAnalytics,
+  listSitemaps,
   refreshAccessToken,
   GSC_DATA_LAG_DAYS,
   GSC_REPORTING_TIME_ZONE,
+  type GscSitemap,
 } from '@canonry/canonry-integration-google'
 import { formatIsoDateInTimeZone, shiftIsoCalendarDate, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
@@ -22,6 +24,87 @@ const log = createLogger('GscSync')
 // bound its fetch window. Both are gone: GSC reports on the Pacific calendar,
 // so the bounds now come from `formatIsoDateInTimeZone` +
 // `shiftIsoCalendarDate`, which step real calendar dates in the right zone.
+
+/**
+ * Sitemap indexes whose files one sync reads. Each is one more Search Console
+ * call; an index past the cap keeps the files a previous sync stored.
+ */
+export const GSC_SITEMAP_INDEX_MAX_PER_SYNC = 20
+
+function countOrNull(value: string | undefined): number | null {
+  if (value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** The URLs a sitemap lists, summed over Google's content types, or null when Google sent none. */
+function gscSitemapUrlCount(sitemap: GscSitemap): number | null {
+  if (!sitemap.contents || sitemap.contents.length === 0) return null
+  return sitemap.contents.reduce((sum, content) => sum + (countOrNull(content.submitted) ?? 0), 0)
+}
+
+/**
+ * Store the property's sitemaps, and the files inside each index, so the
+ * dashboard and agents read them without a live call. Rows Google no longer
+ * lists are removed, except the files of an index this sync did not reach.
+ */
+export async function syncGscSitemaps(
+  db: DatabaseClient,
+  projectId: string,
+  runId: string,
+  accessToken: string,
+  propertyId: string,
+): Promise<{ sitemaps: number; indexesRead: number }> {
+  const top = await listSitemaps(accessToken, propertyId)
+  const indexes = top.filter((sitemap) => sitemap.isSitemapsIndex)
+  const read = indexes.slice(0, GSC_SITEMAP_INDEX_MAX_PER_SYNC)
+  const files = new Map<string, GscSitemap[]>()
+  for (const index of read) files.set(index.path, await listSitemaps(accessToken, propertyId, index.path))
+
+  const syncedAt = new Date().toISOString()
+  const toRow = (sitemap: GscSitemap, parentUrl: string | null) => ({
+    projectId,
+    url: sitemap.path,
+    parentUrl,
+    isIndex: Boolean(sitemap.isSitemapsIndex),
+    isPending: Boolean(sitemap.isPending),
+    type: sitemap.type ?? null,
+    urlCount: gscSitemapUrlCount(sitemap),
+    warnings: countOrNull(sitemap.warnings),
+    errors: countOrNull(sitemap.errors),
+    submittedAt: sitemap.lastSubmitted ?? null,
+    lastDownloadedAt: sitemap.lastDownloaded ?? null,
+    syncRunId: runId,
+    syncedAt,
+  })
+  const rows = [
+    ...top.map((sitemap) => toRow(sitemap, null)),
+    ...[...files.entries()].flatMap(([parent, children]) => children.map((child) => toRow({ ...child, isSitemapsIndex: false }, parent))),
+  ]
+  // A file listed both on its own and inside an index is one sitemap; keep its top-level row.
+  const byUrl = new Map<string, (typeof rows)[number]>()
+  for (const row of rows) if (!byUrl.has(row.url)) byUrl.set(row.url, row)
+  const unread = new Set(indexes.slice(GSC_SITEMAP_INDEX_MAX_PER_SYNC).map((index) => index.path))
+
+  db.transaction((tx) => {
+    const stored = tx.select({ url: gscSitemaps.url, parentUrl: gscSitemaps.parentUrl }).from(gscSitemaps).where(eq(gscSitemaps.projectId, projectId)).all()
+    for (const row of stored) {
+      if (byUrl.has(row.url) || (row.parentUrl !== null && unread.has(row.parentUrl))) continue
+      tx.delete(gscSitemaps).where(and(eq(gscSitemaps.projectId, projectId), eq(gscSitemaps.url, row.url))).run()
+    }
+    for (const row of byUrl.values()) {
+      tx.insert(gscSitemaps).values({ id: crypto.randomUUID(), ...row }).onConflictDoUpdate({
+        target: [gscSitemaps.projectId, gscSitemaps.url],
+        set: { ...row },
+      }).run()
+    }
+    tx.insert(sitemapListSyncs).values({ projectId, engine: 'google', syncedAt, syncRunId: runId }).onConflictDoUpdate({
+      target: [sitemapListSyncs.projectId, sitemapListSyncs.engine],
+      set: { syncedAt, syncRunId: runId },
+    }).run()
+  })
+  return { sitemaps: byUrl.size, indexesRead: read.length }
+}
 
 interface GscSyncOptions {
   days?: number
@@ -267,6 +350,16 @@ export async function executeGscSync(
     }
 
     log.info('query-totals.complete', { runId, projectId, rowCount: queryTotalRows.length })
+
+    // The sitemap list rides along with the sync so nothing has to ask Google
+    // live to show it. A failure here keeps the last stored list and does not
+    // fail the sync: the search data above is already saved.
+    try {
+      const stored = await syncGscSitemaps(db, projectId, runId, accessToken, propertyId)
+      log.info('sitemaps.complete', { runId, projectId, ...stored })
+    } catch (err) {
+      log.warn('sitemaps.failed', { runId, projectId, error: describeError(err) })
+    }
 
     // URL inspection deliberately does NOT happen here.
     //

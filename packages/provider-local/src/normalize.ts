@@ -25,7 +25,8 @@ export function validateConfig(config: LocalConfig): LocalHealthcheckResult {
   }
 }
 
-export async function healthcheck(config: LocalConfig): Promise<LocalHealthcheckResult> {
+/** Once `signal` aborts, no further attempt starts and the request in flight is cancelled. */
+export async function healthcheck(config: LocalConfig, signal?: AbortSignal): Promise<LocalHealthcheckResult> {
   const validation = validateConfig(config)
   if (!validation.ok) return validation
 
@@ -35,14 +36,14 @@ export async function healthcheck(config: LocalConfig): Promise<LocalHealthcheck
       apiKey: config.apiKey || 'not-needed',
     })
     const models = await withRetry(async () => {
-      const list = await client.models.list()
+      const list = await client.models.list({ signal })
       const items = []
       for await (const m of list) {
         items.push(m.id)
         if (items.length >= 5) break
       }
       return items
-    })
+    }, { signal })
     return {
       ok: true,
       provider: 'local',

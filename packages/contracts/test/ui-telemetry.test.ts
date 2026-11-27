@@ -78,6 +78,25 @@ describe('page and tab normalization', () => {
     expect(uiProjectTabFromPage('/runs')).toBeUndefined()
   })
 
+  // Agent Readiness moved from `/technical-aeo` to `/agent-readiness`. The new
+  // route reports as itself, and the old page and tab still validate, because
+  // a dashboard built before the rename keeps sending them.
+  it('recognises the Agent Readiness route and keeps its earlier route valid', () => {
+    expect(uiPageFromRoutePath('/projects/$projectName/agent-readiness')).toBe('/projects/:projectName/agent-readiness')
+    expect(uiPageFromRoutePath('/projects/$projectName/agent-readiness/')).toBe('/projects/:projectName/agent-readiness')
+    expect(uiProjectTabFromPage('/projects/:projectName/agent-readiness')).toBe('agent-readiness')
+    expect(uiPageFromRoutePath('/projects/$projectName/technical-aeo')).toBe('/projects/:projectName/technical-aeo')
+    expect(uiProjectTabFromPage('/projects/:projectName/technical-aeo')).toBe('technical-aeo')
+    for (const [page, tab] of [
+      ['/projects/:projectName/agent-readiness', 'agent-readiness'],
+      ['/projects/:projectName/technical-aeo', 'technical-aeo'],
+    ] as const) {
+      const viewed = { ...ids, event: 'ui.page_viewed', page, tab }
+      expect(uiTelemetryEventSchema.safeParse(viewed).success, JSON.stringify(viewed)).toBe(true)
+    }
+    expect(uiTelemetryEventSchema.safeParse({ ...ids, event: 'ui.page_viewed', page: '/projects/:projectName/agent-readiness', tab: 'site-health' }).success).toBe(false)
+  })
+
   it('tells a route template from a real path', () => {
     expect(isUiApiRouteTemplate('/api/v1/projects/{name}/queries/generate')).toBe(true)
     expect(isUiApiRouteTemplate('/api/v1/runs/{id}/cancel')).toBe(true)

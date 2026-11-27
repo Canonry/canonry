@@ -1,7 +1,7 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { GscCoverageSummaryDto } from '@canonry/canonry-contracts'
 
 vi.mock('recharts', () => {
@@ -91,4 +91,43 @@ test('the coverage donut prints and draws the server shares, never the counts di
   // And the indexed arc leaves exactly the rest of the ring uncovered.
   const indexedArc = arcs.find(circle => circle.getAttribute('stroke-dashoffset') === String(ring * (1 - 0.9996)))
   expect(indexedArc).toBeTruthy()
+})
+
+test('the coverage status tabs take one tab stop and switch lists from the keyboard', async () => {
+  const blocked = inspection('https://example.com/d', 'BLOCKED')
+  renderSection({
+    ...COVERAGE,
+    summary: { ...COVERAGE.summary, deindexed: 1 },
+    deindexed: [{ url: 'https://example.com/e', previousState: 'INDEXING_ALLOWED', currentState: 'BLOCKED', transitionDate: '2026-07-24T00:00:00.000Z' }],
+    reasonGroups: [{ reason: 'Blocked by robots.txt', count: 1, urls: [blocked] }],
+  })
+
+  const indexed = await screen.findByRole('tab', { name: 'Indexed (3)' })
+  const notIndexed = screen.getByRole('tab', { name: 'Not Indexed (1)' })
+  const deindexed = screen.getByRole('tab', { name: 'Deindexed (1)' })
+  expect([indexed, notIndexed, deindexed].map(tab => tab.tabIndex)).toEqual([0, -1, -1])
+  expect(within(screen.getByRole('tabpanel', { name: 'Indexed (3)' })).getByText('https://example.com/a')).toBeTruthy()
+
+  indexed.focus()
+  fireEvent.keyDown(indexed, { key: 'ArrowRight' })
+  expect(document.activeElement).toBe(notIndexed)
+  expect([indexed, notIndexed, deindexed].map(tab => tab.tabIndex)).toEqual([-1, 0, -1])
+  // Open one reason's pages, then leave the tab from the keyboard.
+  fireEvent.click(within(screen.getByRole('tabpanel', { name: 'Not Indexed (1)' })).getByRole('button', { name: 'View Blocked by robots.txt pages' }))
+  expect(screen.getByRole('button', { name: '← Back to reasons' })).toBeTruthy()
+
+  fireEvent.keyDown(notIndexed, { key: 'End' })
+  expect(document.activeElement).toBe(deindexed)
+  expect(within(screen.getByRole('tabpanel', { name: 'Deindexed (1)' })).getByText('https://example.com/e')).toBeTruthy()
+
+  // Coming back shows the reason list again, as a click on the tab does.
+  fireEvent.keyDown(deindexed, { key: 'ArrowLeft' })
+  expect(document.activeElement).toBe(notIndexed)
+  expect(within(screen.getByRole('tabpanel', { name: 'Not Indexed (1)' })).getByRole('button', { name: 'View Blocked by robots.txt pages' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '← Back to reasons' })).toBeNull()
+
+  fireEvent.keyDown(notIndexed, { key: 'Home' })
+  expect(document.activeElement).toBe(indexed)
+  fireEvent.keyDown(indexed, { key: 'ArrowLeft' })
+  expect(document.activeElement).toBe(deindexed)
 })

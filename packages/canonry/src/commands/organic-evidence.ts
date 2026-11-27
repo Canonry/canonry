@@ -40,7 +40,13 @@ function printOrganicEvidence(project: string, data: OrganicEvidenceDto): void {
   }
   if (data.visibility) {
     const v = data.visibility
-    console.log(`Latest AI visibility: ${v.mentionedPairs}/${v.answerPairs} mentioned, ${v.citedPairs}/${v.answerPairs} cited (${Math.floor(v.ageDays)}d old)`)
+    // An older server omits the not-measured count; its cited base was every answer.
+    const notMeasured = (v as { citationNotMeasuredPairs?: number }).citationNotMeasuredPairs ?? 0
+    const citedBase = v.answerPairs - notMeasured
+    const cited = citedBase === 0 && notMeasured > 0
+      ? 'citations not measured (no answer carries sources)'
+      : `${v.citedPairs}/${citedBase} cited${notMeasured > 0 ? ` (${notMeasured} not measured, no sources)` : ''}`
+    console.log(`Latest AI visibility: ${v.mentionedPairs}/${v.answerPairs} mentioned, ${cited} (${Math.floor(v.ageDays)}d old)`)
   }
 
   if (data.findings.length > 0) {

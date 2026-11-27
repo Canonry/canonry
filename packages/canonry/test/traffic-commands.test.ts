@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { parse } from 'yaml'
 import { agentJourneyDetailResponseSchema, agentJourneysResponseSchema } from '@canonry/canonry-contracts'
-import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents, aiUserFetchLikelyFakeHourly } from '@canonry/canonry-db'
+import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents, aiUserFetchLikelyFakeHourly, crawlerEventsHourly } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
@@ -266,6 +266,40 @@ describe('traffic CLI commands', () => {
     const text = (await invokeCli(args)).stdout
     expect(text).toContain('/.env  -  ChatGPT-User (likely_fake)  ChatGPT-User')
     expect(text).toContain('/pricing  -  ChatGPT-User  ChatGPT-User')
+    expect(text).not.toContain('not counted')
+  })
+
+  it('marks a browser agent\'s samples that were not counted in text output, with the request kind in JSON', async () => {
+    const project = db.select().from(projects).all()[0]!
+    const at = (minute: number) => `2026-10-10T12:0${minute}:00.000Z`
+    db.insert(trafficSources).values({ id: 'browser-samples', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at(0), updatedAt: at(0) }).run()
+    const agent = { botId: 'google-agent', operator: 'Google', product: 'Google-Agent', verificationStatus: 'verified', verificationManifest: null, matchedUserAgent: 'Google-Agent', browser: true, trust: 'verified', trustReasons: ['ip-in-published-list'] }
+    const sample = (id: string, minute: number, path: string, aiUserFetch: Record<string, unknown>) => ({
+      id, projectId: project.id, sourceId: 'browser-samples', ts: at(minute), eventType: 'ai_user_fetch' as const, pathNormalized: path, status: 200,
+      userAgent: 'Google-Agent', classifierDetailsJson: { crawler: null, aiReferral: null, aiUserFetch }, createdAt: at(0),
+    })
+    db.insert(rawEventSamples).values([
+      sample('page', 1, '/pricing', { ...agent, requestKind: 'page' }),
+      sample('script', 2, '/_next/static/chunks/main.js', { ...agent, requestKind: 'resource' }),
+      sample('form-post', 3, '/contact', { ...agent, requestKind: 'action' }),
+      // A probing client's file request: counted as likely fake, so not marked.
+      sample('probe', 4, '/assets/app.js', { ...agent, verificationStatus: 'claimed_unverified', trust: 'likely_fake', trustReasons: ['scanner-burst', 'ip-outside-published-list'], requestKind: 'resource' }),
+      // Stored before samples recorded the request kind.
+      sample('older', 5, '/menu', agent),
+    ]).run()
+    const args = ['traffic', 'samples', 'test-proj', '--kind', 'ai-user-fetch', '--source', 'browser-samples', '--since', '2026-10-10T00:00:00Z', '--until', '2026-10-11T00:00:00Z']
+
+    const json = parseJsonOutput((await invokeCli([...args, '--format', 'json'])).stdout) as { samples: Array<{ id: string; classifier: { aiUserFetch: { browser?: boolean | null; requestKind?: string | null } | null } }> }
+    expect(json.samples.map(s => [s.id, s.classifier.aiUserFetch?.browser, s.classifier.aiUserFetch?.requestKind ?? null])).toEqual([
+      ['older', true, null], ['probe', true, 'resource'], ['form-post', true, 'action'], ['script', true, 'resource'], ['page', true, 'page'],
+    ])
+    const text = (await invokeCli(args)).stdout
+    expect(text).toContain('Browser agents count only page loads.')
+    expect(text).toContain('/pricing  -  Google-Agent (verified)  Google-Agent')
+    expect(text).toContain('/_next/static/chunks/main.js  -  Google-Agent (verified; resource, not counted)  Google-Agent')
+    expect(text).toContain('/contact  -  Google-Agent (verified; action, not counted)  Google-Agent')
+    expect(text).toContain('/assets/app.js  -  Google-Agent (likely_fake)  Google-Agent')
+    expect(text).toContain('/menu  -  Google-Agent (verified)  Google-Agent')
   })
 
   it.each([['--kind', 'visitor'], ['--limit', '501'], ['--since-minutes', '0'], ['--since', 'invalid']])('rejects invalid samples option %s %s as a user error', async (flag, value) => {
@@ -288,17 +322,28 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/--gcp-project/)
   })
 
-  it('rejects traffic connect cloud-run without --service-account-key', async () => {
-    const result = await invokeCli([
-      'traffic',
-      'connect',
-      'cloud-run',
-      'test-proj',
-      '--gcp-project',
-      'openclaw-nyc',
-    ])
-    expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toMatch(/--service-account-key/)
+  it('connects Cloud Run without a key file when the server has a key for the requested target', async () => {
+    const args = [
+      'traffic', 'connect', 'cloud-run', 'test-proj', '--gcp-project', 'hosting-project',
+      '--service', 'web', '--location', 'us-east1', '--display-name', 'Website logs', '--start-from-now', '--format', 'json',
+    ]
+    const missing = await invokeCli(args)
+    expect(missing.exitCode).toBe(1)
+    const failure = parseJsonOutput(missing.stderr) as { error: { details: { dashboardPath: string } } }
+    expect(failure).toMatchObject({
+      error: { code: 'VALIDATION_ERROR', details: { reason: 'cloud-run-credential-required' } },
+    })
+    const handoff = new URL(failure.error.details.dashboardPath, 'https://dashboard.example')
+    expect(JSON.parse(handoff.searchParams.get('connectCloudRun')!)).toMatchObject({ displayName: 'Website logs', startFromNow: true })
+
+    const source = await client.trafficConnectCloudRun('test-proj', {
+      gcpProjectId: 'hosting-project', serviceName: 'web', location: 'us-east1',
+      keyJson: JSON.stringify({ client_email: 'logging@example.test', private_key: 'host-fixture-key' }),
+    })
+    const connected = await invokeCli(args)
+    expect(connected.exitCode, connected.stderr).toBeUndefined()
+    expect(parseJsonOutput(connected.stdout)).toMatchObject({ id: source.id, displayName: 'Website logs', status: 'connected' })
+    expect((await client.trafficListSources('test-proj')).sources).toMatchObject([{ id: source.id, displayName: 'Website logs' }])
   })
 
   it('reports a clear error when the key file cannot be read', async () => {
@@ -449,9 +494,10 @@ describe('traffic CLI commands', () => {
 
     // Credentials persisted to ~/.canonry/config.yaml (CANONRY_CONFIG_DIR points at tmpDir)
     const yaml = parse(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf-8')) as {
-      cloudRun?: { connections?: Array<{ projectName: string; clientEmail: string }> }
+      cloudRun?: { connections?: Array<{ projectName: string; projectId?: string; clientEmail: string }> }
     }
     expect(yaml.cloudRun?.connections?.[0]?.projectName).toBe('test-proj')
+    expect(yaml.cloudRun?.connections?.[0]?.projectId).toBe(rows[0].projectId)
     expect(yaml.cloudRun?.connections?.[0]?.clientEmail).toBe('sa@openclaw-nyc.iam.gserviceaccount.com')
   })
 
@@ -559,6 +605,67 @@ describe('traffic CLI commands', () => {
     ])
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toMatch(/failed to read --token-file/i)
+  })
+
+  /**
+   * A token file appended to with `>>` holds two tokens. Sent on, the header
+   * built from it made fetch throw an error quoting both, which the CLI
+   * printed. The CLI now refuses it first, naming the problem, not the value.
+   */
+  it('refuses a token file holding two lines without printing either token', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vercel-token-'))
+    try {
+      const tokenFile = path.join(dir, 'token')
+      fs.writeFileSync(tokenFile, 'vcp_first_secret_token\nvcp_second_secret_token\n', { mode: 0o600 })
+      for (const format of [[], ['--format', 'json']]) {
+        const result = await invokeCli([
+          'traffic', 'connect', 'vercel', 'test-proj',
+          '--project-id', 'prj_abc',
+          '--team-id', 'team_xyz',
+          '--token-file', tokenFile,
+          ...format,
+        ])
+        expect(result.exitCode).not.toBe(0)
+        const output = `${result.stdout}${result.stderr}`
+        expect(output).toMatch(/Vercel token in --token-file has 2 lines/)
+        expect(output).toMatch(/not >> \(append\)/)
+        expect(output).not.toContain('secret_token')
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses an inline token with a space without printing it', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--team-id', 'team_xyz',
+      '--token', 'vcp_first_secret_token vcp_second_secret_token',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/Vercel token contains a space/)
+    expect(`${result.stdout}${result.stderr}`).not.toContain('secret_token')
+  })
+
+  it('refuses a WordPress application password file holding two lines', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wp-password-'))
+    try {
+      const passwordFile = path.join(dir, 'password')
+      fs.writeFileSync(passwordFile, 'abcd efgh ijkl mnop\nqrst uvwx yzab cdef\n', { mode: 0o600 })
+      const result = await invokeCli([
+        'traffic', 'connect', 'wordpress', 'test-proj',
+        '--url', 'https://example.com',
+        '--username', 'bot',
+        '--app-password-file', passwordFile,
+      ])
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stderr).toMatch(/WordPress application password in --app-password-file has 2 lines/)
+      expect(`${result.stdout}${result.stderr}`).not.toContain('abcd efgh')
+      expect(`${result.stdout}${result.stderr}`).not.toContain('qrst')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('rejects traffic connect vercel with an invalid --environment', async () => {
@@ -669,8 +776,52 @@ describe('traffic CLI commands', () => {
     expect(body.totals.aiReferralHits).toBe(0)
     expect(body.series.granularity).toBe('hour')
     expect(body.series.points.length).toBeGreaterThan(0)
-    expect(body.eventRows).toEqual({ total: 0, returned: 0, truncated: false })
+    expect(body.eventRows).toEqual({ total: 0, returned: 0, truncated: false, nextCursor: null })
     expect(body.events.length).toBe(0)
+  })
+
+  it('filters, groups and pages events through --path, --agent, --group-by and --cursor', async () => {
+    const project = db.select().from(projects).all()[0]!
+    const at = '2026-10-01T00:00:00.000Z'
+    db.insert(trafficSources).values({ id: 'events-source', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at, updatedAt: at }).run()
+    const row = (hour: number, botId: string, pathNormalized: string, hits: number) => ({
+      projectId: project.id, sourceId: 'events-source', tsHour: `2026-10-01T0${hour}:00:00.000Z`, botId, operator: 'Op',
+      verificationStatus: 'verified', pathNormalized, status: 200, hits, createdAt: at, updatedAt: at,
+    })
+    db.insert(crawlerEventsHourly).values([
+      row(1, 'openai-searchbot', '/faq', 2),
+      row(2, 'bingbot', '/faq', 5),
+      row(3, 'bingbot', '/faq', 1),
+      row(3, 'gptbot', '/other', 9),
+    ]).run()
+    const window = ['--since', '2026-10-01T00:00:00Z', '--until', '2026-10-02T00:00:00Z']
+
+    const grouped = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--path', '/faq', '--group-by', 'agent', '--format', 'json'])
+    expect(grouped.exitCode).toBeUndefined()
+    const groupedBody = parseJsonOutput(grouped.stdout) as { filters: { path: string }; groups: { entries: Array<{ agent: string; hits: number }> } }
+    expect(groupedBody.filters.path).toBe('/faq')
+    expect(groupedBody.groups.entries.map((group) => [group.agent, group.hits])).toEqual([['bingbot', 6], ['openai-searchbot', 2]])
+
+    const agent = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--agent', 'gptbot', '--format', 'json'])
+    expect((parseJsonOutput(agent.stdout) as { totals: { crawlerHits: number } }).totals.crawlerHits).toBe(9)
+
+    const first = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--limit', '3', '--format', 'json'])
+    const firstBody = parseJsonOutput(first.stdout) as { events: Array<{ tsHour: string }>; eventRows: { nextCursor: string | null } }
+    expect(firstBody.events).toHaveLength(3)
+    expect(firstBody.eventRows.nextCursor).toEqual(expect.any(String))
+    // A cursor page sends no window of its own: the cursor carries the first page's.
+    const second = await invokeCli(['traffic', 'events', 'test-proj', '--since-minutes', '60', '--since', '2026-09-01T00:00:00Z', '--limit', '3', '--cursor', firstBody.eventRows.nextCursor!, '--format', 'json'])
+    expect(second.exitCode).toBeUndefined()
+    const secondBody = parseJsonOutput(second.stdout) as { events: Array<{ tsHour: string }>; eventRows: { nextCursor: string | null } }
+    expect(secondBody.events.map((event) => event.tsHour)).toEqual(['2026-10-01T01:00:00.000Z'])
+    expect(secondBody.eventRows.nextCursor).toBeNull()
+
+    const text = await invokeCli(['traffic', 'events', 'test-proj', ...window, '--limit', '1'])
+    expect(text.stdout).toMatch(/Showing 1 of 4 rows\. Next page: --cursor \S+/)
+
+    const invalid = await invokeCli(['traffic', 'events', 'test-proj', '--group-by', 'bot'])
+    expect(invalid.exitCode).not.toBe(0)
+    expect(invalid.stderr).toMatch(/--group-by must be/)
   })
 
   it('rejects an invalid --kind value', async () => {
@@ -679,6 +830,21 @@ describe('traffic CLI commands', () => {
     ])
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toMatch(/--kind must be/i)
+  })
+
+  it('accepts a comma-separated --kind list and rejects one with an unknown member', async () => {
+    const listed = await invokeCli([
+      'traffic', 'events', 'test-proj', '--kind', 'ai-user-fetch,ai-referral', '--format', 'json',
+    ])
+    expect(listed.exitCode).toBeUndefined()
+    const body = parseJsonOutput(listed.stdout) as { totals: { crawlerHits: number }; events: unknown[] }
+    expect(body.totals.crawlerHits).toBe(0)
+
+    const bad = await invokeCli([
+      'traffic', 'events', 'test-proj', '--kind', 'ai-referral,bogus',
+    ])
+    expect(bad.exitCode).not.toBe(0)
+    expect(bad.stderr).toMatch(/--kind must be/i)
   })
 
   it('rejects an invalid --granularity value', async () => {

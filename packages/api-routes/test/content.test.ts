@@ -546,6 +546,49 @@ describe('content routes', () => {
 
       expect(mentionOnly).toBeUndefined()
     })
+
+    it('reads the miss rate over answers whose sources were checked, never an engine without sources', async () => {
+      const projectId = crypto.randomUUID()
+      const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString()
+      db.insert(projects).values({
+        id: projectId, name: 'local-mix', displayName: 'Local Mix', canonicalDomain: 'example.com',
+        country: 'US', language: 'en', createdAt: at(600), updatedAt: at(600),
+      }).run()
+      db.insert(competitors).values({ id: crypto.randomUUID(), projectId, domain: 'competitor-a.com', createdAt: at(600) }).run()
+      const queryId = crypto.randomUUID()
+      db.insert(queries).values({ id: queryId, projectId, query: 'best crm for saas', createdAt: at(600) }).run()
+      const grounding = (uri: string) => JSON.stringify({ groundingSources: [{ uri, title: '' }] })
+      const answer = (runId: string, provider: string, citationState: 'cited' | 'not-cited' | 'not-measured', retrievalStatus: 'used' | 'not-applicable', rawResponse: string | null) => ({
+        id: crypto.randomUUID(), runId, queryId, provider, citationState, retrievalStatus, rawResponse,
+        citedDomains: [] as string[], competitorOverlap: [] as string[], createdAt: at(1),
+      })
+      const sweep = (minutesAgo: number, trigger: 'manual' | 'probe' = 'manual') => {
+        const id = crypto.randomUUID()
+        db.insert(runs).values({ id, projectId, kind: 'answer-visibility', status: 'completed', trigger, createdAt: at(minutesAgo) }).run()
+        return id
+      }
+      const older = sweep(120)
+      db.insert(querySnapshots).values([
+        answer(older, 'gemini', 'cited', 'used', grounding('https://example.com/crm')),
+        // Stored before `not-measured` existed; its retrieval status says it had no sources.
+        answer(older, 'local', 'not-cited', 'not-applicable', null),
+      ]).run()
+      const latest = sweep(60)
+      db.insert(querySnapshots).values([
+        answer(latest, 'gemini', 'not-cited', 'used', grounding('https://competitor-a.com/crm')),
+        answer(latest, 'local', 'not-measured', 'not-applicable', null),
+      ]).run()
+      // A spot check that cites must not move the rate.
+      db.insert(querySnapshots).values(answer(sweep(1, 'probe'), 'gemini', 'cited', 'used', grounding('https://example.com/crm'))).run()
+
+      const res = await app.inject({ method: 'GET', url: '/projects/local-mix/content/gaps' })
+      expect(res.statusCode).toBe(200)
+      const gap = JSON.parse(res.payload).gaps.find((g: { query: string }) => g.query === 'best crm for saas')
+      // Gemini missed in 1 of its 2 checked answers. Counting Local's two
+      // answers as misses would make it 3 of 4.
+      expect(gap.missRate).toBe(0.5)
+      expect(gap.competitorDomains).toEqual(['competitor-a.com'])
+    })
   })
 
   describe('regression: filters runs by kind = answer-visibility', () => {

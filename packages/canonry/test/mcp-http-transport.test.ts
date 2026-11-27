@@ -3,11 +3,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClient } from '@canonry/canonry-db'
 import { createUserSession, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ApiClient } from '../src/client.js'
+import { ApiClient } from '../src/client.js'
+import * as clientModule from '../src/client.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
+import { SCHEDULE_CLI_COMMANDS } from '../src/cli-commands/schedule.js'
 import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
 import { handoffTarget } from './oauth-handoff.js'
@@ -134,6 +138,19 @@ interface Built {
   cleanup: () => Promise<void>
 }
 
+/** Keep both real authentication hops on this fixture's ephemeral listener. */
+function routeMcpClientToListener(built: Built): void {
+  const realFetch = globalThis.fetch
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const original = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (original.startsWith('http://127.0.0.1:4100/')) {
+      const target = original.replace('http://127.0.0.1:4100', built.origin)
+      return realFetch(input instanceof Request ? new Request(target, input) : target, init)
+    }
+    return realFetch(input, init)
+  })
+}
+
 async function buildServer(researchAllowViewers = false): Promise<Built> {
   const tmpDir = path.join(os.tmpdir(), `canonry-mcp-http-${crypto.randomUUID()}`)
   fs.mkdirSync(tmpDir, { recursive: true })
@@ -161,6 +178,7 @@ async function buildServer(researchAllowViewers = false): Promise<Built> {
     database: dbPath,
     apiKey: wildcardKey,
     publicUrl: 'https://instance.example.com',
+    google: { clientId: 'fixture-google-client', clientSecret: 'fixture-google-secret' },
     providers: {},
     research: { allowViewers: researchAllowViewers, viewerDailyRunLimit: 20 },
   }
@@ -265,17 +283,7 @@ describe('MCP over OAuth', () => {
   })
 
   it('keeps Aero notes and provider details private for an admin read-only grant', async () => {
-    // The fixture binds a random port; route the MCP client's configured
-    // loopback URL back to that listener. Both authentication hops stay real.
-    const realFetch = globalThis.fetch
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-      const original = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (original.startsWith('http://127.0.0.1:4100/')) {
-        const target = original.replace('http://127.0.0.1:4100', built.origin)
-        return realFetch(input instanceof Request ? new Request(target, input) : target, init)
-      }
-      return realFetch(input, init)
-    })
+    routeMcpClientToListener(built)
     const rootHeaders = { authorization: `Bearer ${built.wildcardKey}` }
     const project = await request(built, {
       method: 'PUT', url: '/api/v1/projects/acme', headers: rootHeaders,
@@ -600,6 +608,133 @@ describe('MCP over Streamable HTTP', () => {
     expect(res.statusCode).toBeLessThan(400)
   })
 
+  it('connects Search Console and GA4 through specialist MCP, browser consent and property selection', async () => {
+    const project = 'google-project'
+    const siteUrl = 'sc-domain:google.example'
+    const propertyId = '321'
+    const realFetch = globalThis.fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      if (url.origin === built.origin) return realFetch(input, init)
+      if (url.origin === 'http://127.0.0.1:4100') {
+        const target = built.origin + url.pathname + url.search
+        return realFetch(input instanceof Request ? new Request(target, input) : target, init)
+      }
+      if (url.href === 'https://oauth2.googleapis.com/token') {
+        return Promise.resolve(Response.json({ access_token: 'fixture-access', refresh_token: 'fixture-refresh', expires_in: 3600 }))
+      }
+      if (url.href === 'https://www.googleapis.com/webmasters/v3/sites') {
+        return Promise.resolve(Response.json({ siteEntry: [{ siteUrl, permissionLevel: 'siteOwner' }] }))
+      }
+      if (url.origin === 'https://analyticsadmin.googleapis.com' && url.pathname === '/v1beta/accountSummaries') {
+        return Promise.resolve(Response.json({ accountSummaries: [{ displayName: 'Test account', propertySummaries: [{ displayName: 'Test property', property: 'properties/321' }] }] }))
+      }
+      if (url.href === 'https://analyticsdata.googleapis.com/v1beta/properties/321:runReport') {
+        return Promise.resolve(Response.json({ rows: [] }))
+      }
+      throw new Error(`Unexpected provider request: ${url.origin}${url.pathname}`)
+    })
+    const created = await request(built, { method: 'PUT', url: `/api/v1/projects/${project}`, headers: { authorization: `Bearer ${built.wildcardKey}` }, payload: { displayName: 'Google', canonicalDomain: 'google.example', country: 'US', language: 'en' } })
+    expect(created.statusCode).toBeLessThan(300)
+    for (const tier of ['gsc', 'ga'] as const) {
+      const mcp = new Client({ name: 'connection-test', version: '1' })
+      const endpoint = new URL(`${built.origin}/api/v1/mcp/x/${tier}`)
+      await mcp.connect(new StreamableHTTPClientTransport(endpoint, { requestInit: { headers: { authorization: `Bearer ${built.wildcardKey}` } } }))
+      try {
+        const startTool = tier === 'gsc' ? 'canonry_gsc_connect' : 'canonry_ga_oauth_start'
+        const invalid = tier === 'gsc'
+          ? { name: startTool, arguments: { project, publicUrl: 'https://elsewhere.example' } }
+          : { name: 'canonry_ga_connect', arguments: { project, propertyId, keyJson: '{}' } }
+        expect((await mcp.callTool(invalid)).structuredContent).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+        const started = await mcp.callTool({ name: startTool, arguments: { project } })
+        expect(started.structuredContent).toMatchObject({ redirectUri: 'https://instance.example.com/api/v1/google/callback', authUrl: expect.any(String) })
+        const authUrl = new URL(String(started.structuredContent?.authUrl))
+        expect(authUrl.origin).toBe('https://accounts.google.com')
+        expect(authUrl.searchParams.get('scope')).toContain(tier === 'gsc' ? '/auth/webmasters' : '/auth/analytics.readonly')
+        const callback = new URL(String(started.structuredContent?.redirectUri))
+        callback.searchParams.set('state', authUrl.searchParams.get('state')!)
+        callback.searchParams.set('code', 'fixture-code')
+        expect((await request(built, { method: 'GET', url: callback.pathname + callback.search })).statusCode).toBe(200)
+        if (tier === 'gsc') {
+          const properties = await mcp.callTool({ name: 'canonry_gsc_properties', arguments: { project } })
+          expect(properties.structuredContent).toEqual({ sites: [{ siteUrl, permissionLevel: 'siteOwner' }] })
+          const selected = await mcp.callTool({ name: 'canonry_gsc_set_property', arguments: { project, siteUrl } })
+          expect(selected.structuredContent).toMatchObject({ connectionType: 'gsc', propertyId: siteUrl })
+          const status = await mcp.callTool({ name: 'canonry_google_connections_list', arguments: { project } })
+          expect(status.structuredContent).toMatchObject({ items: [expect.objectContaining({ propertyId: siteUrl })] })
+        } else {
+          const properties = await mcp.callTool({ name: 'canonry_ga_properties', arguments: { project } })
+          expect(properties.structuredContent).toEqual({ properties: [{ propertyId, displayName: 'Test property', accountName: 'Test account' }] })
+          const selected = await mcp.callTool({ name: 'canonry_ga_connect', arguments: { project, propertyId } })
+          expect(selected.structuredContent).toEqual({ connected: true, authMethod: 'oauth', propertyId })
+          const status = await mcp.callTool({ name: 'canonry_ga_status', arguments: { project } })
+          expect(status.structuredContent).toMatchObject({ connected: true, authMethod: 'oauth', propertyId })
+        }
+      } finally {
+        await mcp.close()
+      }
+    }
+    // Both projects use the same domain-wide Google login. The sibling's own
+    // wildcard key must not replace either saved property or enumerate the login.
+    const root = new ApiClient(built.origin, built.wildcardKey, { skipProbe: true })
+    const ownerKey = await root.createApiKey({ name: 'scoped-owner', projectId: created.json<{ id: string }>().id, scopes: ['*'] })
+    const owner = new ApiClient(built.origin, ownerKey.key, { skipProbe: true })
+    const writerKey = await root.createApiKey({ name: 'instance-writer', scopes: ['write'] })
+    const writer = new ApiClient(built.origin, writerKey.key, { skipProbe: true })
+    await expect(owner.googleConnect(project, { type: 'ga4', propertyId: '999' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(writer.googleConnect(project, { type: 'gsc', propertyId: 'sc-domain:other.example' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const pending = await writer.googleConnect(project, { type: 'ga4' })
+    const sibling = await root.putProject('google-sibling', { displayName: 'Sibling', canonicalDomain: 'google.example', country: 'US', language: 'en' })
+    const pendingState = new URL(pending.authUrl).searchParams.get('state')!
+    const callback = new URL(pending.redirectUri)
+    callback.search = new URLSearchParams({ state: pendingState, code: 'fixture-code' }).toString()
+    expect((await request(built, { method: 'GET', url: callback.pathname + callback.search })).statusCode).toBe(403)
+    await expect(writer.googleConnect(project, { type: 'ga4' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(owner.googleDisconnect(project, 'gsc')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(writer.gaDisconnect(project)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const siblingKey = await root.createApiKey({ name: 'sibling-admin', scopes: ['*'], projectId: sibling.id })
+    const scoped = new ApiClient(built.origin, siblingKey.key, { skipProbe: true })
+    await expect(scoped.googleSetProperty(sibling.name, 'gsc', 'sc-domain:sibling.example')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(scoped.gaConnect(sibling.name, { propertyId: '123' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(scoped.googleConnect(sibling.name, { type: 'gsc' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const reader = new ApiClient(built.origin, built.readOnlyKey, { skipProbe: true })
+    await expect(reader.googleProperties(project)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(reader.gaProperties(project)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(await root.googleConnections(project)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ connectionType: 'gsc', propertyId: siteUrl }),
+      expect.objectContaining({ connectionType: 'ga4', propertyId }),
+    ]))
+  })
+
+  it('previews schedule timing over authenticated MCP and CLI without enabling recurrence', async () => {
+    routeMcpClientToListener(built)
+    const created = await request(built, { method: 'PUT', url: '/api/v1/projects/preview-project', headers: { authorization: `Bearer ${built.wildcardKey}` }, payload: { displayName: 'Preview', canonicalDomain: 'preview.example', country: 'US', language: 'en' } })
+    expect(created.statusCode).toBeLessThan(300)
+    const before = await request(built, { method: 'GET', url: '/api/v1/projects/preview-project/schedules', headers: { authorization: `Bearer ${built.readOnlyKey}` } })
+    expect(before.statusCode).toBe(200)
+    const timing = { preset: 'daily@9', timezone: 'America/New_York' }
+    const api = await request(built, { method: 'POST', url: '/api/v1/projects/preview-project/schedule/preview', headers: { authorization: `Bearer ${built.readOnlyKey}` }, payload: timing })
+    expect(api.statusCode).toBe(200)
+    const endpoint = '/api/v1/mcp/x/setup'
+    const initialized = await request(built, { method: 'POST', url: endpoint, headers: { authorization: `Bearer ${built.readOnlyKey}`, accept: MCP_ACCEPT, 'content-type': 'application/json' }, payload: INIT })
+    const mcp = await request(built, { method: 'POST', url: endpoint, headers: { authorization: `Bearer ${built.readOnlyKey}`, accept: MCP_ACCEPT, 'mcp-session-id': initialized.headers['mcp-session-id']! }, payload: { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'canonry_schedule_preview', arguments: { project: 'preview-project', timing } } } })
+    expect(mcp.statusCode).toBe(200)
+    const frame = mcp.body.split('\n').find(line => line.startsWith('data:'))
+    const result = JSON.parse((frame ?? mcp.body).replace(/^data:\s*/, '')) as { result: { isError?: boolean; content: Array<{ text: string }> } }
+    expect(result.result.isError, JSON.stringify(result.result)).not.toBe(true)
+    expect(JSON.parse(result.result.content[0]!.text)).toEqual(api.json())
+    const client = new ApiClient(built.origin, built.readOnlyKey, { skipProbe: true })
+    vi.spyOn(clientModule, 'createApiClient').mockReturnValue(client)
+    const output: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(value => { output.push(String(value)) })
+    await dispatchRegisteredCommand(['schedule', 'preview', 'preview-project', '--preset', timing.preset, '--timezone', timing.timezone], 'json', SCHEDULE_CLI_COMMANDS)
+    log.mockRestore()
+    expect(output.map(line => JSON.parse(line))).toEqual([api.json()])
+    const stored = await request(built, { method: 'GET', url: '/api/v1/projects/preview-project/schedules', headers: { authorization: `Bearer ${built.readOnlyKey}` } })
+    expect(stored.statusCode).toBe(200)
+    expect(stored.json()).toEqual(before.json())
+  })
+
   it('automatically narrows a logs.read-only credential to read tools', async () => {
     const created = await request(built, {
       method: 'POST', url: '/api/v1/keys', headers: { authorization: `Bearer ${built.wildcardKey}` },
@@ -729,7 +864,7 @@ describe('MCP over Streamable HTTP', () => {
       expect(typeof tool.annotations.openWorldHint, tool.name).toBe('boolean')
     }
     const names = tools.map(tool => tool.name)
-    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_load_toolkit']) {
+    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_gsc_properties', 'canonry_gsc_connect', 'canonry_gsc_set_property', 'canonry_ga_oauth_start', 'canonry_ga_connect', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_provider_disconnect', 'canonry_provider_test', 'canonry_load_toolkit']) {
       expect(names).not.toContain(name)
       expect((await rpc('tools/call', { name, arguments: {} })).error).toMatchObject({ code: -32602 })
     }

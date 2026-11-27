@@ -109,10 +109,24 @@ function retryAfterSeconds(header: string | string[] | undefined, now = Date.now
   return Number.isFinite(seconds) && seconds >= 0 ? Math.min(Math.ceil(seconds), 86_400) : null
 }
 
+/**
+ * The User-Agent a webhook delivery sends: `Canonry/<version>` when the host
+ * passes its package version, otherwise plain `Canonry` (never a made-up one).
+ */
+export function webhookUserAgent(version?: string | null): string {
+  return version ? `Canonry/${version}` : 'Canonry'
+}
+
+export interface WebhookDeliveryOptions {
+  /** Defaults to `webhookUserAgent()`; hosts pass `webhookUserAgent(<version>)`. */
+  userAgent?: string
+}
+
 export async function deliverWebhook(
   target: SafeWebhookTarget,
   payload: unknown,
   webhookSecret: string | null,
+  options: WebhookDeliveryOptions = {},
 ): Promise<WebhookDeliveryResult> {
   const body = JSON.stringify(payload)
   const isHttps = target.url.protocol === 'https:'
@@ -122,7 +136,7 @@ export async function deliverWebhook(
     'Content-Length': String(Buffer.byteLength(body)),
     'Content-Type': 'application/json',
     'Host': target.url.host,
-    'User-Agent': 'Canonry/0.1.0',
+    'User-Agent': options.userAgent ?? webhookUserAgent(),
   }
 
   if (webhookSecret) {

@@ -199,7 +199,7 @@ function printDetail(project: string, detail: ResearchRunDetailDto, format?: str
   if (detail.queries.length === 0) return
   console.log('\n  QUERY                                                       STATUS      CITED  MENTIONED')
   for (const query of detail.queries) {
-    // `n/m`: the answer service does not tie its sources to the answer, so citation was not measured.
+    // `n/m`: citation was not measured. The engine returns no sources (Local), or the answer service does not tie its sources to the answer.
     const cited = query.citationMeasured === false ? 'n/m' : query.citationState === CitationStates.cited ? 'yes' : query.citationState ? 'no' : '–'
     const mentioned = query.answerMentioned === null ? '–' : query.answerMentioned ? 'yes' : 'no'
     console.log(`  ${query.query.slice(0, 58).padEnd(58)}  ${query.status.padEnd(10)}  ${cited.padEnd(5)}  ${mentioned}`)

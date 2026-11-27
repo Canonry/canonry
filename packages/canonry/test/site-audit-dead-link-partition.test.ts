@@ -13,7 +13,7 @@ import {
   siteCrawlSnapshots,
 } from '@canonry/canonry-db'
 
-vi.mock('@canonry/aeo-audit', () => ({ runSiteCrawl: vi.fn() }))
+vi.mock('@canonry/agent-readiness', () => ({ runSiteCrawl: vi.fn() }))
 vi.mock('@canonry/canonry-api-routes', () => ({
   resolvePublicHttpTarget: vi.fn(),
   resolveWebhookTarget: vi.fn().mockResolvedValue({ ok: true }),
@@ -25,7 +25,7 @@ vi.mock('../src/site-audit-root.js', () => ({
   }),
 }))
 
-import { runSiteCrawl } from '@canonry/aeo-audit'
+import { runSiteCrawl } from '@canonry/agent-readiness'
 import { executeSiteAudit } from '../src/execute-site-audit.js'
 
 const NOW = '2026-08-16T00:00:00.000Z'

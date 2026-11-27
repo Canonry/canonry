@@ -70,9 +70,9 @@ export function TaskCenter() {
             {tasks.map((task) => (
               <li key={task.runId} className="task-center-item">
                 <div className="min-w-0">
-                  <p className="truncate text-copy-13-strong text-strong">
+                  <Link to="/runs" search={{ runId: task.runId }} className="block truncate text-copy-13-strong text-link underline" aria-label={`View ${formatTrackedRunKind(task.kind)} for ${task.projectLabel ?? task.projectId}`}>
                     {formatTrackedRunKind(task.kind)}
-                  </p>
+                  </Link>
                   <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {task.projectLabel ?? task.projectId}
                   </p>

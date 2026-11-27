@@ -5,9 +5,10 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
+import { apiKeys, auditLog, createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
 import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
+import { hashApiKey } from '../src/auth.js'
 
 interface Harness {
   app: ReturnType<typeof Fastify>
@@ -19,7 +20,7 @@ interface Harness {
   otherTrafficSourceId: string
 }
 
-async function buildHarness(onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void): Promise<Harness> {
+async function buildHarness(onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void, authenticate = false): Promise<Harness> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'schedules-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
@@ -101,7 +102,7 @@ async function buildHarness(onScheduleUpdated?: (action: 'upsert' | 'delete', pr
   }).run()
 
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true, onScheduleUpdated })
+  app.register(apiRoutes, { db, skipAuth: !authenticate, onScheduleUpdated })
   await app.ready()
 
   return { app, db, tmpDir, projectId, trafficSourceId, otherProjectId, otherTrafficSourceId }
@@ -483,6 +484,58 @@ describe('schedule per-kind invariants', () => {
   })
 })
 
+describe('site-audit schedule checks', () => {
+  let harness: Harness
+  beforeEach(async () => { harness = await buildHarness() })
+  afterEach(async () => { await teardown(harness) })
+
+  const put = (payload: Record<string, unknown>) => harness.app.inject({ method: 'PUT', url: '/api/v1/projects/site-a/schedule', payload })
+  const get = async () => JSON.parse((await harness.app.inject({ method: 'GET', url: '/api/v1/projects/site-a/schedule?kind=site-audit' })).payload)
+  const weekly = { kind: 'site-audit', recurrence: { everyDays: 7, startDate: '2030-01-03', time: '07:00' } }
+
+  it('reads the defaults for a scan schedule saved without checks, and null for other kinds', async () => {
+    expect((await put(weekly)).statusCode).toBe(201)
+    expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    const refresh = await put({ kind: 'data-refresh', preset: 'daily' })
+    expect(JSON.parse(refresh.payload).siteAudit).toBeNull()
+  })
+
+  it('stores deep checks, fills unset ones with defaults, and keeps them through a move, a pause and a resume', async () => {
+    const created = await put({ ...weekly, siteAudit: { checkDeadLinks: true, includeGeo: true } })
+    expect(created.statusCode).toBe(201)
+    const deep = { checkDeadLinks: true, includeGeo: true, includeAgentSkills: true }
+    expect(JSON.parse(created.payload).siteAudit).toEqual(deep)
+    // Clients that only move, pause or resume the schedule send no checks.
+    expect((await put({ ...weekly, recurrence: { everyDays: 7, startDate: '2030-01-04', time: '08:00' } })).statusCode).toBe(200)
+    expect((await put({ ...weekly, enabled: false })).statusCode).toBe(200)
+    expect((await put({ ...weekly, enabled: true })).statusCode).toBe(200)
+    expect((await get()).siteAudit).toEqual(deep)
+    const row = harness.db.select().from(schedules).where(and(eq(schedules.projectId, harness.projectId), eq(schedules.kind, 'site-audit'))).get()
+    expect(row?.siteAuditChecks).toEqual(deep)
+  })
+
+  it('replaces the whole set when checks are sent, and resets to the defaults on null', async () => {
+    await put({ ...weekly, siteAudit: { checkDeadLinks: true, includeGeo: true, includeAgentSkills: false } })
+    await put({ ...weekly, siteAudit: { includeGeo: true } })
+    expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: true, includeAgentSkills: true })
+    await put({ ...weekly, siteAudit: null })
+    expect((await get()).siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    // The audit log records the checks each save ends up with, so the reset shows.
+    const logged = harness.db.select().from(auditLog).where(eq(auditLog.entityType, 'schedule')).all()
+      .map((row) => (typeof row.diff === 'string' ? JSON.parse(row.diff) : row.diff) as { siteAudit?: unknown })
+    expect(logged.at(-1)?.siteAudit).toEqual({ checkDeadLinks: false, includeGeo: false, includeAgentSkills: true })
+    expect(logged[0]?.siteAudit).toEqual({ checkDeadLinks: true, includeGeo: true, includeAgentSkills: false })
+  })
+
+  it('rejects checks on another kind, and unknown check names', async () => {
+    const wrongKind = await put({ kind: 'data-refresh', preset: 'daily', siteAudit: { checkDeadLinks: true } })
+    expect(wrongKind.statusCode).toBe(400)
+    expect(JSON.parse(wrongKind.payload).error.message).toMatch(/siteAudit.*only valid.*site-audit/)
+    const unknown = await put({ ...weekly, siteAudit: { checkEverything: true } })
+    expect(unknown.statusCode).toBe(400)
+  })
+})
+
 describe('apply preserves traffic-sync schedules', () => {
   let harness: Harness
   beforeEach(async () => { harness = await buildHarness() })
@@ -591,6 +644,34 @@ describe('native calendar schedule persistence', () => {
   })
   afterEach(async () => { await teardown(harness); vi.useRealTimers() })
 
+  it.each([
+    { timing: { preset: 'daily@9', timezone: 'America/New_York' }, cronExpr: '0 9 * * *', nextRunAt: '2026-09-10T13:00:00.000Z' },
+    { timing: { cron: '0 9 * * 1-5', timezone: 'America/New_York' }, cronExpr: '0 9 * * 1-5', nextRunAt: '2026-09-10T13:00:00.000Z' },
+    { timing: { recurrence, timezone: 'America/New_York' }, cronExpr: '', nextRunAt: '2026-09-23T04:00:00.000Z' },
+  ])('previews exact timing without saving, then persists the same next occurrence: $cronExpr', async ({ timing, cronExpr, nextRunAt }) => {
+    const preview = await harness.app.inject({ method: 'POST', url: '/api/v1/projects/site-a/schedule/preview', payload: timing })
+    expect(preview.statusCode, preview.body).toBe(200)
+    expect(preview.json()).toEqual({ cronExpr, recurrence: 'recurrence' in timing ? recurrence : null, timezone: 'America/New_York', nextRunAt })
+    expect(harness.db.select().from(schedules).all()).toEqual([])
+    expect(harness.db.select().from(auditLog).all()).toEqual([])
+    const saved = await harness.app.inject({ method: 'PUT', url: '/api/v1/projects/site-a/schedule', payload: timing })
+    expect(saved.statusCode, saved.body).toBe(201)
+    expect(saved.json()).toMatchObject(preview.json())
+  })
+
+  it.each([
+    { preset: 'daily', timezone: 'Not/A_Timezone' },
+    { cron: 'not cron' },
+    { preset: 'daily', cron: '0 9 * * *' },
+    { recurrence: { everyDays: 0, startDate: '2026-09-23', time: '00:00' } },
+  ])('rejects invalid timing identically for preview and save: %j', async timing => {
+    for (const [method, suffix] of [['POST', '/preview'], ['PUT', '']] as const) {
+      const response = await harness.app.inject({ method, url: `/api/v1/projects/site-a/schedule${suffix}`, payload: timing })
+      expect(response.statusCode, response.body).toBe(400)
+    }
+    expect(harness.db.select().from(schedules).all()).toEqual([])
+  })
+
   it('returns the anchored next time without a running scheduler and preserves recurrence through pause/resume', async () => {
     const url = '/api/v1/projects/site-a/schedule'
     const payload = { recurrence, timezone: 'America/New_York', providers: ['openai'], expectedUpdatedAt: null }
@@ -609,6 +690,22 @@ describe('native calendar schedule persistence', () => {
     expect(resumed.json()).toMatchObject({ recurrence, nextRunAt: '2026-11-04T05:00:00.000Z' })
     const stale = await harness.app.inject({ method: 'PUT', url, payload: { ...payload, expectedUpdatedAt: schedule.updatedAt } })
     expect(stale.statusCode).toBe(409)
+  })
+
+  it('can save a paused recurrence without a future date while preview and enabling remain blocked', async () => {
+    vi.setSystemTime(new Date('9999-12-31T23:59:59Z'))
+    const url = '/api/v1/projects/site-a/schedule'
+    const timing = { recurrence: { everyDays: 1, startDate: '9999-12-31', time: '00:00' }, timezone: 'UTC' }
+    const paused = await harness.app.inject({ method: 'PUT', url, payload: { ...timing, enabled: false } })
+    expect(paused.statusCode, paused.body).toBe(201)
+    expect(paused.json()).toMatchObject({ enabled: false, nextRunAt: null, recurrence: timing.recurrence })
+    for (const [method, suffix] of [['POST', '/preview'], ['PUT', '']] as const) {
+      const response = await harness.app.inject({ method, url: `${url}${suffix}`, payload: timing })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json().error.message).toBe('Calendar recurrence has no valid future occurrence')
+    }
+    expect(harness.db.select().from(schedules).all()).toHaveLength(1)
+    expect(harness.db.select().from(schedules).get()?.enabled).toBe(false)
   })
 
   it('clears obsolete timing when switching between cron and calendar modes', async () => {
@@ -630,4 +727,25 @@ describe('native calendar schedule persistence', () => {
     expect(response.statusCode).toBe(400)
     expect(harness.db.select().from(schedules).all()).toEqual([])
   })
+})
+
+
+it('allows a scoped read key to preview timing without granting schedule writes or another project', async () => {
+  const changed = vi.fn()
+  const harness = await buildHarness(changed, true)
+  const key = 'cnry_schedule_preview_read'
+  harness.db.insert(apiKeys).values({ id: 'preview-reader', name: 'preview-reader', keyHash: hashApiKey(key), keyPrefix: key.slice(0, 9), scopes: ['read'], projectId: harness.projectId, createdAt: new Date().toISOString() }).run()
+  try {
+    const headers = { authorization: `Bearer ${key}` }
+    const payload = { preset: 'daily@9', timezone: 'America/New_York' }
+    const preview = await harness.app.inject({ method: 'POST', url: '/api/v1/projects/site-a/schedule/preview', headers, payload })
+    expect(preview.statusCode, preview.body).toBe(200)
+    const foreign = await harness.app.inject({ method: 'POST', url: '/api/v1/projects/site-b/schedule/preview', headers, payload })
+    expect(foreign.statusCode).toBe(403)
+    const save = await harness.app.inject({ method: 'PUT', url: '/api/v1/projects/site-a/schedule', headers, payload })
+    expect(save.statusCode).toBe(403)
+    expect(harness.db.select().from(schedules).all()).toEqual([])
+    expect(harness.db.select().from(auditLog).all()).toEqual([])
+    expect(changed).not.toHaveBeenCalled()
+  } finally { await teardown(harness) }
 })

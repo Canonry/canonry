@@ -1,4 +1,5 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
+import { queryClassSchema } from './query-class.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
 import { competitorIdentityChangedAtSchema, competitorSetChangedAtSchema } from './analytics.js'
@@ -17,17 +18,25 @@ import { competitorIdentityChangedAtSchema, competitorSetChangedAtSchema } from 
  *     `checked` — never counted as not-mentioned. `checked` is therefore the
  *     correct denominator (sample size `n`) for a mention proportion.
  *   - **cited** = the domain appears in the source/grounding list
- *     (`query_snapshots.citation_state === 'cited'`). `citation_state` is
- *     always populated, so every snapshot is "checked" for citation and the
- *     citation denominator is `total`.
+ *     (`query_snapshots.citation_state === 'cited'`, read through
+ *     `readCitationState`). An answer from an engine that returns no sources
+ *     (a local model) is `not-measured`: it is counted in
+ *     `citationNotMeasured` and leaves the citation denominator, which is
+ *     `total - citationNotMeasured`.
  *
  * The endpoint returns raw COUNTS so a consumer can compute a confidence
  * interval (e.g. Wilson) over the right `n`, plus the convenience rates the
  * CLI / dashboard render directly (no client-side recomputation).
  */
 export const visibilityStatsCountsSchema = z.object({
-  /** Total (query × provider) snapshots observed in the window. Denominator for `citedRate`. */
+  /** Total (query × provider) snapshots observed in the window. */
   total: z.number().int(),
+  /**
+   * Snapshots whose engine returns no sources, so their citation was never
+   * measured. They are in neither side of `citedRate`, whose denominator is
+   * `total - citationNotMeasured`. Their mention still counts.
+   */
+  citationNotMeasured: z.number().int(),
   /**
    * Snapshots where `answerMentioned !== null` — the sample size (`n`) for the
    * mention proportion. Tri-state `null` ("not checked") is excluded.
@@ -39,7 +48,7 @@ export const visibilityStatsCountsSchema = z.object({
   cited: z.number().int(),
   /** `mentioned / checked`, rounded to 4 dp; `null` when `checked === 0` (rate undefined over no samples). */
   mentionRate: fraction().nullable(),
-  /** `cited / total`, rounded to 4 dp; `null` when `total === 0`. */
+  /** `cited / (total - citationNotMeasured)`, rounded to 4 dp; `null` when no snapshot's citation was measured. */
   citedRate: fraction().nullable(),
 })
 export type VisibilityStatsCounts = z.infer<typeof visibilityStatsCountsSchema>
@@ -62,6 +71,12 @@ export const visibilityStatsQueryEntrySchema = visibilityStatsCountsSchema.exten
   query: z.string(),
   firstObserved: z.string(),
   lastObserved: z.string(),
+  /**
+   * The class the query is measured under, as the query list reports it:
+   * `branded` or `non-brand`, `null` when it has no single class (a project
+   * with no brand name, or an Advanced query assigned under both or neither).
+   */
+  queryClass: queryClassSchema.nullable().optional(),
   /**
    * Per-provider breakdown — present only when `groupBy=provider`. Each
    * entry's counts sum to this query's pooled counts.
@@ -144,8 +159,19 @@ export const visibilityStatsDtoSchema = z.object({
    */
   groupBy: visibilityStatsGroupBySchema.optional(),
   window: visibilityStatsWindowSchema,
-  /** Pooled counts across every tracked query in the window. */
+  /** Pooled counts across every tracked query in the window, branded and non-brand together. */
   totals: visibilityStatsCountsSchema,
+  /**
+   * `totals` split by each query's class. Branded and non-brand answers never
+   * share a rate, so compare these, not `totals`. `unclassified` holds queries
+   * with no single class. `queryClass` does not change it: that parameter
+   * scopes share of voice only.
+   */
+  byQueryClass: z.object({
+    branded: visibilityStatsCountsSchema,
+    nonBrand: visibilityStatsCountsSchema,
+    unclassified: visibilityStatsCountsSchema,
+  }).optional(),
   /**
    * Pooled per-provider counts across every tracked query — present only when
    * `groupBy=provider`. Each entry's counts sum to `totals`.
@@ -222,6 +248,14 @@ export const visibilityCompareMetricPeriodSchema = z.object({
    * search. Only set on frames that record retrieval status.
    */
   excludedNoRetrieval: z.number().int().nonnegative().optional(),
+  /**
+   * Cited rows whose engine returns no sources at all (a local model with no
+   * web access; `citationState = 'not-measured'`). Whether they cite anyone
+   * was never measured, so they leave every cited denominator, including
+   * cited share of voice; they remain in the mention denominator. Set on a
+   * cited metric whenever such a row is in the basket.
+   */
+  excludedNotMeasured: z.number().int().nonnegative().optional(),
 })
 export type VisibilityCompareMetricPeriod = z.infer<typeof visibilityCompareMetricPeriodSchema>
 

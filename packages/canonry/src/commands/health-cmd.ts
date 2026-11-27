@@ -1,6 +1,16 @@
 import { formatPercent } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
+import { citedBase } from '../snapshot-cell.js'
+
+/**
+ * A cited rate and its base. The base is the pairs whose sources were
+ * checked; a null rate means none were (the engines return no sources), which
+ * reads "not measured", never 0%.
+ */
+function citedText(rate: number | null, cited: number, measured: number): string {
+  return rate === null ? 'not measured' : `${formatPercent(rate)} cited (${cited}/${measured})`
+}
 
 export async function showHealth(
   project: string,
@@ -29,13 +39,15 @@ export async function showHealth(
 
     // Mention leads, cited second — both signals are independent and shown
     // side by side (never one in place of the other).
-    console.log('Date                      Mention Rate  Mentioned/Total   Cited Rate   Cited/Total')
-    console.log('─'.repeat(86))
+    // Cited is out of the pairs whose sources were checked: an engine that
+    // returns no sources is not measured for citation, never a miss.
+    console.log('Date                      Mention Rate  Mentioned/Total   Cited Rate   Cited/Checked')
+    console.log('─'.repeat(88))
     for (const snap of snapshots) {
       const mRate = formatPercent(snap.overallMentionRate).padStart(6)
       const mRatio = `${snap.mentionedPairs}/${snap.totalPairs}`.padEnd(15)
-      const cRate = formatPercent(snap.overallCitedRate).padStart(6)
-      const cRatio = `${snap.citedPairs}/${snap.totalPairs}`
+      const cRate = snap.overallCitedRate === null ? 'not measured' : formatPercent(snap.overallCitedRate).padStart(6)
+      const cRatio = `${snap.citedPairs}/${citedBase(snap.totalPairs, snap.citationNotMeasuredPairs)}`
       const date = snap.createdAt.slice(0, 19).padEnd(25)
       console.log(`${date} ${mRate}        ${mRatio}   ${cRate}        ${cRatio}`)
     }
@@ -58,14 +70,17 @@ export async function showHealth(
   }
 
   // Mention leads, cited second — two independent signals, both surfaced.
+  const notMeasured = health.citationNotMeasuredPairs
   console.log(`Health: ${formatPercent(health.overallMentionRate)} mentioned (${health.mentionedPairs}/${health.totalPairs} pairs)`)
-  console.log(`        ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${health.totalPairs} pairs)`)
+  console.log(health.overallCitedRate === null
+    ? `        citations not measured (no pair's engine returns sources, ${notMeasured} pairs)`
+    : `        ${formatPercent(health.overallCitedRate)} cited (${health.citedPairs}/${citedBase(health.totalPairs, notMeasured)} pairs)${notMeasured > 0 ? `, ${notMeasured} not measured (no sources)` : ''}`)
   console.log('')
 
   if (health.providerBreakdown && Object.keys(health.providerBreakdown).length > 0) {
     console.log('Provider Breakdown:')
     for (const [provider, stats] of Object.entries(health.providerBreakdown)) {
-      console.log(`  ${provider.padEnd(15)} ${formatPercent(stats.mentionRate)} mentioned (${stats.mentioned}/${stats.total})   ${formatPercent(stats.citedRate)} cited (${stats.cited}/${stats.total})`)
+      console.log(`  ${provider.padEnd(15)} ${formatPercent(stats.mentionRate)} mentioned (${stats.mentioned}/${stats.total})   ${citedText(stats.citedRate, stats.cited, citedBase(stats.total, stats.citationNotMeasured))}`)
     }
   }
 }

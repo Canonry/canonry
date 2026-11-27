@@ -4,6 +4,7 @@ export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
 export { addLikelyFakeAgentHits, clearLikelyFakeAgentHits, type LikelyFakeAgentBucket } from './likely-fake-agent-rollup.js'
 export { writeUnrecognizedAgentBuckets } from './traffic-event-ingest.js'
 export { correctBackgroundCallJourneys, mergeSplitJourneyVisitors, type BackgroundCallJourneyCorrection, type SplitVisitorMerge } from './journey-corrections.js'
+export { recountAiReferralArrivalsFromJourneys, repairAiReferralArrivalsOnStartup, AI_REFERRAL_JOURNEY_RECOUNT_VERSION, type AiReferralSourceRecount } from './ai-referral-recount.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -36,6 +37,8 @@ import { competitorSuggestionRoutes } from './competitor-suggestions.js'
 import { competitorChangePreviewRoutes } from './competitor-change-preview.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
+import { projectSetupRoutes } from './project-setup.js'
+import type { ProjectSetupRoutesOptions } from './project-setup.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
 import type { MeasurementPlanRoutesOptions } from './measurement-plan.js'
 import { measurementServiceRoutes } from './measurement-service.js'
@@ -62,6 +65,7 @@ import { agentJourneyRoutes } from './agent-journeys.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
+import { citationUrlRoutes } from './citation-urls.js'
 import { visibilityStatsRoutes } from './visibility-stats.js'
 import { resultsExportRoutes } from './results-export.js'
 import { compositeRoutes } from './composites.js'
@@ -73,6 +77,9 @@ import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo }
 import { keysRoutes } from './keys.js'
 import { userRoutes } from './users.js'
 import { userSessionRoutes } from './user-session.js'
+import { userInvitationRoutes } from './user-invitations.js'
+import { chatGptRoutes } from './chatgpt-routes.js'
+import type { ChatGptAccounts } from './chatgpt-accounts.js'
 import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
@@ -91,6 +98,7 @@ import type { GoogleMarketingRoutesOptions } from './google-marketing.js'
 import { adsRoutes } from './ads.js'
 import type { AdsRoutesOptions } from './ads.js'
 import { bingRoutes } from './bing.js'
+import { sitemapRoutes, type SitemapRoutesOptions } from './sitemaps.js'
 import type { BingRoutesOptions } from './bing.js'
 import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
@@ -107,6 +115,7 @@ import type { BacklinksRoutesOptions } from './backlinks.js'
 import {
   trafficRoutes,
   defaultResolveAccessToken,
+  hasCloudRunCredentialForSource,
   hashCloudflareBearerToken,
 } from './traffic.js'
 import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js'
@@ -124,6 +133,7 @@ import { statusRoutes, type StatusRoutesOptions } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
+import { trendsRoutes } from './trends.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
 import { seoRoutes, type SeoRoutesOptions } from './seo.js'
@@ -155,6 +165,7 @@ export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
 export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
 export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
+export type { ProviderTestRun } from './settings.js'
 export { credentialFailure } from './feature-outcome.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
@@ -197,6 +208,15 @@ export interface ApiRoutesOptions {
    * gets a TLS-terminating proxy right.
    */
   userSessionCookie?: UserSessionCookieOptions
+  /**
+   * Sign in with ChatGPT. Absent: the routes answer that it is off, and the
+   * sign-in screen offers only name and password.
+   */
+  chatgptAccounts?: ChatGptAccounts
+  /** Where the dashboard is served (e.g. `/` or `/canonry/`); the ChatGPT callback returns there. */
+  dashboardPath?: string
+  /** The install's own Aero model, preferred on a ChatGPT plan that lists it. */
+  chatgptPreferredModel?: () => string | null
   /**
    * True when this host has declared which proxy hops to believe (its Fastify
    * instance was built with `trustProxy`). Everything that budgets per caller
@@ -244,8 +264,14 @@ export interface ApiRoutesOptions {
   getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  getProviderConnections?: SettingsRoutesOptions['getProviderConnections']
+  onProviderSettingsUpdate?: SettingsRoutesOptions['onProviderSettingsUpdate']
+  onProviderDisconnect?: SettingsRoutesOptions['onProviderDisconnect']
   /** Reload the execution host's provider configuration without restarting it. */
   onProviderReload?: SettingsRoutesOptions['onProviderReload']
+  /** Run a saved provider connection's healthcheck now (a live provider call). Absent: tests answer NOT_IMPLEMENTED. */
+  onProviderTest?: SettingsRoutesOptions['onProviderTest']
+  providerTestTimeoutMs?: SettingsRoutesOptions['providerTestTimeoutMs']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
@@ -380,6 +406,7 @@ export interface ApiRoutesOptions {
   bingSettingsSummary?: SettingsRoutesOptions['bing']
   onBingSettingsUpdate?: SettingsRoutesOptions['onBingUpdate']
   onBingInspectSitemapRequested?: BingRoutesOptions['onInspectSitemapRequested']
+  onBingSyncRequested?: BingRoutesOptions['onSyncRequested']
   /** WordPress connection store */
   wordpressConnectionStore?: WordpressRoutesOptions['wordpressConnectionStore']
   /** CDP browser provider callbacks */
@@ -423,6 +450,8 @@ export interface ApiRoutesOptions {
   cloudflareQueueMaxBatches?: TrafficRoutesOptions['cloudflareQueueMaxBatches']
   /** Wall-clock budget for one Cloudflare Queue sync's drain; see `resolveCloudflareQueueSyncDeadlineMs`. */
   cloudflareQueueSyncDeadlineMs?: TrafficRoutesOptions['cloudflareQueueSyncDeadlineMs']
+  /** Waits after consecutive empty Cloudflare Queue pulls; see `DEFAULT_CLOUDFLARE_QUEUE_EMPTY_PULL_BACKOFF_MS`. */
+  cloudflareQueueEmptyPullBackoffMs?: TrafficRoutesOptions['cloudflareQueueEmptyPullBackoffMs']
   /** Override the canonry ingest URL embedded into generated Worker scripts (tests) */
   cloudflareTrafficIngestUrl?: TrafficRoutesOptions['cloudflareTrafficIngestUrl']
   /** Per-source Cloudflare direct-push request budget per minute (tests/hosts). */
@@ -449,7 +478,7 @@ export interface ApiRoutesOptions {
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
   embedQueries?: DiscoveryRoutesOptions['embedQueries']
-  /** Technical AEO callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
+  /** Agent Readiness callback — fires after a `site-audit` run row is created. Wire to `executeSiteAudit`. */
   onSiteAuditRequested?: TechnicalAeoRoutesOptions['onSiteAuditRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
@@ -481,6 +510,8 @@ export interface ApiRoutesOptions {
    * dev workflows that point webhooks at localhost.
    */
   allowLoopbackWebhooks?: boolean
+  /** The running Canonry package version, sent in the webhook User-Agent. Omitted, it sends `Canonry`. */
+  appVersion?: string
   /**
    * On-disk paths the daemon depends on at runtime. When wired, a pre-request
    * hook fails non-doctor / non-health requests with HTTP 503
@@ -659,12 +690,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     })
 
     // Sign-in surface. Registered inside the authenticated scope so it shares
-    // the error handler and prefix, but each of its routes is on the auth
-    // skip-list — a sign-in screen cannot present a credential it has not been
-    // given yet.
+    // the error handler and prefix. Its handlers resolve their own sessions.
     await api.register(userSessionRoutes, {
       cookie: opts.userSessionCookie,
       trustProxyConfigured: opts.trustProxyConfigured ?? false,
+      chatgptSignIn: () => opts.chatgptAccounts?.signInEnabled() ?? false,
       // ONE checker for the whole app. Passed in when the caller supplies it —
       // canonry does, so /auth/login and the OAuth consent page count against
       // the same budgets — and built here otherwise so an embedder that never
@@ -674,7 +704,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
         trustProxyConfigured: opts.trustProxyConfigured ?? false,
       }),
     })
-    await api.register(userRoutes)
+    await api.register(userRoutes, { chatgptAccounts: opts.chatgptAccounts })
+    await api.register(userInvitationRoutes)
+    await api.register(chatGptRoutes, {
+      accounts: opts.chatgptAccounts,
+      cookie: opts.userSessionCookie,
+      dashboardPath: opts.dashboardPath,
+      routePrefix: opts.routePrefix,
+      preferredModel: opts.chatgptPreferredModel,
+      trustProxyConfigured: opts.trustProxyConfigured ?? false,
+    })
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
     // Route families of every adapter this host knows (OpenRouter models,
@@ -715,6 +754,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
       providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
+    await api.register(projectSetupRoutes, {
+      getRunnableProviderNames: opts.getRunnableProviderNames,
+      getEffectiveProviderModels: opts.getEffectiveProviderModels,
+      providerAdapters: opts.providerAdapters,
+    } satisfies ProjectSetupRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerRouteFamilies,
@@ -771,6 +815,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(journeyRoutes)
     await api.register(agentJourneyRoutes, { journeyKeySecret: opts.journeyKeySecret })
     await api.register(citationRoutes)
+    await api.register(citationUrlRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
     await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames, providerRouteFamilies })
@@ -784,7 +829,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      getProviderConnections: opts.getProviderConnections,
+      onProviderSettingsUpdate: opts.onProviderSettingsUpdate,
+      onProviderDisconnect: opts.onProviderDisconnect,
       onProviderReload: opts.onProviderReload,
+      onProviderTest: opts.onProviderTest,
+      providerTestTimeoutMs: opts.providerTestTimeoutMs,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,
@@ -802,6 +852,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
+      appVersion: opts.appVersion,
     } satisfies NotificationRoutesOptions)
     await api.register(sentimentRoutes, opts.sentiment ?? { install: () => ({ enabled: false, ready: false, reason: 'install-disabled', model: 'jev-1.13.0' }), previewSecret: randomUUID() })
     await api.register(operationalLogsRoutes, { listOperationalLogs: opts.listOperationalLogs })
@@ -835,8 +886,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
       onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
+      onSyncRequested: opts.onBingSyncRequested,
       claimScheduledSync: opts.claimScheduledSync,
     } satisfies BingRoutesOptions)
+    await api.register(sitemapRoutes, {
+      googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
+    } satisfies SitemapRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,
@@ -886,6 +942,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
     } satisfies GaSearchLandingRoutesOptions)
     await api.register(trafficRoutes, {
+      dashboardPath: opts.dashboardPath,
+      publicUrl: opts.publicUrl,
       journeyKeySecret: opts.journeyKeySecret,
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
@@ -904,6 +962,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getCloudflareQueueRetentionSeconds: opts.getCloudflareQueueRetentionSeconds,
       cloudflareQueueMaxBatches: opts.cloudflareQueueMaxBatches,
       cloudflareQueueSyncDeadlineMs: opts.cloudflareQueueSyncDeadlineMs,
+      cloudflareQueueEmptyPullBackoffMs: opts.cloudflareQueueEmptyPullBackoffMs,
       cloudflareTrafficIngestUrl: opts.cloudflareTrafficIngestUrl,
       cloudflareIngestRateLimitMax: opts.cloudflareIngestRateLimitMax,
       cloudflareIngestIpRateLimitMax: opts.cloudflareIngestIpRateLimitMax,
@@ -950,6 +1009,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(technicalAeoRoutes, {
       onSiteAuditRequested: opts.onSiteAuditRequested,
     } satisfies TechnicalAeoRoutesOptions)
+    await api.register(trendsRoutes)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
@@ -991,6 +1051,21 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 export type { DatabaseClient } from '@canonry/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
+export {
+  accountNameForEmail,
+  ChatGptAccounts,
+  ChatGptPlanError,
+  decryptPlanTokens,
+  encryptPlanTokens,
+  EXTERNAL_SIGN_IN_PASSWORD_HASH,
+  parseChatGptTokenKey,
+  pickChatGptPlanModel,
+  type ChatGptAccountsOptions,
+  type ChatGptPlanAccess,
+  type ChatGptSettingsSource,
+  type ChatGptSignInSettings,
+} from './chatgpt-accounts.js'
+export { CHATGPT_SIGN_IN_COOKIE_NAME, safeReturnTo } from './chatgpt-routes.js'
 export { anyUsersExist, cookieIsSecure, createCredentialChecker, createUserSession, hashSessionToken, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'
@@ -1042,12 +1117,20 @@ export type {
   ExecuteDiscoveryResult,
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
-export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook } from './webhooks.js'
-export type { WebhookDeliveryResult } from './webhooks.js'
+export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook, webhookUserAgent } from './webhooks.js'
+export type { WebhookDeliveryOptions, WebhookDeliveryResult } from './webhooks.js'
 // One classification of a webhook destination and its answer, shared by the test route and deliveries.
 export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
 export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
+// A spot check (a list of queries, or a slice of a plan) is never a whole sweep.
+export { isScopedRun, notScopedRun } from './run-scope.js'
+// The read-time mention of stored answers, null when never checked; the notifier compares two.
+export { snapshotMentionObserver } from './helpers.js'
+// Per-Property mention and citation changes of one Advanced sweep, read through the overview's rule.
+export { readAdvancedSignalTransitions, type AdvancedSignalTransition, type AdvancedSignalTransitions } from './advanced-signal-changes.js'
+// The class of each tracked query, as query lists report it.
+export { readQueryClasses } from './query-class-read.js'
 // Shared public-egress preflight: validates every resolved address class and
 // returns the exact address callers must dial to prevent DNS rebinding.
 export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './measurement-sitemap-fetch.js'
@@ -1118,11 +1201,11 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
     validators['cloud-run'] = {
       validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
         const record = store.getConnection(source.projectName)
-        if (!record) {
+        if (!hasCloudRunCredentialForSource(record, source.projectName, source)) {
           return {
             status: CheckStatuses.fail,
             code: 'traffic.credentials.missing',
-            summary: `No Cloud Run credential found in ~/.canonry/config.yaml for project "${source.projectName}".`,
+            summary: `No matching Cloud Run credential found in ~/.canonry/config.yaml for source "${source.displayName}".`,
             remediation: 'Re-run `canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path>`.',
           }
         }

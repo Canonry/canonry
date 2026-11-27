@@ -1,27 +1,18 @@
 import { loadConfig, saveConfigPatch, getConfigPath } from '../config.js'
 import { createApiClient } from '../client.js'
-import { isMachineFormat } from '../cli-error.js'
+import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
 import { setGoogleAuthConfig } from '../google-config.js'
+import { formatDurationSeconds, ProviderConnectionTestStatuses } from '@canonry/canonry-contracts'
+import type { ProviderConnectionLastTestDto, ProviderConnectionSettingsDto, ProviderConnectionTestStatus, ProviderSettingsUpdateRequest } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
 }
 
-export async function setProvider(name: string, opts: {
-  apiKey?: string
-  baseUrl?: string
-  model?: string
-  quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
-  format?: string
-}): Promise<void> {
+export async function setProvider(name: string, opts: ProviderSettingsUpdateRequest & { format?: string }): Promise<void> {
   const client = getClient()
   const { format, ...payload } = opts
-  const result = await client.updateProvider(name, payload) as {
-    name: string
-    model?: string
-    configured: boolean
-    quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
-  }
+  const result = await client.updateProvider(name, payload)
 
   if (isMachineFormat(format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -35,6 +26,57 @@ export async function setProvider(name: string, opts: {
   if (result.quota) {
     console.log(`  Quota: ${result.quota.maxConcurrency} concurrent · ${result.quota.maxRequestsPerMinute}/min · ${result.quota.maxRequestsPerDay}/day`)
   }
+}
+
+function printConnection(connection: ProviderConnectionSettingsDto): void {
+  console.log(`${connection.displayName}: ${connection.configured ? 'configured' : 'not configured'}`)
+  if (connection.baseUrl) console.log(`  Endpoint: ${connection.baseUrl}`)
+  console.log(`  API key: ${connection.apiKeyConfigured ? 'saved' : 'not saved'}`)
+  if (connection.effectiveModel) console.log(`  Model: ${connection.effectiveModel}${connection.model ? ' (custom)' : ' (inherited)'}`)
+  if (connection.configured && connection.lastTest !== undefined) console.log(`  Last test: ${lastTestLine(connection.name, connection.lastTest)}`)
+  if (connection.capabilities.quota) {
+    for (const [key, value] of Object.entries(connection.quota.effective)) {
+      console.log(`  ${key}: ${value} (${Object.hasOwn(connection.quota.overrides, key) ? 'custom' : 'inherited'})`)
+    }
+  }
+  console.log(`  Used by ${connection.usage.projectCount} projects:`)
+  for (const project of connection.usage.projects) console.log(`    ${project.displayName} (${project.name}): ${project.providers.join(', ')} · ${project.sources.join(', ')}`)
+  const unknown = connection.usage.unknown
+  if (unknown) {
+    // An unreadable plan or draft may also use this connection; never count it as unused.
+    console.log(`  Usage unknown for ${unknown.projectCount} ${unknown.projectCount === 1 ? 'project' : 'projects'} (saved settings could not be read):`)
+    for (const project of unknown.projects) console.log(`    ${project.displayName} (${project.name}): ${project.sources.join(', ')}`)
+  }
+  for (const use of connection.hostUses) console.log(`  Host use: ${use}`)
+  for (const blocker of connection.blockers) console.log(`  Blocked: ${blocker.message}`)
+  if (connection.hostManaged.vertex) console.log(`  Vertex AI (host managed): ${connection.hostManaged.vertex.project} · ${connection.hostManaged.vertex.region ?? 'default region'}`)
+  if (connection.hostManaged.batch) console.log(`  Batch (host managed): ${JSON.stringify(connection.hostManaged.batch)}`)
+  if (connection.hostManaged.pricing) console.log(`  Pricing (host managed): ${JSON.stringify(connection.hostManaged.pricing)}`)
+  console.log(`  Revision: ${connection.revision}`)
+  console.log(`  Impact revision: ${connection.impactRevision}`)
+}
+
+export async function showProviderSettings(name: string, format?: string): Promise<void> {
+  const connection = await getClient().getProviderSettings(name)
+  if (isMachineFormat(format)) console.log(JSON.stringify(connection, null, 2))
+  else printConnection(connection)
+}
+
+export async function disconnectProvider(name: string, opts: { confirm?: boolean; expectedImpactRevision?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const preview = await client.getProviderSettings(name)
+  if (!opts.confirm) {
+    if (isMachineFormat(opts.format)) console.log(JSON.stringify(preview, null, 2))
+    else {
+      printConnection(preview)
+      console.log('\nDisconnect removes the saved connection. Project selections and history are retained; the vendor key is not revoked.')
+      console.log(`Run canonry settings disconnect-provider ${name} --confirm --if-impact-revision ${preview.impactRevision} to disconnect.`)
+    }
+    return
+  }
+  const result = await client.disconnectProvider(name, { expectedImpactRevision: opts.expectedImpactRevision ?? preview.impactRevision })
+  if (isMachineFormat(opts.format)) console.log(JSON.stringify(result, null, 2))
+  else console.log(`Provider ${result.displayName} disconnected. Project selections and history were retained.`)
 }
 
 export async function showSettings(format?: string): Promise<void> {
@@ -61,6 +103,8 @@ export async function showSettings(format?: string): Promise<void> {
       if (provider.quota) {
         console.log(`    Quota:     ${provider.quota.maxConcurrency} concurrent · ${provider.quota.maxRequestsPerMinute}/min · ${provider.quota.maxRequestsPerDay}/day`)
       }
+      const lastTest = settings.providerConnections?.find(connection => connection.name === provider.name)?.lastTest
+      if (lastTest !== undefined) console.log(`    Last test: ${lastTestLine(provider.name, lastTest)}`)
     }
   }
 
@@ -91,6 +135,43 @@ export async function reloadProviders(format?: string): Promise<void> {
   console.log('Saved provider configuration is now active on the server.')
   for (const provider of result.providers) {
     console.log(`  ${provider.name}: ${provider.configured ? 'configured' : 'not configured'}`)
+  }
+}
+
+function testStatusLabel(status: ProviderConnectionTestStatus): string {
+  switch (status) {
+    case ProviderConnectionTestStatuses.connected: return 'connected'
+    case ProviderConnectionTestStatuses.failed: return 'failed'
+    case ProviderConnectionTestStatuses['not-verified']: return 'saved, not verified'
+  }
+}
+
+/** The latest test of the active settings, or that none has run since they changed. */
+function lastTestLine(name: string, lastTest: ProviderConnectionLastTestDto | null): string {
+  if (!lastTest) return `none since these settings changed; run "canonry settings provider test ${name}"`
+  const detail = lastTest.status === ProviderConnectionTestStatuses.connected ? '' : ` (${lastTest.message})`
+  return `${testStatusLabel(lastTest.status)} at ${lastTest.checkedAt}${detail}`
+}
+
+export async function testProvider(name: string, format?: string): Promise<void> {
+  const result = await getClient().testProvider(name)
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(result, null, 2))
+  } else {
+    console.log(`${result.displayName}: ${testStatusLabel(result.status)}`)
+    if (result.model) console.log(`  Model:   ${result.model}`)
+    console.log(`  Result:  ${result.message}`)
+    console.log(`  Checked: ${result.checkedAt} (${formatDurationSeconds(result.durationMs / 1000)})`)
+  }
+  // Decided after the output is printed, so stdout is the same whatever the result.
+  if (!result.ok) {
+    throw new CliError({
+      code: 'PROVIDER_TEST_FAILED',
+      message: `${result.displayName} connection test failed: ${result.message}`,
+      displayMessage: `Error: the ${result.displayName} connection test failed. Fix the saved key or endpoint with "canonry settings provider ${result.provider}", then test again.`,
+      details: { provider: result.provider, status: result.status },
+      exitCode: EXIT_SYSTEM_ERROR,
+    })
   }
 }
 

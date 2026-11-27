@@ -1,9 +1,9 @@
 import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentResolvedSource } from './SentimentSection.js'
-import { VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
+import { CITATION_NOT_MEASURED_REASON, VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
+import { buildModelChangeNotice, describeError, formatModelName, openRouterRouteModel, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
 import type { BasketChangeEvent, BrandMetricsDto, MetricsWindow, ModelEvidenceState, PointDeltaDirection, QueryClass, QueryClassFilter } from '@canonry/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@canonry/canonry-api-client/react-query'
@@ -16,6 +16,7 @@ import { Check, ChevronRight, Minus, X } from 'lucide-react'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../shared/AnswerMarkdown.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { SourceLink } from '../shared/SourceLink.js'
+import { CITATION_NOT_MEASURED } from '../../lib/citation-not-measured-copy.js'
 import {
   CartesianGrid,
   CHART_AXIS_STROKE,
@@ -52,6 +53,7 @@ import { DEFAULT_QUERY_STALE_MS, STATIC_VISIBILITY_STALE_MS } from '../../querie
 import {
   basketChangesInBucket,
   buildSelectedTrendRows,
+  citationMeasuredInWindow,
   competitorFrameKey,
   CITED_KEY,
   formatBucketDateLabel,
@@ -71,6 +73,7 @@ import {
   partitionModelAttributionEvents,
   plottedMetricRates,
   pointQuerySetShift,
+  providerCitationNotMeasured,
   providerDisplayName,
   querySetChanges,
   querySetMovePhrase,
@@ -139,7 +142,7 @@ export const REPORT_HEADLINE_HELP = {
   simpleMention: 'Mentioned counts answers naming your brand in the answer text, not in the source links.',
   simpleCitation: 'Cited counts answers linking to your site in the sources behind the answer, not in the answer text.',
   advancedMention: 'An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.',
-  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.',
+  advancedCitation: 'An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line. So is an answer from an engine that returns no sources.',
   propertyReach: 'Selected properties named in at least one measured answer, out of the selected properties that have a name to match on. It counts properties, not answers, and shows no rate while any of those properties is unmeasured.',
 } as const
 /**
@@ -153,7 +156,7 @@ export const REPORT_HEADLINE_HELP = {
  * this property's own two signals, never a competitor's, so the copy cannot say
  * a rival was recommended instead without asserting a finding nothing measured.
  */
-const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
+const REPORT_OUTCOMES_HELP = "Counts properties, not answers. The buckets do not overlap and add up to the total. Cited only means the engine used the property's page as a source without naming it in the answer. Not measured covers a property with no eligible completed measurement, and one where only one of the two signals was measured, including one whose answers all came from engines that return no sources: calling that mentioned but not cited would assert an absence nothing measured. Neither signal means both were measured and neither was found. One verified mention or citation stands, and a later uncertain answer cannot erase it."
 const REPORT_CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 
 function reportScopeLabel(scope: VisibilityReportResponse['selection']['scope']): string {
@@ -171,6 +174,9 @@ function reportRateReason(value: VisibilityReportRate): string {
  * under Mentioned, answers whose sources could not be checked under Cited.
  */
 function ReportRate({ value, signal }: { value: VisibilityReportRate; signal: CoverageSignal }) {
+  if (value.rate === null && value.reason === 'citation-not-measured') {
+    return <span className="inline-flex items-center text-label-14 text-secondary">{reportRateReason(value)}<InfoTooltip text={CITATION_NOT_MEASURED_REASON} /></span>
+  }
   if (value.rate === null) return <span className="text-label-14 text-secondary">{reportRateReason(value)}</span>
   const excluded = excludedAnswersFlag(value, signal)
   return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-label-14 tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{excluded ? <span className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}</span>
@@ -250,7 +256,7 @@ function reportComparisonCaption(comparison: VisibilityReportComparison | undefi
 
 /** Population size, then the compared sweep. The class itself is named by the section heading. */
 function reportHeadlineCaption(summary: VisibilityReportSummary, comparison: string | null): string {
-  const counts = `${summary.queryCount} ${summary.queryCount === 1 ? 'query' : 'queries'} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
+  const counts = `${summary.queryCount} measured ${summary.queryCount === 1 ? 'query' : 'queries'} · ${summary.answerCount} ${summary.answerCount === 1 ? 'answer' : 'answers'}`
   return comparison === null ? counts : `${counts} · ${comparison}`
 }
 
@@ -341,6 +347,8 @@ export const UNCHECKED_SOURCES_COPY = {
     : `Saved links in ${citedAnswers} of ${answers} answers cite ${names}`,
   savedCiteNone: (name: string | null) => name === null ? 'No saved link cites an assigned property' : `No saved link cites ${name}`,
   outcomes: (count: number) => `${count} not measured only because an answer's sources were partly saved. Query results shows which answer.`,
+  /** Properties whose every answer came from an engine without sources: the server's `notMeasuredNoSources`. */
+  outcomesNoSources: (count: number) => `${count} not measured for citation because ${count === 1 ? 'its' : 'their'} answers came only from engines that return no sources.`,
 } as const
 
 function UncheckedSourcesLines({ row, targetLabels, showCount }: {
@@ -423,14 +431,14 @@ function QueryResultGroup({ group, queryClass, advanced, targetLabels, marketHea
     {group.rows.map(row => <tr className="measurement-engine-result" key={JSON.stringify([row.provider, row.model, row.location])}>
       <td className="measurement-result-engine">
         <span className="text-label-14-strong text-heading">{providerDisplayName(row.provider)}</span>
-        <span className="block break-words text-label-14 text-secondary">{row.model ?? 'Model not recorded'}</span>
+        {(!row.model || row.model !== openRouterRouteModel(row.provider)) && <span className="block break-words text-label-14 text-secondary" title={row.model ?? undefined}>{row.model ? (openRouterRouteModel(row.provider) ? formatModelName(row.model) : row.model) : 'Model not recorded'}</span>}
         {advanced && !sharedTargets ? <div className="mt-1 text-label-14 text-secondary"><QueryProperties targetKeys={row.targetKeys} labels={targetLabels} /></div> : null}
         {!sharedLocation ? <span className="mt-1 block text-label-14 text-secondary">{locationLabel(row.location)}</span> : null}
         <SentimentAnswerOutcome showLabel showSubjects={advanced} queryId={row.queryId} sourceSnapshotIds={row.sourceSnapshotIds ?? []} queryClass={queryClass === 'unknown' ? null : queryClass} provider={row.provider} model={row.model} location={row.location} />
       </td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Mentioned</span><QueryResultRate value={row.mentionCoverage} signal="mentioned" singleAnswer={row.answerCount === 1} /></td>
       <td><span className="measurement-result-mobile-label" aria-hidden="true">Cited</span><QueryResultRate value={row.citationCoverage} signal="cited" singleAnswer={row.answerCount === 1} row={row} targetLabels={targetLabels} /></td>
-      <td className="measurement-result-action"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-label={`View answers for ${row.query} · ${row.provider}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
+      <td className="measurement-result-action"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-label={`View answers for ${row.query} · ${providerDisplayName(row.provider)}`} onClick={event => onViewAnswers(row, event.currentTarget)}>{row.answerCount === 1 ? 'View answer' : 'View answers'}<ChevronRight size={16} aria-hidden="true" /></Button></td>
     </tr>)}
   </tbody>
 }
@@ -466,27 +474,36 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
   const segments = Array.from({ length: segment + 1 }, (_, index) => index)
   const boundaries = new Set(population.trend.slice(1).map(point => point.continuity.state))
   const notes = [
-    ...(points.length === 1 ? ['First measurement. A trend appears after another comparable run.'] : []),
+    ...(points.length === 1 ? ['This view has one measurement point. A trend needs at least two comparable points.'] : []),
     ...(boundaries.has('definition-changed') ? ['Gaps mark changes to what was measured.'] : []),
     ...(boundaries.has('model-changed') ? ['Gaps mark changes to answer engines or models.'] : []),
     ...(boundaries.has('legacy-unknown') ? ['Older runs lack the details needed for comparison.'] : []),
     ...(population.trend.some(point => point.citationCoverage.reason === 'evidence-incomplete') ? ['Missing citation results mean the saved evidence is incomplete.'] : []),
     // A plotted Cited point may leave out answers whose sources could not be checked; the chart says so, the table counts them.
     ...(population.trend.some(point => point.citationCoverage.unchecked !== undefined) ? [REPORT_TREND_UNCHECKED_NOTE] : []),
+    // Engines without sources (a local model) are out of every Cited point.
+    ...(population.trend.some(point => point.citationCoverage.citationNotMeasured !== undefined || point.citationCoverage.reason === 'citation-not-measured')
+      ? ['Cited leaves out answers from engines that return no sources.']
+      : []),
   ]
-  if (points.length === 0) return <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>
+  if (points.length === 0) return population.summary.mentionCoverage.rate !== null || population.summary.citationCoverage.rate !== null
+    ? null
+    : <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>
   const hasRates = population.trend.some(point => point.mentionCoverage.rate !== null || point.citationCoverage.rate !== null)
+  const hasMultipleMeasuredPoints = hasRates && points.length > 1
+  const TrendDataContainer = hasMultipleMeasuredPoints ? 'div' : 'details'
   return <>
-    {hasRates ? <>
-      <fieldset className="flex flex-wrap gap-x-5 py-1 text-label-14 text-secondary">
+    {hasMultipleMeasuredPoints ? <>
+      <fieldset className="flex flex-wrap items-center gap-x-5 py-1 text-label-14 text-secondary">
         <legend className="sr-only">Trend legend</legend>
         {REPORT_TREND_SERIES.map(series => <label key={series.key} className="flex min-h-11 items-center gap-2">
           <input type="checkbox" className="size-4 accent-mono-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" checked={visibleSeries[series.key]} disabled={visibleSeries[series.key] && visibleKeys.length === 1} onChange={() => toggleSeries(series.key)} />
           <svg aria-hidden="true" className="shrink-0" width="24" height="10" viewBox="0 0 24 10"><line x1="0" y1="5" x2="24" y2="5" stroke={series.color} strokeWidth="2" strokeDasharray={series.dashed ? '6 4' : undefined} /><circle cx="12" cy="5" r="3" fill={series.dashed ? REPORT_TREND_HOLLOW_DOT : series.color} stroke={series.color} strokeWidth="2" /></svg>
           {series.label}
         </label>)}
+        {notes.length > 0 && <InfoTooltip text={notes.join(' ')} />}
       </fieldset>
-      {notes.length > 0 && <p id={descriptionId} className="pb-3 text-copy-14 text-secondary">{notes.join(' ')}</p>}
+      {notes.length > 0 && <span id={descriptionId} className="sr-only">{notes.join(' ')}</span>}
       <div className="visibility-trend-chart" role="img" data-visible-series={visibleKeys.join(' ')} aria-describedby={notes.length > 0 ? descriptionId : undefined} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} mention and citation trend`}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -502,12 +519,12 @@ function ReportTrend({ population }: { population: VisibilityReportPopulation })
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-    </> : <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p>}
-    <div className={hasRates ? 'sr-only' : 'overflow-x-auto'}>
+    </> : !hasRates ? <p className="py-6 text-copy-14 text-secondary">No measured trend for this selection.</p> : null}
+    <TrendDataContainer className={hasMultipleMeasuredPoints ? 'sr-only' : 'overflow-x-auto'}>{!hasMultipleMeasuredPoints && <summary className="cursor-pointer text-label-14 text-secondary">Measurement details</summary>}
       <table className="evidence-table" aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} trend data`}><thead><tr><th>Date</th><th>Mentioned</th><th>Cited</th><th>Comparison</th></tr></thead><tbody>
         {population.trend.map(point => <tr key={point.runId}><td>{new Date(point.createdAt).toLocaleDateString()}</td><td><ReportRate value={point.mentionCoverage} signal="mentioned" /></td><td><ReportRate value={point.citationCoverage} signal="cited" /></td><td>{point.continuity.state.replaceAll('-', ' ')}</td></tr>)}
       </tbody></table>
-    </div>
+    </TrendDataContainer>
   </>
 }
 
@@ -555,7 +572,7 @@ export const VISIBILITY_TOOLBAR_COPY = {
   manageQueries: 'Manage queries',
   removeFilter: (label: string) => `Remove filter ${label}`,
   engine: (provider: string) => `Engine: ${providerDisplayName(provider)}`,
-  model: (model: string) => `Model: ${model}`,
+  model: (model: string) => `Model: ${model.includes('/') ? formatModelName(model) : model}`,
   location: (location: string) => `Requested search location: ${location}`,
   noLocation: 'No location requested',
   dateRange: (from: string, to: string) => `${from} to ${to} (UTC)`,
@@ -715,7 +732,7 @@ export function VisibilityResultsToolbar({ report, selection, onSelectionChange,
       <div className="visibility-report-filters">
         {filterSelect('Answer engine', 'measurementProvider', provider, withSelectedChoice([{ value: '', label: 'All engines' }, ...filterOptions.providers.map(value => ({ value, label: providerDisplayName(value) }))], provider, providerDisplayName(provider)))}
         {filterSelect('Requested search location', 'measurementLocation', location, withSelectedChoice([{ value: '', label: 'All requested locations' }, ...filterOptions.locations.flatMap(option => option.kind === 'exact' ? [{ value: option.value, label: option.value }] : option.kind === 'none' ? [{ value: 'none', label: VISIBILITY_TOOLBAR_COPY.noLocation }] : [])], location, location === 'none' ? VISIBILITY_TOOLBAR_COPY.noLocation : location))}
-        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value }))], model, model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
+        {filterSelect('AI model', 'measurementModel', model, withSelectedChoice([{ value: '', label: 'All models' }, ...Array.from(new Set(filterOptions.models.filter(option => !selection.provider || option.provider === selection.provider).map(option => option.model))).map(value => ({ value, label: value.includes('/') ? formatModelName(value) : value }))], model, model.includes('/') ? formatModelName(model) : model), 'Filter by the AI model recorded with each answer. This does not change the model used by future checks.')}
         {dateInput('Start date (UTC)', 'measurementFrom', selection.from, 'T00:00:00.000Z')}
         {dateInput('End date (UTC)', 'measurementTo', selection.to, 'T23:59:59.999Z')}
         {filterSelect('Results from', 'measurementRunId', runId, withSelectedChoice([{ value: '', label: 'Latest saved check' }, ...[...population.trend].reverse().map(point => ({ value: point.runId, label: new Date(point.createdAt).toLocaleString() }))], runId, 'Selected check'), 'Choose a saved AI Visibility check to view its results. No new check starts.')}
@@ -792,10 +809,13 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
       const aggregateScope = selection.mode === 'advanced' && selection.scope.kind !== 'property'
       const classNoun = REPORT_CLASS_NOUN[population.queryClass]
       const comparisonCaption = reportComparisonCaption(population.comparison, displayedSweepAt(selection, population))
+      const historyHelp = population.trend.length === 0 && (population.summary.mentionCoverage.rate !== null || population.summary.citationCoverage.rate !== null)
+        ? 'No trend history is available for this selection.'
+        : population.trend.length === 1 ? 'This view has one measurement point. A trend needs at least two comparable points.' : REPORT_CHANGE_COPY.explanation
       return <section key={population.queryClass} aria-label={REPORT_CLASS_LABEL[population.queryClass]} className="py-4">
       <div className="section-head flex-wrap items-center">
         <div className="flex items-center gap-1"><h2>{REPORT_CLASS_LABEL[population.queryClass]}</h2><InfoTooltip text={population.queryClass === 'non-brand' ? 'Queries that do not name the measured identity. Geography alone is not a brand.' : population.queryClass === 'branded' ? 'Queries that name the measured identity.' : 'These queries were not labeled as branded or non-brand when measured. Their saved results remain available here, separate from branded and non-brand rates.'} /></div>
-        <div className="report-headline-caption"><span className="tabular-nums">{reportHeadlineCaption(population.summary, comparisonCaption)}</span><InfoTooltip text={REPORT_CHANGE_COPY.explanation} /></div>
+        <div className="report-headline-caption"><span className="tabular-nums">{reportHeadlineCaption(population.summary, comparisonCaption)}</span><InfoTooltip text={historyHelp} /></div>
       </div>
       <dl className="report-headline mt-3" data-columns={aggregateScope ? 3 : 2} aria-label={`${REPORT_CLASS_LABEL[population.queryClass]} headline results`}>
         <ReportHeadlineCell label={aggregateScope ? 'Answers mentioning a property' : 'Mentioned answers'} help={selection.mode === 'advanced' ? REPORT_HEADLINE_HELP.advancedMention : REPORT_HEADLINE_HELP.simpleMention} value={population.summary.mentionCoverage} signal="mentioned" unit="answers" classNoun={classNoun} change={reportChangeLine(population.comparison, 'mentionCoverage')} />
@@ -810,6 +830,7 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         <div className="space-y-3">
           <div className="flex flex-wrap gap-x-8 gap-y-3">{([['bothSignals', 'mentioned and cited'], ['mentionedOnly', 'mentioned only'], ['citedOnly', 'cited only'], ['neither', 'neither signal'], ['notMeasured', 'not measured']] as const).map(([key, label]) => <div key={key}><strong className="block tabular-nums text-heading">{population.summary.outcomes[key]}</strong><span className="text-label-14 text-secondary">{label}</span></div>)}</div>
           {population.summary.notMeasuredUnchecked ? <p className="text-copy-14 text-secondary">{UNCHECKED_SOURCES_COPY.outcomes(population.summary.notMeasuredUnchecked)}</p> : null}
+          {population.summary.notMeasuredNoSources ? <p className="text-copy-14 text-secondary">{UNCHECKED_SOURCES_COPY.outcomesNoSources(population.summary.notMeasuredNoSources)}</p> : null}
         </div>
         <InfoTooltip text={REPORT_OUTCOMES_HELP} />
       </div></details> : null}
@@ -830,11 +851,11 @@ export function VisibilityReportView({ report, isRefreshing = false, onSelection
         {answers.items.map(answer => <article key={answer.answerId} className="border-b border-default py-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <strong className="text-label-14 text-heading">{providerDisplayName(answer.provider)}</strong>
-            {answer.model ? <span className="text-label-13 text-secondary">{answer.model}</span> : null}
+            {answer.model && answer.model !== openRouterRouteModel(answer.provider) ? <span className="text-label-13 text-secondary" title={answer.model}>{openRouterRouteModel(answer.provider) ? formatModelName(answer.model) : answer.model}</span> : null}
             <span className="text-label-13 text-secondary">{answer.location === null ? VISIBILITY_TOOLBAR_COPY.noLocation : VISIBILITY_TOOLBAR_COPY.location(answer.location)}</span>
             <span className="text-label-13 text-secondary">{new Date(answer.createdAt).toLocaleDateString()}</span>
             <ToneBadge tone="neutral">{answer.mentioned === null ? answer.mentionUnavailableReason === 'identity-ambiguous' ? VISIBILITY_DISPLAY_COPY.ambiguous : 'Mention not checked' : answer.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
-            <ToneBadge tone="neutral">{answer.cited === null ? 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
+            <ToneBadge tone="neutral">{answer.cited === null ? answer.citationUnavailableReason === 'citation-not-measured' ? CITATION_NOT_MEASURED.label : 'Citation not checked' : answer.cited ? 'Cited' : 'Not cited'}</ToneBadge>
           </div>
           <div className="mt-4"><AnswerMarkdown headingLevel={4} copyable={Boolean(answer.answerText?.trim())}>{answer.answerText ?? 'Answer text unavailable.'}</AnswerMarkdown></div>
           {answer.sources.length > 0 ? <details className="mt-2" data-answer-sources>
@@ -1153,26 +1174,52 @@ function trendTitleHelp(scope: MentionShareScope): string {
     + `Mention share = your share of tracked-brand mentions in ${scope === 'non-brand' ? 'non-brand answers' : 'all answers'}.`
 }
 
-function metricField(metric: Exclude<MetricChoice, 'mentionShare'>): 'citationRate' | 'mentionRate' {
-  return metric === 'cited' ? 'citationRate' : 'mentionRate'
-}
+/**
+ * Cited where no answer carries sources (an engine without web access, such
+ * as a local model): the point has no rate, the engine reads "Not measured".
+ */
+export const CITATION_NOT_MEASURED_TREND_COPY = {
+  value: 'Not measured',
+  point: 'not measured, no answer has sources',
+  window: 'Not measured: the engines in this window return no sources, so whether they cite you is not measured.',
+} as const
 
-function metricCount(bucket: MetricsBucket, metric: Exclude<MetricChoice, 'mentionShare'>): number {
-  return metric === 'cited' ? bucket.cited : bucket.mentionedCount
+/**
+ * One point's rate with its count and base, as the API sent them. Cited reads
+ * over the answers whose sources were checked (`citedTotal`), so its rate is
+ * null when every answer came from an engine without sources.
+ */
+interface PointMetric { count: number; total: number; rate: number | null }
+
+function metricCounts(
+  row: Pick<MetricsBucket, 'cited' | 'total' | 'citedTotal' | 'citationRate' | 'mentionedCount' | 'mentionRate'>,
+  metric: Exclude<MetricChoice, 'mentionShare'>,
+): PointMetric {
+  return metric === 'cited'
+    ? { count: row.cited, total: row.citedTotal ?? row.total, rate: row.citationRate }
+    : { count: row.mentionedCount, total: row.total, rate: row.mentionRate }
 }
 
 function providerMetricCount(
   bucket: MetricsBucket,
   provider: string,
   metric: Exclude<MetricChoice, 'mentionShare'>,
-): { count: number; total: number; rate: number } | null {
+): PointMetric | null {
   const row = (bucket.byProvider as Record<string, ProviderMetricBucket | undefined>)[provider]
-  if (!row) return null
-  return {
-    count: metric === 'cited' ? row.cited : row.mentionedCount,
-    total: row.total,
-    rate: metric === 'cited' ? row.citationRate : row.mentionRate,
-  }
+  return row ? metricCounts(row, metric) : null
+}
+
+/** A point's figure in words: its count of its base, or why it has no rate. */
+function pointCountText(point: PointMetric): string {
+  return point.rate === null ? CITATION_NOT_MEASURED_TREND_COPY.point : `${point.count} of ${point.total}`
+}
+
+/** A point read aloud: its rate and base, or that its citation was not measured. */
+function spokenPoint(point: PointMetric, metric: Exclude<MetricChoice, 'mentionShare'>): string {
+  const label = metricLabel(metric).toLowerCase()
+  return point.rate === null
+    ? `${label} ${CITATION_NOT_MEASURED_TREND_COPY.point}`
+    : `${formatPercent(point.rate)} ${label}, ${point.count} of ${point.total} answers`
 }
 
 /** A point's base in words: the answers, or the tracked-brand mentions, behind its rate. */
@@ -1181,7 +1228,8 @@ function bucketBase(bucket: MetricsBucket, metric: MetricChoice): string {
     const { projectMentionSnapshots: you, competitorMentionSnapshots: competitors } = bucket.mentionShare
     return `${you} of ${you + competitors} tracked-brand mentions`
   }
-  return `${metricCount(bucket, metric)} of ${bucket.total} answers`
+  const point = metricCounts(bucket, metric)
+  return point.rate === null ? CITATION_NOT_MEASURED_TREND_COPY.point : `${point.count} of ${point.total} answers`
 }
 
 function findBucket(buckets: readonly MetricsBucket[], label: string | number | undefined): MetricsBucket | null {
@@ -1310,7 +1358,7 @@ function presetHelp(row: ModelChangeRow, latestServedIds: readonly string[] | nu
   if (!isPerplexityPreset(row.provider, row.to)) return null
   if (row.served) return `Preset picks its own model. Answered with ${formatModelEvidence(row.served.to)} (was ${formatModelEvidence(row.served.from)}).`
   return latestServedIds && latestServedIds.length > 0
-    ? `Preset picks its own model. Answered with ${latestServedIds.join(', ')}.`
+    ? `Preset picks its own model. Answered with ${latestServedIds.map(model => model.includes('/') ? formatModelName(model) : model).join(', ')}.`
     : 'Preset picks its own model.'
 }
 
@@ -1438,7 +1486,7 @@ function WhatChanged({
   for (const [provider, entry] of Object.entries(served).sort(([a], [b]) => providerDisplayName(a).localeCompare(providerDisplayName(b)))) {
     // An older API sends no served ids; the recorded model stands in.
     const servedIds = (entry.latestServedModelIds as readonly string[] | undefined) ?? []
-    const ids = servedIds.length > 0 ? servedIds.join(', ') : formatModelEvidence(entry.latestObservation.state)
+    const ids = servedIds.length > 0 ? servedIds.map(model => model.includes('/') ? formatModelName(model) : model).join(', ') : formatModelEvidence(entry.latestObservation.state)
     details.push(<>{providerDisplayName(provider)} last answered with <strong>{ids}</strong> on <strong>{day(observedInstant(entry.latestObservation.observedAt))}</strong></>)
   }
 
@@ -1605,19 +1653,16 @@ function TrendTooltip({
       {head}
       {items.map((item, index) => {
         const key = String(item.dataKey ?? item.name ?? '')
-        const providerCounts = mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null
-        const count = providerCounts?.count ?? metricCount(bucket, metric)
-        const total = providerCounts?.total ?? bucket.total
         // The API's rate for this point, not the chart row, which is rounded to the axis.
-        const rate = providerCounts ? providerCounts.rate : bucket[metricField(metric)]
+        const point = (mode === 'byProvider' ? providerMetricCount(bucket, key, metric) : null) ?? metricCounts(bucket, metric)
         const color = item.color ?? seriesColor(key, index)
         return (
           <div key={`${key}-${index}`} className="trend-tooltip-block">
             <div className="trend-tooltip-row">
               <span className="trend-tooltip-swatch" style={{ backgroundColor: color }} aria-hidden="true" />
               <span className="trend-tooltip-name">{seriesLabel(key)}</span>
-              <span className="trend-tooltip-value">{formatPercent(rate)}</span>
-              <span className="trend-tooltip-count">{count} of {total}</span>
+              <span className="trend-tooltip-value">{point.rate === null ? CITATION_NOT_MEASURED_TREND_COPY.value : formatPercent(point.rate)}</span>
+              <span className="trend-tooltip-count">{pointCountText(point)}</span>
             </div>
           </div>
         )
@@ -1668,10 +1713,10 @@ function TrendDataSummary({
               valueText = series.map(provider => {
                 const counts = providerMetricCount(bucket, provider, metric)
                 if (!counts) return `${providerDisplayName(provider)} no data`
-                return `${providerDisplayName(provider)} ${formatPercent(counts.rate)} ${metricLabel(metric).toLowerCase()}, ${counts.count} of ${counts.total} answers`
+                return `${providerDisplayName(provider)} ${spokenPoint(counts, metric)}`
               }).join('; ')
             } else {
-              valueText = `${formatPercent(bucket[metricField(metric)])} ${metricLabel(metric).toLowerCase()}, ${metricCount(bucket, metric)} of ${bucket.total} answers`
+              valueText = spokenPoint(metricCounts(bucket, metric), metric)
             }
             const models = bucketModels(bucket)
             if (models.length > 0) valueText += `; models: ${models.join('; ')}`
@@ -1822,10 +1867,11 @@ export function VisibilityTrendSection({
     return (value: string) => labels.get(String(value)) ?? ''
   }, [buckets])
   // The points the selected metric plots: mention share skips a point with no
-  // tracked-brand mentions, as the chart and the server's change do.
+  // tracked-brand mentions, and Cited a point with no answer whose sources were
+  // checked, as the chart and the server's change do.
   const plottedBuckets = metric === 'mentionShare'
     ? buckets.filter(b => typeof b.mentionShare.rate === 'number' && Number.isFinite(b.mentionShare.rate))
-    : buckets
+    : metric === 'cited' ? buckets.filter(b => b.citationRate !== null) : buckets
   const latestPlotted = plottedBuckets.at(-1)
   // The API's rates behind the plotted points, since the chart rows are rounded
   // to the axis: the head formats these, so a rate under a tenth reads <0.1%.
@@ -1859,7 +1905,11 @@ export function VisibilityTrendSection({
     const base = formatBucketDayRange(plottedBuckets[0])
     if (base) trendDetails.push(<>Base: <strong>{base}</strong> point</>)
   }
-  if (byProviderMode && latestRate !== null) trendDetails.push(<><strong>{formatPercent(latestRate)}</strong> pools all answers; not an average of engines</>)
+  if (byProviderMode && latestRate !== null) {
+    // Cited pools only the answers whose sources were checked.
+    const pooled = metric === 'cited' && latestPlotted && latestPlotted.citationNotMeasured > 0 ? 'all answers with sources' : 'all answers'
+    trendDetails.push(<><strong>{formatPercent(latestRate)}</strong> pools {pooled}; not an average of engines</>)
+  }
 
   // One marker per point where the setup changed: an in-window model change,
   // or a query-set change first measured inside that point.
@@ -1868,11 +1918,16 @@ export function VisibilityTrendSection({
     ...buckets.filter(bucket => basketChangesInBucket(bucket, basketChanges).length > 0).map(bucket => bucket.startDate),
   ])].sort()
 
+  // The figure names its class once. Without the class control the label shows
+  // it ("Mentioned · all queries"), and mention share's label carries its scope;
+  // only beside the control, where the label is the bare metric, does the value
+  // add the class for a screen reader.
   const readout = latestRate !== null && latestPlotted && (
     <div className="visibility-trend-current">
       <span className="visibility-trend-current-dot" style={{ backgroundColor: headlineDotColor }} aria-hidden="true" />
-      <span className="visibility-trend-current-label">{spokenLabel}</span>
-      <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
+      <span className="visibility-trend-current-label">{spokenLabel}{!showsClassControl && metric !== 'mentionShare' ? ` · ${requestedClass} queries` : ''}</span>
+      <span className="visibility-trend-current-value">{formatPercent(latestRate)}{showsClassControl ? <span className="sr-only"> · {requestedClass} queries</span> : null}</span>
+      {trend?.rows.length === 1 && <InfoTooltip text="This view has one measurement point. A trend needs at least two comparable points." placement="bottom" />}
       {pointChange !== null && (
         <span className={`visibility-trend-current-delta ${changeQualified ? 'text-muted' : POINT_CHANGE_TONE[pointChange.direction]}`}>
           {pointChangeWords(pointChange)}
@@ -1884,9 +1939,6 @@ export function VisibilityTrendSection({
 
   const controls = (
     <div className="visibility-trend-controls">
-      {showsClassControl && (
-        <SegmentedRadioGroup options={QUERY_CLASS_OPTIONS} value={queryClass} onChange={setQueryClass} label="Query type" />
-      )}
       <SegmentedRadioGroup options={METRIC_OPTIONS} value={metric} onChange={setMetric} label="Metric" className="visibility-trend-metric-control" />
       {metric !== 'mentionShare' && (
         <SegmentedRadioGroup options={MODE_OPTIONS} value={mode} onChange={setMode} label="Series" />
@@ -1916,6 +1968,10 @@ export function VisibilityTrendSection({
               : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a check to start tracking citations and mentions over time.'}
         </p>
       )
+    } else if (metric === 'cited' && !citationMeasuredInWindow(data)) {
+      // Answers exist, but every one came from an engine without sources:
+      // there is no cited point to draw, and a line at 0% would be a miss.
+      body = <p className="text-copy-14 text-secondary">{CITATION_NOT_MEASURED_TREND_COPY.window}</p>
     } else if (byProviderMode && series.length === 0) {
       body = (
         <p className="text-copy-14 text-secondary">
@@ -1945,7 +2001,9 @@ export function VisibilityTrendSection({
                       aria-hidden="true"
                     />
                     <span className="trend-legend-name">{seriesLabel(key)}</span>
-                    {rate !== null && <span className="trend-legend-value">{formatPercent(rate)}</span>}
+                    {rate !== null
+                      ? <span className="trend-legend-value">{formatPercent(rate)}</span>
+                      : metric === 'cited' && providerCitationNotMeasured(data, key) && <span className="trend-legend-value">{CITATION_NOT_MEASURED_TREND_COPY.value}</span>}
                   </li>
                 )
               })}
@@ -2042,6 +2100,7 @@ export function VisibilityTrendSection({
               {modelChangeNotice.text}
             </p>
           )}
+          {showsClassControl && <div className="mb-3"><SegmentedRadioGroup options={QUERY_CLASS_OPTIONS} value={queryClass} onChange={setQueryClass} label="Query type" /></div>}
           {readout}
           {controls}
           {body}

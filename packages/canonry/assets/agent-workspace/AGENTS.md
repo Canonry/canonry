@@ -26,17 +26,23 @@ If the server isn't running, start it with `canonry serve`.
 | `canonry run <project>` | Trigger a visibility sweep across all configured providers |
 | `canonry run <project> --provider gemini` | Single-provider sweep |
 | `canonry status <project>` | Current project status and latest run summary |
-| `canonry evidence <project>` | Raw citation evidence from sweeps |
+| `canonry evidence <project>` | Per-query citation evidence; its JSON carries each query's history across sweeps |
 | `canonry insights <project>` | AI-generated insights and findings |
 | `canonry health <project>` | Health snapshot with visibility scores |
-| `canonry timeline <project>` | Per-query citation history over time |
 | `canonry export <project>` | Full project data export |
 
-### Auditing
+### Agent Readiness
 
 ```bash
-# Run a technical AEO audit on a URL
-npx @canonry/aeo-audit@4 <url> --format json
+# Scan the project's site: a bounded first look, waiting for the result
+canonry agent-readiness run <project> --max-pages 100 --wait --format json
+# Read the latest scan: the summary first, then the score, issues and one page's evidence
+canonry agent-readiness overview <project> --format json
+canonry agent-readiness score <project> --format json
+canonry agent-readiness issues <project> --format json
+canonry agent-readiness page-audit <project> --url <url> --format json
+# Check one page without a project, with the standalone audit
+npx @canonry/agent-readiness@8 <url> --format json
 ```
 
 ### Project Management
@@ -61,8 +67,8 @@ npx @canonry/aeo-audit@4 <url> --format json
 
 1. Identify affected queries from insights
 2. Pull evidence: `canonry evidence <project> --format json`
-3. Check timeline for trends: `canonry timeline <project> --format json`
-4. If structural issues suspected, run audit: `npx @canonry/aeo-audit@4 <url> --format json`
+3. Check each query's history across sweeps: the `runs` in that evidence
+4. If structural issues are suspected, read the latest Agent Readiness audit scan: `canonry agent-readiness overview <project> --format json`
 5. Compile findings with evidence and recommended actions
 
 ## Quota Awareness
@@ -79,6 +85,7 @@ Provider APIs have rate limits. Follow these guidelines:
 Reference skills are available in `skills/` for domain-specific guidance:
 
 - `skills/canonry/` -- Canonry operator playbook
+- `skills/aero/` -- Aero analyst playbook
 
 ## Error Handling
 

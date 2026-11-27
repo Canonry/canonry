@@ -193,16 +193,17 @@ describe('canonry ga attribution --format json', () => {
     }
     expect(parsed.directSessions).toBeGreaterThanOrEqual(75)
     expect(parsed.directSharePct).toBeGreaterThan(0)
-    // Cross-cutting dedup includes firstUserSource → 12; bySession is the dedicated AI channel bucket.
-    expect(parsed.aiSessions).toBe(12)
+    // AI sessions count the session lens only, as GA4's AI channel does: the
+    // 12 first-user sessions include returning visits from other channels.
+    expect(parsed.aiSessions).toBe(5)
     expect(parsed.aiSessionsBySession).toBe(5)
-    expect(parsed.aiSharePctBySession).toBeLessThan(parsed.aiSharePct)
+    expect(parsed.aiSharePctBySession).toBe(parsed.aiSharePct)
     expect(parsed.channelBreakdown.organic.sessions).toBe(20)
     expect(parsed.channelBreakdown.direct.sessions).toBeGreaterThanOrEqual(75)
     expect(parsed.channelBreakdown.ai.sessions).toBe(5)
     expect(parsed.channelBreakdown.other.sessions).toBe(0)
     expect(parsed.aiReferralLandingPages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ landingPage: '/pricing', source: 'chatgpt.com', sessions: 12 }),
+      expect.objectContaining({ landingPage: '/pricing', source: 'chatgpt.com', sessions: 5 }),
     ]))
     expect(parsed.trend.direct).toBeDefined()
     expect(parsed.trend.direct.sessions7d).toBe(50)

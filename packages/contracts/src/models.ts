@@ -40,6 +40,34 @@ export interface ProviderModelRegistry {
   knownModels: ModelDefinition[]
 }
 
+/** A readable label only; never use it as a model's execution or filter identity. */
+export function formatModelName(
+  id: string,
+  knownModels: readonly Pick<ModelDefinition, 'id' | 'displayName'>[] = [],
+): string {
+  const parts = id.trim().split('/')
+  const publisher = parts.length > 1 ? parts.shift()! : ''
+  const model = parts.join('/')
+  const redundantPublisher = publisher === 'google' && /^gemini(?:[-_]|$)/i.test(model) ? 'Google'
+    : publisher === 'anthropic' && /^claude(?:[-_]|$)/i.test(model) ? 'Anthropic'
+      : publisher === 'openai' && /^(?:gpt(?:[-_]|$)|o\d)/i.test(model) ? 'OpenAI' : ''
+  const known = knownModels.find(entry => entry.id === id)?.displayName.trim()
+  if (known) {
+    const prefix = `${redundantPublisher}:`
+    return redundantPublisher && known.startsWith(prefix) ? known.slice(prefix.length).trim() || known : known
+  }
+  const words = (slug: string) => slug
+    // Numeric separators identify versions and dates; do not turn 4-5 into 4.5.
+    .replace(/(?<!\d)[-_]|[-_](?!\d)/g, ' ')
+    .replace(/:\s*/g, ': ')
+    .replace(/\b[a-z]+/gi, word => word.toLowerCase() === 'gpt' ? 'GPT'
+      : word.toLowerCase() === 'ai' ? 'AI'
+        : word === 'o' ? word : word.charAt(0).toUpperCase() + word.slice(1))
+    .replace(/\bGPT (?=\d)/g, 'GPT-')
+  const label = words(model)
+  return publisher && !redundantPublisher ? `${words(publisher)}: ${label}` : label
+}
+
 /**
  * Model ids a provider renamed or retired, mapped to the id that answers in
  * their place. Keyed by provider name.

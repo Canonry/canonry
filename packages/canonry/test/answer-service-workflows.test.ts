@@ -24,9 +24,9 @@ import { SnapshotService } from '../src/snapshot-service.js'
 import { formatSnapshotMarkdown, formatSnapshotText } from '../src/commands/snapshot.js'
 import { getSharedProviderExecutionGate, resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
 
-const { fetchSiteTextMock, runAeoAuditMock } = vi.hoisted(() => ({ fetchSiteTextMock: vi.fn(), runAeoAuditMock: vi.fn() }))
+const { fetchSiteTextMock, runAgentReadinessAuditMock } = vi.hoisted(() => ({ fetchSiteTextMock: vi.fn(), runAgentReadinessAuditMock: vi.fn() }))
 vi.mock('../src/site-fetch.js', () => ({ fetchSiteText: fetchSiteTextMock }))
-vi.mock('@canonry/aeo-audit', () => ({ runAeoAudit: runAeoAuditMock }))
+vi.mock('@canonry/agent-readiness', () => ({ runAgentReadinessAudit: runAgentReadinessAuditMock }))
 vi.mock('../src/telemetry.js', () => ({ trackEvent: vi.fn() }))
 
 const CITED = `${FAKE_SERVICE_ID}:cited`
@@ -315,7 +315,7 @@ describe('research waiting on an upstream job', () => {
 describe('snapshots with an answer service', () => {
   beforeEach(() => {
     fetchSiteTextMock.mockResolvedValue('Acme Roofing repairs roofs.')
-    runAeoAuditMock.mockResolvedValue({ url: 'https://acme-roofing.example', finalUrl: 'https://acme-roofing.example', auditedAt: '2026-10-01T00:00:00.000Z', overallScore: 50, overallGrade: 'C', summary: 'Audit summary.', factors: [] })
+    runAgentReadinessAuditMock.mockResolvedValue({ url: 'https://acme-roofing.example', finalUrl: 'https://acme-roofing.example', auditedAt: '2026-10-01T00:00:00.000Z', overallScore: 50, overallGrade: 'C', summary: 'Audit summary.', factors: [] })
   })
 
   it('leaves the service out when no provider is named', async () => {
@@ -338,7 +338,7 @@ describe('snapshots with an answer service', () => {
     expect(stub.calls).toHaveLength(2)
     // The unmeasured answer is in the mention denominator only, never counted as "not cited".
     expect(report.summary).toMatchObject({ totalComparisons: 2, mentionCount: 2, citationCount: 1, citationComparisons: 1 })
-    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 2/2 successful provider responses and cited in 1/1 where citation was measured. Citation was not measured in 1 of them, because those providers do not tie their sources to the answer.')
+    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 2/2 successful provider responses and cited in 1/1 where citation was measured. Citation was not measured in 1 of them, because those providers return no sources tied to the answer.')
     const markdown = formatSnapshotMarkdown(report)
     expect(markdown).toContain('| Results only · Fake Answers | Yes | Not measured |')
     expect(markdown).toContain('| Cited · Fake Answers | Yes | Yes |')
@@ -349,7 +349,7 @@ describe('snapshots with an answer service', () => {
     const report = await new SnapshotService(registryWith(stub.impl, [])).createReport({ companyName: 'Acme Roofing', domain: 'acme-roofing.example', queries: ['best roofer'], providers: [RESULTS] })
     expect(report.queryResults[0]!.providerResults[0]).toMatchObject({ cited: false, mentioned: true, citationMeasured: false, error: null })
     expect(report.summary).toMatchObject({ totalComparisons: 1, mentionCount: 1, citationCount: 0, citationComparisons: 0 })
-    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 1/1 successful provider response. Citation was not measured, because that provider does not tie its sources to the answer.')
+    expect(report.summary.visibilityGap).toBe('Acme Roofing was mentioned in 1/1 successful provider response. Citation was not measured, because that provider returns no sources tied to the answer.')
     expect(report.summary.visibilityGap).not.toContain('never linked or cited')
     expect(formatSnapshotText(report)).toContain('citation not measured')
     expect(formatSnapshotMarkdown(report)).toContain('| Yes | Not measured |')

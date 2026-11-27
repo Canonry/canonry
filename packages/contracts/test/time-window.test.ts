@@ -10,7 +10,7 @@ describe('shared window grammar through existing parsers', () => {
     expect(parseWindow('all')).toBe('all')
     expect(parseWindow('')).toBe('all')
   })
-  it.each(['28d', '0d', '-7d', '7D', '1w'])('rejects unsupported metrics token %s with structured alternatives', value => {
+  it.each(['180d', '28d', '0d', '-7d', '7D', '1w'])('rejects unsupported metrics token %s with structured alternatives', value => {
     expect(() => parseWindow(value)).toThrow(expect.objectContaining({ code: 'VALIDATION_ERROR', message: `Invalid window "${value}". Must be one of: 7d, 30d, 90d, all.`, details: { field: 'window', value, allowed: ['7d', '30d', '90d', 'all'] } }))
   })
   it('keeps calendar-date validity and ordering independent of rolling labels', () => {
