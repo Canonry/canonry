@@ -817,7 +817,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // GET /google/callback — shared OAuth redirect target (excluded from auth middleware)
   app.get<{
     Querystring: { code?: string; state?: string; error?: string }
-  }>('/google/callback', async (request, reply) => {
+  }>('/google/callback', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     return handleOAuthCallback(request, reply)
   })
 
@@ -825,7 +825,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { code?: string; state?: string; error?: string }
-  }>('/projects/:name/google/callback', async (request, reply) => {
+  }>('/projects/:name/google/callback', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     return handleOAuthCallback(request, reply)
   })
 

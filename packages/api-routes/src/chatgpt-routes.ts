@@ -8,7 +8,7 @@
  *   GET  /auth/chatgpt/models      models the signed-in person's plan offers
  *   PUT  /auth/chatgpt/model       choose which of them Aero uses
  *
- * All of these are on the auth skip-list and resolve the sign-in cookie
+ * These routes resolve the sign-in cookie
  * themselves: `start` and `callback` run before anyone is signed in, and the
  * rest are a person's own settings, which a view-only person must be able to
  * change even though the role gate refuses viewers every other write. The
@@ -114,7 +114,8 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
    * its budget (`resolveCallerKey`), never on the raw socket address: behind a
    * declared proxy that is the proxy, shared by everyone.
    */
-  const perCaller = (max: number) => ({
+  const signInRouteConfig = (max: number) => ({
+    skipInstanceAuth: true,
     rateLimit: {
       timeWindow: '1 minute',
       keyGenerator: (request: FastifyRequest) => {
@@ -172,7 +173,7 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
     return reply.redirect(withParam(returnTo ?? dashboardPath, 'chatgpt_error', error), 302)
   }
 
-  app.get('/auth/chatgpt/status', { config: perCaller(120) }, async (request, reply): Promise<ChatGptStatusDto> => {
+  app.get('/auth/chatgpt/status', { config: signInRouteConfig(120) }, async (request, reply): Promise<ChatGptStatusDto> => {
     reply.header('cache-control', 'no-store')
     const userId = signedInUserId(request, reply)
     if (!opts.accounts) {
@@ -182,7 +183,7 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
   })
 
   // Public and writes a sign-in row, so it is budgeted per caller.
-  app.get<{ Querystring: { intent?: string; returnTo?: string } }>('/auth/chatgpt/start', { config: perCaller(20) }, async (request, reply) => {
+  app.get<{ Querystring: { intent?: string; returnTo?: string } }>('/auth/chatgpt/start', { config: signInRouteConfig(20) }, async (request, reply) => {
     const parsedIntent = chatGptSignInIntentSchema.safeParse(request.query.intent ?? ChatGptSignInIntents.login)
     const returnTo = safeReturnTo(request.query.returnTo, dashboardPath)
     if (!parsedIntent.success) return redirectWithError(reply, ChatGptSignInErrors.failed, returnTo)
@@ -209,7 +210,7 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
     return reply.redirect(started.url, 302)
   })
 
-  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/auth/chatgpt/callback', { config: perCaller(30) }, async (request, reply) => {
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/auth/chatgpt/callback', { config: signInRouteConfig(30) }, async (request, reply) => {
     // The binding cookie is single use whatever the outcome.
     appendCookie(reply, bindingCookie(request, null))
     reply.header('cache-control', 'no-store')
@@ -259,7 +260,7 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
     return reply.redirect(withParam(returnTo ?? dashboardPath, 'chatgpt', result.plan === 'connected' ? 'connected' : 'linked'), 302)
   })
 
-  app.post('/auth/chatgpt/disconnect', { config: perCaller(10) }, async (request, reply) => {
+  app.post('/auth/chatgpt/disconnect', { config: signInRouteConfig(10) }, async (request, reply) => {
     assertCookieWriteOrigin(request)
     const userId = requireSignedIn(request, reply)
     if (!opts.accounts) return { disconnected: false, revoked: false }
@@ -273,7 +274,7 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
     return result
   })
 
-  app.get('/auth/chatgpt/models', { config: perCaller(30) }, async (request, reply): Promise<ChatGptModelListDto> => {
+  app.get('/auth/chatgpt/models', { config: signInRouteConfig(30) }, async (request, reply): Promise<ChatGptModelListDto> => {
     reply.header('cache-control', 'no-store')
     const userId = requireSignedIn(request, reply)
     if (!opts.accounts?.planUsageEnabled()) throw validationError('ChatGPT plan usage is not turned on for this dashboard.')
@@ -286,7 +287,7 @@ export async function chatGptRoutes(app: FastifyInstance, opts: ChatGptRoutesOpt
     }
   })
 
-  app.put('/auth/chatgpt/model', { config: perCaller(30) }, async (request, reply) => {
+  app.put('/auth/chatgpt/model', { config: signInRouteConfig(30) }, async (request, reply) => {
     assertCookieWriteOrigin(request)
     const userId = requireSignedIn(request, reply)
     if (!opts.accounts?.planUsageEnabled()) throw validationError('ChatGPT plan usage is not turned on for this dashboard.')
