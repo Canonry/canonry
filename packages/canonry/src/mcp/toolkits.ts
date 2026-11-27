@@ -78,8 +78,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'ga',
     title: 'Google Analytics 4',
-    description: 'Read GA traffic (with social and creator platforms ranked by conversions per 1,000 sessions), AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page).',
-    whenToLoad: 'Load to connect Google Analytics 4, select a property, or read traffic, referral and attribution data.',
+    description: 'Read GA traffic (with social and creator platforms ranked by conversions per 1,000 sessions), AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page), and run a GA4 sync when stored data is stale.',
+    whenToLoad: 'Load to connect Google Analytics 4, select a property, read traffic, referral and attribution data, or refresh it with a GA4 sync.',
   },
   {
     name: 'gbp',
