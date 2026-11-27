@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { bingCoverageSnapshots, bingUrlInspections, createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { BingApiError } from '@canonry/canonry-integration-bing'
-import { executeBingInspectSitemap } from '../src/bing-inspect-sitemap.js'
+import { BING_INSPECT_RUN_MAX_URLS, executeBingInspectSitemap } from '../src/bing-inspect-sitemap.js'
 import type { CanonryConfig } from '../src/config.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())
@@ -567,27 +567,42 @@ describe('executeBingInspectSitemap', () => {
       expect(db.select().from(bingUrlInspections).all()).toHaveLength(7)
     })
 
-    it('reports the per-run cap as partial with the exact unfinished work', async () => {
-      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(1501) })
+    it('checks one batch per run, completes it, and rotates the rest in on later runs', async () => {
+      // Bing throttles the shared key long before a sitemap is done, so a run
+      // that kept going until refused ended partial every day. A run plans a
+      // batch under the limit instead, and finishing that batch is complete.
+      const s = await startSitemapServer({ '/sitemap.xml': sitemapOf(45) })
       server = s.server
       const bingModule = await import('@canonry/canonry-integration-bing')
-      vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
-      const runId = await queueRun()
+      const read = vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _site, url) => ({ Url: url, HttpStatus: 200, DocumentSize: 1000 }))
+      const opts = { sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant }
+      const page = (i: number) => `https://harborline-coatings.example.com/p${i}`
+      const pages = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => page(from + i))
 
-      await executeBingInspectSitemap(db, runId, projectId, {
-        sitemapUrl: `${s.baseUrl}/sitemap.xml`, config: buildConfig('harborline-coatings.example.com'), pacedDeps: instant,
-      })
+      const first = await queueRun()
+      await executeBingInspectSitemap(db, first, projectId, opts)
 
-      expect(db.select().from(runs).where(eq(runs.id, runId)).get()).toMatchObject({ status: RunStatuses.partial, error: expect.stringContaining('1 of 1501') })
-      expect(db.select().from(bingUrlInspections).where(eq(bingUrlInspections.syncRunId, runId)).all()).toHaveLength(1500)
+      expect(BING_INSPECT_RUN_MAX_URLS).toBe(20)
+      expect(read.mock.calls.map((call) => call[2])).toEqual(pages(0, 19))
+      expect(db.select().from(runs).where(eq(runs.id, first)).get()).toMatchObject({ status: RunStatuses.completed, error: null })
       expect(featureCompleted()).toEqual([
         expect.objectContaining({
-          status: 'partial', reasonCode: 'QUOTA_EXCEEDED', operationKind: 'url-coverage',
-          counts: { urls: 1500, attempts: 1500, failures: 0, skipped: 1 },
-          diagnostics: { phase: 'persistence', remainingWork: 1 },
+          status: 'succeeded', operationKind: 'url-coverage',
+          counts: { urls: 20, attempts: 20, failures: 0, skipped: 25 },
         }),
-        { errorCode: 'QUOTA_EXCEEDED' },
+        undefined,
       ])
+
+      read.mockClear()
+      await executeBingInspectSitemap(db, await queueRun(), projectId, opts)
+      expect(read.mock.calls.map((call) => call[2])).toEqual(pages(20, 39))
+
+      // Never-checked pages first, then the stalest.
+      read.mockClear()
+      const third = await queueRun()
+      await executeBingInspectSitemap(db, third, projectId, opts)
+      expect(read.mock.calls.map((call) => call[2])).toEqual([...pages(40, 44), ...pages(0, 14)])
+      expect(db.select().from(runs).where(eq(runs.id, third)).get()).toMatchObject({ status: RunStatuses.completed, error: null })
     })
 
     it('does not start URL requests when crawl enrichment has already exhausted the account throttle', async () => {
