@@ -9235,7 +9235,7 @@ function withLegacyAgentReadinessOperations(catalog: readonly OpenApiOperation[]
 }
 
 export async function openApiRoutes(app: FastifyInstance, opts: OpenApiInfo = {}) {
-  app.get('/openapi.json', async (_request, reply) => {
+  app.get('/openapi.json', { config: { skipInstanceAuth: true } }, async (_request, reply) => {
     return reply.type('application/json').send(buildOpenApiDocument(opts))
   })
 }
