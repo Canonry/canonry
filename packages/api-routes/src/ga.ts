@@ -17,6 +17,7 @@ import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatform
 import { loadSocialPlatformPerformance } from './ga-social-platform-performance.js'
 import { clearGaDataOnPropertyChange, clearGaPropertyData, resolveCurrentGa4PropertyId, projectsSharingGoogleConnection, readGa4Properties } from './ga-property-data.js'
 import { planGaSyncCoverage, saveGaSyncCoverage, fetchGaSyncRanges } from './ga-sync-coverage.js'
+import { keptGaWindows, settleGaWindows } from './ga-sync-windows.js'
 import { persistSearchLandingFailure, persistSearchLandingSnapshot, searchLandingWindowsToFetch } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
@@ -1048,18 +1049,47 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // Non-additive totals stay native GA4 full-window reports. Detail rows
       // reuse successful coverage independently for each component.
       const WINDOW_KEYS = GA_OVERVIEW_WINDOWS
-      const [summary, windowSummaries, windowMetrics] = await Promise.all([
+      const windowsRequestedAt = new Date()
+      const [summary, windowSummaryResults, windowMetricResults] = await Promise.all([
         fetchAggregateSummary(accessToken, propertyId, days),
-        Promise.all(WINDOW_KEYS.map(w => fetchWindowSummary(accessToken, propertyId, w))),
-        Promise.all(WINDOW_KEYS.map(w => fetchWindowMetrics(accessToken, propertyId, w))),
+        Promise.allSettled(WINDOW_KEYS.map(w => fetchWindowSummary(accessToken, propertyId, w))),
+        Promise.allSettled(WINDOW_KEYS.map(w => fetchWindowMetrics(accessToken, propertyId, w))),
       ])
+      // A window GA4 did not answer keeps its earlier totals; see settleGaWindows.
+      const { read: windowSummaries, failed: failedSummaryWindows } = settleGaWindows(WINDOW_KEYS, windowSummaryResults)
+      const { read: windowMetrics, failed: failedMetricWindows } = settleGaWindows(WINDOW_KEYS, windowMetricResults)
+      // The window reports are the only ones that name the property's reporting
+      // zone, and every calendar day below is read in it. With none answered
+      // there is no zone to read days in, so the sync fails as it did before.
+      const zoneReport = windowMetrics[0]
+      if (!zoneReport) {
+        const firstError = failedMetricWindows[0]!.error
+        throw firstError instanceof Error ? firstError : new Error(describeError(firstError))
+      }
+      const reportTimeZone = zoneReport.timeZone
+      const failedWindows = [...failedMetricWindows, ...failedSummaryWindows]
+      for (const failure of failedWindows) {
+        componentFailure ??= { error: failure.error }
+        gaLog('warn', 'window.kept', {
+          projectId: project.id,
+          runId,
+          window: failure.window,
+          report: failedMetricWindows.includes(failure) ? 'totals' : 'summary',
+          error: describeError(failure.error),
+        })
+      }
+      const keptWindows = keptGaWindows(WINDOW_KEYS, failedWindows)
       const requested = { startDate: summary.periodStart, endDate: summary.periodEnd }
-      const definition = JSON.stringify(['v1', windowMetrics[0]!.timeZone ?? 'UTC'])
+      const definition = JSON.stringify(['v1', reportTimeZone ?? 'UTC'])
       const planInput = { projectId: project.id, propertyId, requested, definition }
       const trafficPlan = planGaSyncCoverage(app.db, { ...planInput, component: 'traffic' }, startedAt)
       const aiPlan = planGaSyncCoverage(app.db, { ...planInput, component: 'ai' }, startedAt)
       const socialPlan = planGaSyncCoverage(app.db, { ...planInput, component: 'social' }, startedAt)
-      const longestWindow = windowMetrics.at(-1)!
+      // The daily rows span the longest window and the period before it. When
+      // that window's report failed, its ranges are the ones it would have read.
+      const longestWindowKey = WINDOW_KEYS.at(-1)!
+      const longestWindow = windowMetrics.find(metric => metric.windowKey === longestWindowKey)
+        ?? gaOverviewComparisonRanges(longestWindowKey, windowsRequestedAt, reportTimeZone ?? 'UTC')
       const dailyPlan = planGaSyncCoverage(app.db, {
         ...planInput, component: 'daily',
         requested: { startDate: longestWindow.previous.startDate, endDate: shiftIsoCalendarDate(longestWindow.current.endDate, 1) },
@@ -1073,7 +1103,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         requested: { startDate: shiftIsoCalendarDate(requested.endDate, -leadDays), endDate: requested.endDate },
       }, startedAt)
       const searchRequestedAt = new Date()
-      const searchTimeZone = windowMetrics[0]!.timeZone ?? null
+      const searchTimeZone = reportTimeZone ?? null
       const searchWindows = syncSearchLanding
         ? searchLandingWindowsToFetch(app.db, project.id, propertyId, searchTimeZone, searchRequestedAt.toISOString())
         : []
@@ -1182,9 +1212,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           }).run()
         }
 
-        // GA4's totals per overview window, both periods, replaced together:
-        // one sync's view of every window, so no window keeps a stale period.
-        tx.delete(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).run()
+        // GA4's totals per overview window, both periods replaced together, so
+        // a window never mixes two syncs. A window GA4 did not answer keeps
+        // the rows an earlier sync stored, with the dates they cover.
+        if (windowMetrics.length > 0) {
+          tx.delete(gaWindowMetrics)
+            .where(and(
+              eq(gaWindowMetrics.projectId, project.id),
+              inArray(gaWindowMetrics.windowKey, windowMetrics.map(metric => metric.windowKey)),
+            ))
+            .run()
+        }
         for (const windowMetric of windowMetrics) {
           for (const [period, totals] of [
             [GaOverviewPeriods.current, windowMetric.current],
@@ -1301,10 +1339,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
           // Replace windowed summaries — one row per (project, windowKey).
           // Drives the deduplicated totalUsers headline when a window filter
-          // is active in /ga/traffic.
-          tx.delete(gaTrafficWindowSummaries)
-            .where(eq(gaTrafficWindowSummaries.projectId, project.id))
-            .run()
+          // is active in /ga/traffic. A window GA4 did not answer keeps its
+          // earlier row, which carries its own period.
+          if (windowSummaries.length > 0) {
+            tx.delete(gaTrafficWindowSummaries)
+              .where(and(
+                eq(gaTrafficWindowSummaries.projectId, project.id),
+                inArray(gaTrafficWindowSummaries.windowKey, windowSummaries.map(ws => ws.windowKey)),
+              ))
+              .run()
+          }
           for (const ws of windowSummaries) {
             tx.insert(gaTrafficWindowSummaries).values({
               id: crypto.randomUUID(),
@@ -1497,6 +1541,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         ...(clamped ? { requestedDays, clamped } : {}),
         totalUsers: summary.totalUsers,
         ...(only ? { only } : {}),
+        ...(keptWindows.length > 0 ? { keptWindows: keptWindows.map(kept => kept.window) } : {}),
       })
       const counts = { rows: rows.length + dailyTotals.rows.length + aiReferrals.length + socialReferrals.length }
       if (componentFailure) {
@@ -1521,6 +1566,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           leads: leadResult,
           ...(searchLandingResult ? { searchLandingPages: searchLandingResult } : {}),
         },
+        ...(keptWindows.length > 0 ? { keptWindows } : {}),
         ...(syncedComponents ? { syncedComponents } : {}),
       }
     } catch (e) {
