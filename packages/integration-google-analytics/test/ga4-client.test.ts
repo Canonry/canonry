@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, listProperties, fetchKeyEventNames, fetchAggregateSummary, fetchWindowSummary, _resetGa4ConcurrencyStateForTests } from '../src/ga4-client.js'
-import { GA4_MAX_CONCURRENT_REQUESTS, GA4_MAX_RETRIES } from '../src/constants.js'
+import { GA4_MAX_CONCURRENT_REQUESTS, GA4_MAX_RETRIES, GA4_MAX_TIMEOUT_RETRIES, GA4_REPORT_TIMEOUT_MS, GA4_REQUEST_TIMEOUT_MS } from '../src/constants.js'
 import crypto from 'node:crypto'
 
 describe('createServiceAccountJwt', () => {
@@ -643,6 +643,32 @@ describe('GA4 retry on transient errors', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 
+  it('tries a timed-out request once more, then gives up', async () => {
+    // Four 30-second attempts at the same slow report all ran out in
+    // production; a request that waited out its timeout gets one more wait.
+    fetchSpy.mockImplementation(async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+    })
+
+    const settled = verifyConnectionWithToken('fake-token', '123456').catch((e: unknown) => e)
+    await vi.runAllTimersAsync()
+    expect(await settled).toMatchObject({ name: 'TimeoutError' })
+    expect(fetchSpy).toHaveBeenCalledTimes(GA4_MAX_TIMEOUT_RETRIES + 1)
+  })
+
+  it('keeps the full retry budget for server errors after a timeout', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      .mockResolvedValueOnce(new Response('upstream', { status: 503 }))
+      .mockResolvedValueOnce(new Response('upstream', { status: 503 }))
+      .mockResolvedValueOnce(okResponse())
+
+    const promise = verifyConnectionWithToken('fake-token', '123456')
+    await vi.runAllTimersAsync()
+    await expect(promise).resolves.toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(GA4_MAX_RETRIES + 1)
+  })
+
   it('honors Retry-After on a 5xx response', async () => {
     let callCount = 0
     fetchSpy.mockImplementation(async () => {
@@ -664,6 +690,48 @@ describe('GA4 retry on transient errors', () => {
     await vi.advanceTimersByTimeAsync(1500)
     await expect(promise).resolves.toBe(true)
     expect(callCount).toBe(2)
+  })
+})
+
+describe('GA4 request timeouts', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+  let timeoutSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    _resetGa4ConcurrencyStateForTests()
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+    timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+    timeoutSpy.mockRestore()
+    _resetGa4ConcurrencyStateForTests()
+  })
+
+  it('gives Data API reports the report timeout, single and batched', async () => {
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ rows: [], reports: [{}, {}] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await fetchWindowSummary('fake-token', '123456', '180d')
+    await fetchAggregateSummary('fake-token', '123456', 30)
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(timeoutSpy.mock.calls).toEqual([[GA4_REPORT_TIMEOUT_MS], [GA4_REPORT_TIMEOUT_MS]])
+    expect(GA4_REPORT_TIMEOUT_MS).toBeGreaterThan(GA4_REQUEST_TIMEOUT_MS)
+  })
+
+  it('keeps the shorter request timeout for Admin API reads', async () => {
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ accountSummaries: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await listProperties('fake-token')
+
+    expect(timeoutSpy.mock.calls).toEqual([[GA4_REQUEST_TIMEOUT_MS]])
   })
 })
 

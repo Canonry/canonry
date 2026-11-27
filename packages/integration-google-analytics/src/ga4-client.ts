@@ -36,6 +36,8 @@ import {
   GOOGLE_TOKEN_URL,
   resolveGa4SyncDays,
   GA4_REQUEST_TIMEOUT_MS,
+  GA4_REPORT_TIMEOUT_MS,
+  GA4_MAX_TIMEOUT_RETRIES,
   GA4_MAX_PAGES,
   GA4_MAX_SYNC_DAYS,
   GA4_MAX_CONCURRENT_REQUESTS,
@@ -245,20 +247,25 @@ function parseRetryAfter(headerValue: string | null): number | undefined {
   return undefined
 }
 
+/** A request the client itself aborted on its own timer. */
+function isGa4Timeout(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
+}
+
 function isRetryableGa4Error(err: unknown): boolean {
   if (err instanceof GA4ApiError) {
     return err.status === 429 || err.status >= 500
   }
-  // A request the client itself aborted on `GA4_REQUEST_TIMEOUT_MS` is a
-  // transient network condition, not a decision by Google. Rejecting it
-  // immediately spent an attempt budget on nothing.
-  if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-    return true
-  }
-  return false
+  // A request the client aborted on its own timeout is a transient condition,
+  // not a decision by Google. Rejecting it immediately spent an attempt
+  // budget on nothing.
+  return isGa4Timeout(err)
 }
 
 async function withGa4Retry<T>(fn: () => Promise<T>, errLabel: string): Promise<T> {
+  // Timeouts draw on a smaller budget: each one has already waited out a full
+  // request timeout, and the same report rarely answers on the third wait.
+  let timeoutRetries = 0
   return withRetry(fn, {
     maxRetries: GA4_MAX_RETRIES,
     baseDelayMs: GA4_INITIAL_RETRY_DELAY_MS,
@@ -266,7 +273,12 @@ async function withGa4Retry<T>(fn: () => Promise<T>, errLabel: string): Promise<
     // schedule operators have been seeing in production until we have a
     // reason to introduce variance.
     jitter: false,
-    isRetryable: isRetryableGa4Error,
+    isRetryable: (err) => {
+      if (!isRetryableGa4Error(err)) return false
+      if (!isGa4Timeout(err)) return true
+      timeoutRetries++
+      return timeoutRetries <= GA4_MAX_TIMEOUT_RETRIES
+    },
     // Honor `Retry-After` when the server supplies it; fall back to the
     // computed exponential delay otherwise.
     computeDelayMs: (_attempt, err, defaultMs) => {
@@ -282,6 +294,7 @@ async function withGa4Retry<T>(fn: () => Promise<T>, errLabel: string): Promise<
         attempt: attempt + 1,
         maxAttempts: GA4_MAX_RETRIES + 1,
         status: ga4Err?.status,
+        timedOut: isGa4Timeout(err),
         delayMs,
         usedRetryAfter: ga4Err?.retryAfterSeconds !== undefined,
       })
@@ -309,7 +322,7 @@ async function runReport(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(GA4_REPORT_TIMEOUT_MS),
     })
 
     if (res.status === 401 || res.status === 403) {
@@ -380,7 +393,7 @@ async function batchRunReports(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ requests }),
-      signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(GA4_REPORT_TIMEOUT_MS),
     })
 
     if (res.status === 401 || res.status === 403) {

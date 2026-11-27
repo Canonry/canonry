@@ -229,6 +229,9 @@ export async function gaSync(project: string, opts?: { days?: number; only?: str
     console.log(`  Search Console landing pages: ${searchLanding.status} (${searchLanding.rowCount} rows)`)
     if (searchLanding.error) console.log(`    Error: ${searchLanding.error}`)
   }
+  for (const kept of result.keptWindows ?? []) {
+    console.log(`  ${kept.window} totals: GA4 did not answer, kept the earlier totals: ${kept.error}`)
+  }
   console.log(`  Synced at:   ${result.syncedAt}`)
 }
 
