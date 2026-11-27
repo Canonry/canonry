@@ -90,10 +90,6 @@ export function resetUiTelemetryForTests(options: { keepStorage?: boolean } = {}
   } catch { /* storage unavailable */ }
 }
 
-export function currentUiPage(): UiPage {
-  return state.page
-}
-
 /** The timer owns attribution: a checkpoint can belong to the screen just left. */
 export function trackUiPageTime(event: Omit<Extract<UiTelemetryEvent, { event: 'ui.page_time' }>, 'eventId' | 'uiSessionId' | 'tab'>): void {
   const { page, ...pending } = event

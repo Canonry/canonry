@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSystemHealthCards, getLaunchBlockedReason, buildSetupModel, serviceStatusTooltip } from '../src/lib/health-helpers.js'
+import { buildSystemHealthCards, getLaunchBlockedReason, buildSetupModel, serviceStatusTooltip, systemHealthNeedingAttention } from '../src/lib/health-helpers.js'
 import type { HealthSnapshot, SettingsVm, SetupWizardVm } from '../src/view-models.js'
 
 function makeHealth(overrides?: Partial<HealthSnapshot>): HealthSnapshot {
@@ -136,5 +136,45 @@ describe('MCP system health', () => {
     health.apiStatus.state = 'error'
     health.apiStatus.mcp = { status: 'available' }
     expect(buildSystemHealthCards([], health, makeSettings())[0]).toMatchObject({ id: 'mcp', detail: 'Unknown' })
+  })
+})
+
+describe('systemHealthNeedingAttention', () => {
+  const cards = [
+    { id: 'api', label: 'API', tone: 'neutral' as const, detail: '', meta: '' },
+    { id: 'worker', label: 'Worker', tone: 'neutral' as const, detail: '', meta: '' },
+    { id: 'provider', label: 'Gemini', tone: 'positive' as const, detail: 'Configured', meta: '' },
+  ]
+  const attention = (health: HealthSnapshot, settings: SettingsVm) =>
+    systemHealthNeedingAttention(buildSystemHealthCards(cards, health, settings), health)
+      .map(({ card, serviceStatus }) => [card.label, card.detail, serviceStatus?.state ?? null])
+
+  it('lists nothing while every service is healthy and a provider is ready', () => {
+    expect(attention(makeHealth(), makeSettings())).toEqual([])
+  })
+
+  it('lists a service that is not healthy, but never one still being checked', () => {
+    const health = makeHealth({
+      apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
+      workerStatus: { label: 'Worker', state: 'error', detail: 'heartbeat stale' },
+    })
+    expect(attention(health, makeSettings())).toEqual([['Worker', 'Needs attention', 'error']])
+    expect(attention(makeHealth({ workerStatus: { label: 'Worker', state: 'disabled', detail: 'off' } }), makeSettings()))
+      .toEqual([['Worker', 'Disabled', 'disabled']])
+  })
+
+  it('lists unavailable MCP, but not an MCP status the server does not report', () => {
+    const unavailable = makeHealth()
+    unavailable.apiStatus.mcp = { status: 'unavailable' }
+    expect(attention(unavailable, makeSettings())).toEqual([['MCP', 'Unavailable', null]])
+    expect(attention(makeHealth(), makeSettings())).toEqual([])
+  })
+
+  // Settings still loading (or refused) list no providers: that is unknown, never "none configured".
+  it('lists missing providers only once provider settings have loaded', () => {
+    expect(attention(makeHealth(), makeSettings({ providerStatuses: [] }))).toEqual([['Providers', '0 of 0 configured', null]])
+    expect(attention(makeHealth(), makeSettings({ providerStatuses: [], providersKnown: false }))).toEqual([])
+    expect(buildSystemHealthCards(cards, makeHealth(), makeSettings({ providerStatuses: [], providersKnown: false })).find(card => card.id === 'provider'))
+      .toMatchObject({ label: 'Providers', tone: 'neutral', detail: 'Unknown' })
   })
 })

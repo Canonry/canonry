@@ -1,5 +1,6 @@
 import { linearTrendSchema } from './statistics.js'
 import { z } from 'zod'
+import { credentialTextSchema } from './credential-text.js'
 import { runStatusSchema } from './run.js'
 import { cloudflareQueueDrainSummarySchema, runSyncSummarySchema } from './run-sync-summary.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
@@ -270,8 +271,8 @@ export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRu
 export const trafficConnectWordpressRequestSchema = z.object({
   baseUrl: z.string().url(),
   username: z.string().min(1),
-  /** WordPress Application Password (the same auth used by the content client). */
-  applicationPassword: z.string().min(1),
+  /** WordPress Application Password (the same auth used by the content client). Its spaces are allowed; line breaks are not. */
+  applicationPassword: credentialTextSchema('WordPress application password', { allowSpaces: true }),
   displayName: z.string().min(1).optional(),
 })
 export type TrafficConnectWordpressRequest = z.infer<typeof trafficConnectWordpressRequestSchema>
@@ -281,8 +282,8 @@ export const trafficConnectVercelRequestSchema = z.object({
   projectId: z.string().min(1),
   /** Vercel team or account id: the org that owns the project ("orgId" in .vercel/project.json). */
   teamId: z.string().min(1),
-  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. */
-  token: z.string().min(1),
+  /** Vercel personal access token. Stored in `~/.canonry/config.yaml`, never the DB. One line, no spaces. */
+  token: credentialTextSchema('Vercel token'),
   /** Which deployment environment's request logs to pull. Default: `production`. */
   environment: vercelTrafficEnvironmentSchema.optional(),
   displayName: z.string().min(1).optional(),
@@ -389,8 +390,8 @@ export const trafficConnectCloudflareQueuePullRequestSchema = trafficConnectClou
   queueId: z.string().min(1),
   queueName: cloudflareQueueNameSchema,
   retentionSeconds: z.number().int().min(60).max(1_209_600),
-  /** Queue pull token; secret-store only, never persisted in configJson or returned. */
-  apiToken: z.string().min(1),
+  /** Queue pull token; secret-store only, never persisted in configJson or returned. One line, no spaces. */
+  apiToken: credentialTextSchema('Cloudflare API token'),
 })
 
 export const trafficConnectCloudflareRequestSchema = z.preprocess(
@@ -780,11 +781,13 @@ export const trafficSeriesPointSchema = z.object({
    */
   crawlerContentHits: z.number().int().nonnegative(),
   /**
-   * False for a bucket that predates any observation for this project, i.e.
-   * before `series.coverageStart`. Such a bucket reads 0 because nothing was
-   * being recorded, NOT because nothing happened, and a chart must not draw
-   * those as a measured zero. Derived here rather than in a component so the
-   * CLI draws the same distinction.
+   * False for a bucket nothing was recording: one before `series.coverageStart`
+   * (no observation yet), or one that begins at or after
+   * `series.recordedThrough` (no selected source has synced that far, e.g. its
+   * syncs keep failing). Such a bucket reads 0 because nothing was being
+   * recorded, NOT because nothing happened, and a chart must not draw those as
+   * a measured zero. Derived here rather than in a component so the CLI draws
+   * the same distinction.
    */
   measured: z.boolean(),
 })
@@ -900,10 +903,26 @@ export const trafficEventsResponseSchema = z.object({
      */
     aiUserFetchCountingChangedAt: z.string().nullable().optional(),
     /**
-     * Buckets holding only part of their period: the one recording began
-     * inside, and the newest while it is still running. Trend fits leave them
-     * out; a chart should not draw them as full readings. Optional so a newer
-     * client reads an older API.
+     * The newest sync watermark among the selected sources: every request
+     * before it has been pulled, and none after it has. Buckets that begin at
+     * or after it are `measured: false`. A source whose syncs keep failing
+     * holds it still, which is how its silent days are told apart from a quiet
+     * site. Null when unbounded or unknown: a direct-push Cloudflare source can
+     * report at any moment, and a source that never synced has no watermark.
+     * Project-wide it reads active sources only (not paused or archived); a
+     * `sourceId` view reads that source in any status. A span skipped and not
+     * yet backfilled inside the history is not reflected here (the
+     * `traffic.source.sync-lag` doctor check reports it). Not window-bound.
+     * Optional so a newer client reads an older API.
+     */
+    recordedThrough: z.string().nullable().optional(),
+    /**
+     * Measured buckets holding only part of their period: the one recording
+     * began inside, the newest while it is still running, and any that ends
+     * after a selected source's watermark while another source still reports
+     * (or that holds `recordedThrough` itself). Trend fits leave them out; a
+     * chart should not draw them as full readings. In bucket order. Optional so
+     * a newer client reads an older API.
      */
     partialBuckets: z.array(z.string()).optional(),
     /**

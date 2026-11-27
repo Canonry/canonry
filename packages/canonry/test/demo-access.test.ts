@@ -9,6 +9,7 @@ describe('public demo read boundary', () => {
     '/api/v1/projects/:name/technical-aeo/graph', '/api/v1/projects/:name/ads/summary',
     '/api/v1/projects/:name/conversion-tracking/contracts/:contractId/integrity',
     '/api/v1/keys/self', '/api/v1/auth/session', '/api/v1/projects/:name/agent/preview',
+    '/api/v1/runs/attention',
   ])('allows the stored read %s without opening writes', (route) => {
     expect(isDemoApiReadAllowed('GET', route)).toBe(true)
     expect(isDemoApiReadAllowed('HEAD', route)).toBe(true)

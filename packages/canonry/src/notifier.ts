@@ -1,6 +1,6 @@
 import { deliverReviewEvent, drainReviewDeliveries, dueReviewDeliveryProjects, reviewEventId } from './review-webhook-delivery.js'
 import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
-import { deliverWebhook, webhookUserAgent, measurementRunCompleteness, notProbeRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveWebhookTarget, snapshotMentionObserver, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
+import { deliverWebhook, webhookUserAgent, isScopedRun, measurementRunCompleteness, notProbeRun, notScopedRun, readAdvancedSignalTransitions, SentimentService, readQueryClasses, redactNotificationUrl, resolveDestination, resolveWebhookTarget, snapshotMentionObserver, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { AdvancedSignalTransition, AdvancedSignalTransitions, SentimentInstallState } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
@@ -1342,6 +1342,14 @@ export class Notifier {
     const thisRun = this.db.select().from(runs).where(eq(runs.id, runId)).get()
     if (!thisRun) return none
 
+    // A spot check asked a few queries on purpose; it is not a sweep, so it
+    // has no previous sweep to diff against and never sends a change alert.
+    // Its `run.completed` still goes out.
+    if (isScopedRun(thisRun)) {
+      log.info('transitions.skipped-spot-check', { runId })
+      return none
+    }
+
     // A plan run that fell short of its manifest measured only part of the
     // set. Diffing it against a complete previous run would report a citation
     // as lost when the truth is that the question was never asked this time —
@@ -1416,6 +1424,9 @@ export class Notifier {
           eq(runs.kind, thisRun.kind),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
           notProbeRun(),
+          // The previous sweep, never a spot check between the two: diffed
+          // against a 2-query check, every other query's change is lost.
+          notScopedRun(),
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))

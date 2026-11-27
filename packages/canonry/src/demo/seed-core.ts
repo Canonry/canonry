@@ -246,7 +246,9 @@ export function seedDemoCore(db: DatabaseClient, context: DemoSeedContext): void
         ],
         queries: simpleQueries.map(item => ({ queryId: item.id, queryText: item.query, provenance: 'demo-core' })),
       })
-      tx.insert(runs).values({ id: simpleRunId, projectId: context.simple.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', queries: simpleQueries.map(item => item.query), startedAt: createdAt, finishedAt: createdAt, createdAt }).run()
+      // A full sweep stores no query list, as a real one does; a list marks a
+      // spot check, which the trends and latest-sweep reads leave out.
+      tx.insert(runs).values({ id: simpleRunId, projectId: context.simple.id, kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: createdAt, finishedAt: createdAt, createdAt }).run()
       tx.insert(simpleMeasurementDefinitions).values({
         runId: simpleRunId, projectId: context.simple.id, definition: simpleDefinition,
         checksum: sha256(canonicalSimpleMeasurementDefinitionJson(simpleDefinition)), capturedAt: createdAt,

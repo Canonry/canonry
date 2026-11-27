@@ -414,7 +414,11 @@ export interface DashboardConfigEntry {
    */
   showResourceLinks?: boolean
 
-  /** Show the product feedback form in the dashboard. Defaults to true. */
+  /**
+   * Whether the dashboard points people to product feedback, such as the
+   * What's new note about `canonry feedback`. Defaults to true. The dashboard
+   * has no feedback form; feedback goes through the CLI and MCP.
+   */
   showFeedback?: boolean | null
 
   /**

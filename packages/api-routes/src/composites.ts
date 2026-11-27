@@ -85,7 +85,7 @@ import {
   providerKey,
   type SuggestedQueryGscRow,
 } from '@canonry/canonry-intelligence'
-import { notProbeRun, resolveProject } from './helpers.js'
+import { isScopedRun, notProbeRun, notScopedRun, resolveProject } from './helpers.js'
 import { compareInsightsForTriage, mapHealthSnapshotRow } from './intelligence.js'
 import { buildOverviewWhatChanged } from './overview-what-changed.js'
 import { runAdmissionState } from './run-queue.js'
@@ -155,7 +155,12 @@ export async function compositeRoutes(app: FastifyInstance, options: {
     const allRuns = allRunsRaw.filter(r => runMatchesFilters(r, filterLocation, sinceIso))
     const totalRuns = allRuns.length
 
-    const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
+    // Whole-project sweeps only. A spot check (a list of queries, or a slice
+    // of a plan) is a real observation of what it asked, but drawing it as a
+    // trend point or picking it as the latest/previous sweep would report a
+    // 2-query check as the whole basket. It still counts in `latestRun`,
+    // `totalRuns`, run status, and What changed's runs in progress.
+    const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'] && !isScopedRun(r))
     const completedVisRuns = visibilityRuns.filter(
       r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
     )
@@ -189,13 +194,16 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       ? { totalRuns, run: summarizeRun(latestRunRow), admission, manualAdmission }
       : { totalRuns: 0, run: null, admission, manualAdmission }
 
+    // A spot check writes a health row for its slice; the headline stays on
+    // the latest sweep's. A legacy row with no run joins nulls and passes.
     const healthRow = app.db
-      .select()
+      .select({ health: healthSnapshots })
       .from(healthSnapshots)
-      .where(eq(healthSnapshots.projectId, project.id))
+      .leftJoin(runs, eq(runs.id, healthSnapshots.runId))
+      .where(and(eq(healthSnapshots.projectId, project.id), notScopedRun()))
       .orderBy(desc(healthSnapshots.createdAt))
       .limit(1)
-      .get()
+      .get()?.health
     const health: HealthSnapshotDto | null = healthRow ? mapHealthSnapshotRow(healthRow) : null
 
     const insightRows = app.db

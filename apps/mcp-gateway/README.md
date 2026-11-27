@@ -8,6 +8,15 @@ that instance's existing Canonry login and consents to read access. One grant
 belongs to one instance and its immutable local user ID. It cannot switch
 workspaces through MCP arguments or combine multiple instances.
 
+Each workspace also has its own address, `https://mcp.canonry.ai/mcp/<workspace ID>`,
+for clients that keep one connection per URL, such as Claude's custom connectors.
+Its protected-resource metadata names that address as the OAuth resource, so a
+token issued there works only there and only for a grant to that workspace, and the
+consent page fills in that workspace and keeps it. Every well-formed workspace
+address answers metadata, registered or not, so an address never reveals whether a
+workspace exists; the registry lookup still happens only at consent. The shared
+address is unchanged.
+
 ```mermaid
 flowchart LR
   Client[ChatGPT or Codex] -->|Gateway OAuth bearer| Gateway[MCP gateway]

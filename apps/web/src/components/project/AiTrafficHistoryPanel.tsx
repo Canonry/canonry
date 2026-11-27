@@ -193,15 +193,37 @@ function ga4TrendAt(trend: { startDate: string; endDate: string; start: number; 
   return trend.start + (trend.end - trend.start) * ((Date.parse(`${day}T00:00:00.000Z`) - startMs) / spanMs)
 }
 
-/** Leading buckets before recording began, as one band; null when there are none. */
-function unmeasuredSpan(points: readonly Point[]): { from: string; to: string } | null {
+interface BucketSpan { from: string; to: string }
+
+/**
+ * Each run of buckets nothing was recording, as a band: the stretch before
+ * recording began, and the stretch after the last sync when a source stops
+ * reporting (its syncs keep failing). Both read 0 on the wire; neither is a
+ * reading of zero.
+ */
+function unmeasuredSpans(points: readonly Point[]): BucketSpan[] {
   // An API that predates `measured` sends undefined; treat that as measured,
   // otherwise the whole chart paints as a "not measured" band.
-  const isMeasured = (pt: Point) => pt.measured !== false
-  if (points.length === 0 || isMeasured(points[0]!)) return null
-  const lastUnmeasured = points.findIndex(isMeasured) - 1
-  if (lastUnmeasured < 0) return { from: points[0]!.bucket, to: points[points.length - 1]!.bucket }
-  return { from: points[0]!.bucket, to: points[lastUnmeasured]!.bucket }
+  const spans: BucketSpan[] = []
+  let from: string | null = null
+  points.forEach((pt, i) => {
+    if (pt.measured !== false) return
+    from ??= pt.bucket
+    if (points[i + 1]?.measured !== false) {
+      spans.push({ from, to: pt.bucket })
+      from = null
+    }
+  })
+  return spans
+}
+
+/** One shaded band per span. A one-bucket span has no width to shade, and its label would spill off the plot. */
+function unmeasuredBands(spans: readonly BucketSpan[]) {
+  return spans.filter((span) => span.from !== span.to).map((span) => (
+    <ReferenceArea key={span.from} x1={span.from} x2={span.to} fill="var(--color-overlay-hover)"
+                   fillOpacity={0.5} stroke="none"
+                   label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
+  ))
 }
 
 /**
@@ -274,8 +296,8 @@ function VisitsPanel({ source, rows, monthly, height, showXAxis, showTrend, unme
   height: number
   showXAxis: boolean
   showTrend: boolean
-  /** Server recording had not begun: banded rather than drawn as zero. */
-  unmeasured: { from: string; to: string } | null
+  /** Server buckets nothing was recording: banded rather than drawn as zero. */
+  unmeasured: readonly BucketSpan[]
   /** Server buckets counted by the older rule, through the one holding the change. */
   older: { from: string; to: string } | null
 }) {
@@ -309,12 +331,7 @@ function VisitsPanel({ source, rows, monthly, height, showXAxis, showTrend, unme
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
                            labelFormatter={monthly ? formatMonthLabel : formatChartDateLabel}
                            formatter={formatTooltipValue} />
-          {/* A one-bucket span has no width to shade, and its label would spill off the plot. */}
-          {unmeasured && unmeasured.from !== unmeasured.to && (
-            <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
-                           fillOpacity={0.5} stroke="none"
-                           label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
-          )}
+          {unmeasuredBands(unmeasured)}
           {/* Only on the server count: GA4 never used this rule. The dashed line
               marks the bucket the count changed in, so the boundary reads even
               where the shading is faint. */}
@@ -452,11 +469,19 @@ export function AiTrafficHistoryPanel({
   // whole time, so its line can span days the server count cannot.
   const gaTrend = (gaDaily.data as GA4AiReferralDailyDto | undefined)?.trend ?? null
 
-  // The stretch before recording began. Charted as a band rather than left to
-  // read as a flat zero, which is what an unmeasured day looks like otherwise.
-  const unmeasured = useMemo(() => unmeasuredSpan(points), [points])
+  // The stretches nothing was recording: before recording began, and after the
+  // last sync once a source stops reporting. Charted as bands rather than left
+  // to read as a flat zero, which is what an unmeasured day looks like otherwise.
+  const unmeasured = useMemo(() => unmeasuredSpans(points), [points])
 
   const coverageStart = (events.data as { series?: { coverageStart?: string | null } } | undefined)?.series?.coverageStart ?? null
+  // Where the selected sources' last sync reached. When the newest day lies past
+  // it, recording has stopped (a source whose syncs keep failing), and the
+  // latest-day figures are not a reading of zero.
+  const recordedThrough = (events.data as { series?: { recordedThrough?: string | null } } | undefined)?.series?.recordedThrough ?? null
+  const stoppedSince = recordedThrough !== null && points.at(-1)?.measured === false
+    ? formatChartDateLabel(recordedThrough.slice(0, 10))
+    : null
 
   // Server visits on days before the API's `aiReferralCountingChangedAt` were
   // counted by an older rule that also counted a visitor's later pages, assets
@@ -545,11 +570,11 @@ export function AiTrafficHistoryPanel({
   }, [monthPoints, monthSeries, gaMonthsDto])
 
   // Server recording only: the GA4 view has its own readings inside that span.
-  const visitUnmeasured = useMemo(() => {
-    if (visitSource === 'ga4') return null
+  const visitUnmeasured = useMemo((): BucketSpan[] => {
+    if (visitSource === 'ga4') return []
     if (!monthly) return unmeasured
     const shown = new Set(monthRows.map((row) => row.bucket))
-    return unmeasuredSpan(monthPoints.filter((pt) => shown.has(pt.bucket)))
+    return unmeasuredSpans(monthPoints.filter((pt) => shown.has(pt.bucket)))
   }, [visitSource, monthly, monthPoints, monthRows, unmeasured])
   const visitOlder = useMemo(
     () => (monthly ? olderCountSpan(monthPoints, monthSeries?.aiReferralCountingChangedAt?.slice(0, 7)) : olderCount),
@@ -660,14 +685,18 @@ export function AiTrafficHistoryPanel({
             ? 'No server-side traffic source connected yet.'
             : connectedButSilent
               ? 'No AI activity recorded yet.'
-              : 'No AI activity recorded in this period.'}
+              : stoppedSince
+                ? `No AI activity recorded, and no new data since ${stoppedSince}.`
+                : 'No AI activity recorded in this period.'}
         </p>
         <InfoTooltip
           text={noSourceConnected
             ? 'Connect a traffic source to see how AI engines read this site over time.'
             : connectedButSilent
               ? 'The source is connected but has not reported anything yet. A new source can take a few hours to appear.'
-              : 'The window was measured and nothing was recorded. Try a longer range.'}
+              : stoppedSince
+                ? `The traffic source has not synced since ${stoppedSince}, so the days after it were not measured. They are not a reading of zero. Check the source.`
+                : 'The window was measured and nothing was recorded. Try a longer range.'}
         />
       </div>
     )
@@ -709,7 +738,18 @@ export function AiTrafficHistoryPanel({
           24 hours. It was labelled "Last 24h" and read near-zero for anyone west
           of UTC during their afternoon, contradicting the chart directly below.
           Labelled for what it actually is, and marked when still filling. */}
-      {points.length > 0 && (
+      {points.length > 0 && stoppedSince && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 pb-3 mb-4 border-b border-default text-label-12 text-muted">
+          <span className="text-secondary text-label-12-strong">Latest day (UTC)</span>
+          {/* A state, not metadata: readable contrast, unlike the figures' muted labels. */}
+          <span className="flex items-center gap-1.5 text-label-13 text-secondary">
+            <span className="text-heading text-label-13-strong">Not measured.</span>
+            No new data since {stoppedSince}.
+            <InfoTooltip text={`The traffic source has not synced since ${stoppedSince}, so the days after it are shaded as not measured rather than drawn as zero. Check the source; a backfill can recover the missing days while the provider still keeps them.`} />
+          </span>
+        </div>
+      )}
+      {points.length > 0 && !stoppedSince && (
         <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 pb-3 mb-4 border-b border-default text-label-12 text-muted">
           <span className="text-secondary text-label-12-strong">Latest day (UTC)</span>
           <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
@@ -764,11 +804,7 @@ export function AiTrafficHistoryPanel({
                            itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
                            labelFormatter={formatChartDateLabel}
                            formatter={machinesTooltipFormatter} />
-          {unmeasured && (
-            <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
-                           fillOpacity={0.5} stroke="none"
-                           label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
-          )}
+          {unmeasuredBands(unmeasured)}
           {/* The last day a browser agent's requests were counted under the older
               rules. A line, not a band: the crawler series beside it never changed. */}
           {showFetches && olderFetchCount && (
@@ -904,7 +940,7 @@ export function AiTrafficHistoryPanel({
                 height={visitPanels.length === 1 ? 176 : last ? 134 : 104}
                 showXAxis={last}
                 showTrend={showTrend}
-                unmeasured={source === 'server' ? visitUnmeasured : null}
+                unmeasured={source === 'server' ? visitUnmeasured : []}
                 older={source === 'server' && olderCountShown ? visitOlder : null}
               />
             )

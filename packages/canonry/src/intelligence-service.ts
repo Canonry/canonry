@@ -8,6 +8,7 @@ import {
   buildGbpSummary,
   competitorIdentityColumns,
   mergeGscQueryTotalsWithFallback,
+  notScopedRun,
   readGscQueryDailyRows,
   readLatestGscDataDate,
 } from '@canonry/canonry-api-routes'
@@ -47,6 +48,11 @@ function analyzableRunPredicates(projectId: string) {
     // is called, but a future call site invoking it directly for a probe must
     // still not pollute the intelligence window.
     ne(runs.trigger, RunTriggers.probe),
+    // A spot check measured a few queries on purpose. Analyzed, it writes
+    // insights and a health row about its slice; as a baseline it hides every
+    // other query's change from the next sweep; as a history entry it adds a
+    // run to the streaks of the queries it asked.
+    notScopedRun(),
   ]
 }
 
@@ -1002,8 +1008,9 @@ export class IntelligenceService {
           eq(runs.projectId, projectId),
           eq(runs.kind, RunKinds['answer-visibility']),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
-          // Defensive — see top of file.
+          // Defensive — see top of file. A spot check is not a sweep either.
           ne(runs.trigger, RunTriggers.probe),
+          notScopedRun(),
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))

@@ -1259,6 +1259,39 @@ describe('POST /traffic/connect/wordpress', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('accepts an application password in its spaced groups but refuses a second line', async () => {
+    const spaced = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(spaced.statusCode).toBe(200)
+
+    const twoLines = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, applicationPassword: 'abcd efgh ijkl\nmnop qrst uvwx' },
+    })
+    expect(twoLines.statusCode).toBe(400)
+    expect(JSON.parse(twoLines.payload).error.message).toMatch(/WordPress application password has 2 lines/)
+    expect(twoLines.payload).not.toContain('abcd efgh')
+    expect(twoLines.payload).not.toContain('mnop')
+  })
+
+  it('keeps the application password out of a failed probe message', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failWpProbeWith: { status: 401, message: `rejected ${validBody.applicationPassword}`, body: 'nope' },
+    })
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.payload).error.message).toBe('WordPress traffic probe failed (HTTP 401): rejected [REDACTED] — nope')
+  })
+
   it('rejects baseUrl that resolves to a private / metadata address (SSRF guard)', async () => {
     // The probe attaches Basic-auth credentials, so an API-key holder could
     // otherwise coerce the server into reaching its own metadata service or
@@ -1408,6 +1441,55 @@ describe('POST /traffic/connect/vercel', () => {
       payload: { ...validBody, token: '' },
     })
     expect(res.statusCode).toBe(400)
+  })
+
+  /**
+   * A token file appended to with `>>` holds two tokens on two lines. Sent as
+   * a header, that value made fetch throw an error quoting both tokens, and
+   * the probe failure carried it back to the caller. It is now refused before
+   * any request, with a message that names the problem and not the value.
+   */
+  it.each([
+    { name: 'two lines', token: 'vcp_first_line_secret\nvcp_second_line_secret', problem: /has 2 lines/ },
+    { name: 'a space', token: 'vcp_first_line_secret vcp_second_line_secret', problem: /contains a space/ },
+    { name: 'a control character', token: 'vcp_first_line_secret\u0007vcp_second', problem: /control character/ },
+  ])('refuses a token with $name without repeating it or probing', async ({ token, problem }) => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload).error.message).toMatch(problem)
+    expect(res.payload).not.toContain('vcp_first_line_secret')
+    expect(res.payload).not.toContain('vcp_second')
+    expect(h.getVercelProbeInvocations()).toHaveLength(0)
+    expect(h.vercelCredentials.get('test-project')).toBeUndefined()
+  })
+
+  it('stores a token pasted with surrounding whitespace trimmed', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token: `  ${validBody.token}\n` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(h.vercelCredentials.get('test-project')?.token).toBe(validBody.token)
+  })
+
+  it('keeps the token out of a failed probe message', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failVercelProbeWith: { status: 400, message: `request quoted Bearer ${validBody.token}`, body: `echo ${validBody.token}` },
+    })
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(res.payload).not.toContain(validBody.token)
+    expect(JSON.parse(res.payload).error.message).toBe('Vercel traffic probe failed (HTTP 400): request quoted Bearer [REDACTED] — echo [REDACTED]')
   })
 
   it('rejects requests with an invalid environment', async () => {
@@ -1885,6 +1967,29 @@ describe('POST /traffic/sources/:id/sync — Vercel', () => {
     }
   })
 
+  // A failed sync is stored on the run and the source, and health alerts
+  // quote the source's last error: none of them may carry the token.
+  it('keeps the token out of a failed sync wherever the failure is stored', async () => {
+    const h = await buildHarness([], { failVercelPullWith: `Headers.append: "Bearer ${vercelConnectBody.token}" is an invalid header value.` })
+    try {
+      const sourceId = await connectVercel(h)
+      backdateLastSyncedAt(h.db, sourceId, 60 * 60_000)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(syncRes.payload).not.toContain(vercelConnectBody.token)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastError).toBe('Headers.append: "Bearer [REDACTED]" is an invalid header value.')
+      expect(h.db.select().from(runs).all().map(run => run.error)).toEqual([sourceRow.lastError])
+    } finally {
+      await h.close()
+    }
+  })
+
   it.each([
     { failure: 'a rejected token', error: () => new VercelLogsApiError('Vercel request-logs endpoint returned HTTP 403', 403), errorCode: 'PROVIDER_AUTH' },
     { failure: 'any other pull error', error: () => new Error('request-logs 500: gateway'), errorCode: 'PROVIDER_PULL' },
@@ -2345,6 +2450,26 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     } finally {
       await h.close()
       vi.useRealTimers()
+    }
+  })
+
+  it('keeps the token out of a failed backfill run', async () => {
+    const h = await buildHarness([], { failVercelPullWith: `request quoted Bearer ${vercelConnectBody.token}` })
+    try {
+      const sourceId = await connectVercel(h)
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const finalRun = await waitForRunComplete(h.db, JSON.parse(submitRes.payload).runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toBe('Vercel pull failed: request quoted Bearer [REDACTED]')
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(JSON.stringify(sourceRow)).not.toContain(vercelConnectBody.token)
+    } finally {
+      await h.close()
     }
   })
 
@@ -3806,6 +3931,32 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
       const wpEvent = fired.find((e) => (e as { sourceType: string }).sourceType === 'wordpress') as { status: string; errorCode: string } | undefined
       expect(wpEvent?.status).toBe('failed')
       expect(wpEvent?.errorCode).toBe('PROVIDER_PULL')
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('keeps the application password out of a failed sync in every form it travels in', async () => {
+    const password = wpConnectBody.applicationPassword
+    const basic = Buffer.from(`${wpConnectBody.username}:${password}`, 'utf8').toString('base64')
+    const h = await buildHarness([], {
+      failWpPullWith: `sent "${password}" as ${password.replace(/ /g, '')} in Basic ${basic}`,
+    })
+    try {
+      const sourceId = await connectWp(h)
+      const res = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(res.statusCode).toBe(502)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastError).toBe('sent "[REDACTED]" as [REDACTED] in Basic [REDACTED]')
+      for (const text of [res.payload, sourceRow.lastError!, ...h.db.select().from(runs).all().map(run => run.error ?? '')]) {
+        expect(text).not.toContain(password)
+        expect(text).not.toContain(password.replace(/ /g, ''))
+        expect(text).not.toContain(basic)
+      }
     } finally {
       await h.close()
     }
@@ -6421,6 +6572,145 @@ describe('crawler-hit content/infra segmentation', () => {
       expect(all.totals.aiUserFetchHits).toBe(2)
       expect(all.totals.aiReferralLandedHits).toBe(3)
     } finally { await h.close() }
+  })
+
+  /**
+   * The other end of coverage. A source whose syncs keep failing (an expired
+   * token answers every sync with HTTP 403) holds its watermark still, and the
+   * days after it read as a measured zero: the chart showed crawlers stopping
+   * when only the log pull had. A bucket past every selected source's
+   * watermark was not measured; one that holds a watermark, or runs past one
+   * while another source keeps reporting, is partial.
+   */
+  describe('buckets after the last sync', () => {
+    const WINDOW = 'since=2026-04-30T13%3A45%3A00.000Z&granularity=day'
+    const DAYS = Array.from({ length: 8 }, (_, index) =>
+      new Date(Date.UTC(2026, 3, 30) + index * 86_400_000).toISOString().slice(0, 10))
+    const STOPPED_AT = '2026-05-04T09:30:00.000Z'
+    const NOW = '2026-05-07T13:45:00.000Z'
+
+    async function seriesOf(h: Awaited<ReturnType<typeof buildHarness>>, sourceId?: string) {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/events?${WINDOW}${sourceId ? `&sourceId=${sourceId}` : ''}`,
+      })
+      expect(res.statusCode).toBe(200)
+      return trafficEventsResponseSchema.parse(JSON.parse(res.payload)).series
+    }
+
+    /** 100 content crawls a day from May 1 through the morning of May 4. */
+    function crawlsUntilStopped(h: Awaited<ReturnType<typeof buildHarness>>, source: typeof trafficSources.$inferSelect) {
+      insertSeriesCrawlerRows(h, source, [
+        ...[1, 2, 3].map(day => ({ tsHour: `2026-05-0${day}T00:00:00.000Z`, pathNormalized: `/day-${day}`, hits: 100 })),
+        { tsHour: '2026-05-04T05:00:00.000Z', pathNormalized: '/day-4', hits: 30 },
+      ])
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(NOW))
+    })
+
+    it('marks every bucket after a failing source\'s watermark as unmeasured', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT, lastError: 'HTTP 403' })
+          .where(eq(trafficSources.id, source.id)).run()
+        crawlsUntilStopped(h, source)
+
+        for (const series of [await seriesOf(h), await seriesOf(h, source.id)]) {
+          expect(series.coverageStart).toBe('2026-05-01T00:00:00.000Z')
+          expect(series.recordedThrough).toBe(STOPPED_AT)
+          expect(series.points.map(point => [point.bucket, point.measured])).toEqual(DAYS.map((day, index) => [day, index >= 1 && index <= 4]))
+          expect(series.partialBuckets, 'the day the source stopped inside; an unmeasured today is not partial').toEqual(['2026-05-04'])
+          expect(series.trends.crawlerContentHits, 'only the three full days').toMatchObject({ slope: 0, start: 100, end: 100, n: 3, startIndex: 1, endIndex: 3 })
+        }
+      } finally { await h.close() }
+    })
+
+    it('keeps the day measured but partial while another source still reports', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT })
+          .where(eq(trafficSources.id, source.id)).run()
+        const healthy = { ...source, id: 'healthy-source', displayName: 'Healthy', status: TrafficSourceStatuses.connected, lastSyncedAt: NOW }
+        h.db.insert(trafficSources).values(healthy).run()
+        crawlsUntilStopped(h, source)
+        insertSeriesCrawlerRows(h, healthy, [3, 4, 5, 6].map(day => ({ tsHour: `2026-05-0${day}T12:00:00.000Z`, pathNormalized: `/healthy-${day}`, hits: 10 })))
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBe(NOW)
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07'])
+        expect(project.trends.crawlerContentHits, 'fitted only before the stopped source fell behind').toMatchObject({ n: 3, startIndex: 1, endIndex: 3 })
+
+        const stopped = await seriesOf(h, source.id)
+        expect(stopped.recordedThrough).toBe(STOPPED_AT)
+        expect(stopped.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1 && index <= 4))
+
+        const reporting = await seriesOf(h, healthy.id)
+        expect(reporting.recordedThrough).toBe(NOW)
+        expect(reporting.points.map(point => point.measured), 'its own coverage starts May 3').toEqual(DAYS.map((_, index) => index >= 3))
+        expect(reporting.partialBuckets, 'its first day began at noon; today is still running').toEqual(['2026-05-03', '2026-05-07'])
+      } finally { await h.close() }
+    })
+
+    it('never marks a bucket unmeasured while a direct-push source can still report', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: STOPPED_AT })
+          .where(eq(trafficSources.id, source.id)).run()
+        // A missing delivery mode is the legacy direct-push shape; its own
+        // last-sync time is not a pull watermark.
+        h.db.insert(trafficSources).values({
+          ...source, id: 'worker-source', sourceType: 'cloudflare', displayName: 'Worker',
+          status: TrafficSourceStatuses.connected, lastSyncedAt: '2026-05-02T00:00:00.000Z', configJson: {},
+        }).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBeNull()
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-04', '2026-05-05', '2026-05-06', '2026-05-07'])
+      } finally { await h.close() }
+    })
+
+    it('ignores paused, archived and never-synced sources project-wide', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.connected, lastSyncedAt: NOW })
+          .where(eq(trafficSources.id, source.id)).run()
+        h.db.insert(trafficSources).values([
+          { ...source, id: 'paused-source', displayName: 'Paused', status: TrafficSourceStatuses.paused, lastSyncedAt: '2026-05-02T00:00:00.000Z' },
+          { ...source, id: 'archived-source', displayName: 'Archived', status: TrafficSourceStatuses.archived, lastSyncedAt: '2026-05-02T00:00:00.000Z' },
+          { ...source, id: 'never-synced-source', displayName: 'New', status: TrafficSourceStatuses.error, lastSyncedAt: null },
+        ]).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBe(NOW)
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets, 'only today, still running').toEqual(['2026-05-07'])
+
+        const paused = await seriesOf(h, 'paused-source')
+        expect(paused.recordedThrough, 'a selected source counts in any status').toBe('2026-05-02T00:00:00.000Z')
+        expect(paused.points.every(point => !point.measured), 'it recorded nothing of its own').toBe(true)
+      } finally { await h.close() }
+    })
+
+    it('leaves the series as it was when no selected source has a watermark', async () => {
+      const { h, source } = await emptySeriesHarness()
+      try {
+        h.db.update(trafficSources).set({ status: TrafficSourceStatuses.error, lastSyncedAt: null })
+          .where(eq(trafficSources.id, source.id)).run()
+        crawlsUntilStopped(h, source)
+
+        const project = await seriesOf(h)
+        expect(project.recordedThrough).toBeNull()
+        expect(project.points.map(point => point.measured)).toEqual(DAYS.map((_, index) => index >= 1))
+        expect(project.partialBuckets).toEqual(['2026-05-07'])
+      } finally { await h.close() }
+    })
   })
 
   /**

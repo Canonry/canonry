@@ -352,6 +352,51 @@ describe('listVercelTrafficEvents', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(3)
     })
 
+    /**
+     * fetch rejects a header value holding a line break, and its error quotes
+     * the whole header. A two-line token (a file appended to with `>>`) took
+     * both tokens into the CLI output that way.
+     */
+    it('refuses a token holding a line break or space before any request, without repeating it', async () => {
+      for (const token of ['vcp_one_secret_line\nvcp_two_secret_line', 'vcp_one_secret_line vcp_two_secret_line']) {
+        const error = await listVercelTrafficEvents({
+          token, projectId: 'prj_abc', teamId: 'team_xyz', startDate: 0, endDate: 1, initialRetryDelayMs: 0,
+        }).catch((err: unknown) => err)
+        expect(error).toBeInstanceOf(VercelLogsApiError)
+        expect((error as VercelLogsApiError).status).toBe(400)
+        expect((error as VercelLogsApiError).message).toBe('The Vercel token must be a single line with no spaces. Reconnect the source with the token alone.')
+        expect(JSON.stringify(error)).not.toContain('secret_line')
+      }
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('never lets a transport error quote the request, and keeps it retryable', async () => {
+      const leaky = new TypeError('Headers.append: "Bearer vcp_test" is an invalid header value.')
+      fetchSpy.mockImplementation(async () => { throw leaky })
+      const error = await listVercelTrafficEvents({
+        token: 'vcp_test', projectId: 'prj_abc', teamId: 'team_xyz', startDate: 0, endDate: 1, maxRetries: 1, initialRetryDelayMs: 0,
+      }).catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(VercelLogsApiError)
+      expect((error as VercelLogsApiError).status).toBe(503)
+      expect((error as VercelLogsApiError).message).toBe('Vercel request-logs request failed')
+      expect(JSON.stringify(error)).not.toContain('vcp_test')
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the network error code, and names a timeout', async () => {
+      fetchSpy.mockImplementation(async () => { throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND vercel.com'), { code: 'ENOTFOUND' }) }) })
+      const network = await listVercelTrafficEvents({
+        token: 'vcp_test', projectId: 'prj_abc', teamId: 'team_xyz', startDate: 0, endDate: 1, maxRetries: 0,
+      }).catch((err: unknown) => err)
+      expect((network as VercelLogsApiError).message).toBe('Vercel request-logs request failed (ENOTFOUND)')
+
+      fetchSpy.mockImplementation(async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') })
+      const timeout = await listVercelTrafficEvents({
+        token: 'vcp_test', projectId: 'prj_abc', teamId: 'team_xyz', startDate: 0, endDate: 1, maxRetries: 0,
+      }).catch((err: unknown) => err)
+      expect(timeout).toMatchObject({ status: 504, message: 'Vercel request-logs request timed out' })
+    })
+
     it('disables retry entirely when maxRetries=0', async () => {
       fetchSpy.mockImplementation(async () => new Response('upstream broken', { status: 502 }))
 

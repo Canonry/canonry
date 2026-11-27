@@ -64,6 +64,7 @@ function dashboardFallback(urlStr: string) {
   }
   if (/\/api\/v1\/projects(?:\?|$)/.test(urlStr)) return jsonResponse([dashboardProject])
   if (urlStr.includes('/projects/') && urlStr.endsWith('/overview')) return jsonResponse({}, 404)
+  if (urlStr.includes('/runs/attention')) return jsonResponse({ since: '2026-01-01T00:00:00.000Z', items: [] })
   if (urlStr.includes('/runs')) return jsonResponse([])
   return jsonResponse({})
 }

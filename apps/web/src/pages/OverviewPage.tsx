@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
+import { formatDate, formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { SentimentOverviewMetric, showsSentimentOverview } from '../components/project/SentimentSection.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { CHECKING_HEALTH_SNAPSHOT, buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { CHECKING_HEALTH_SNAPSHOT, buildSystemHealthCards, serviceStatusTooltip, systemHealthNeedingAttention } from '../lib/health-helpers.js'
+import { isEmbed } from '../api.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { RunDetailLink } from '../components/shared/RunDetailLink.js'
@@ -165,7 +166,11 @@ export function OverviewPage() {
   const attentionItems = model.attentionItems
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? CHECKING_HEALTH_SNAPSHOT
-  const systemHealth = buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings)
+  // Infrastructure shows only what needs a person; Settings lists every service.
+  const systemHealth = systemHealthNeedingAttention(
+    buildSystemHealthCards(model.systemHealth.filter(card => isAdmin || card.id === 'api' || card.id === 'worker'), healthSnapshot, safeDashboard.settings),
+    healthSnapshot,
+  )
 
   return (
     <div className="page-container">
@@ -260,34 +265,32 @@ export function OverviewPage() {
                 <RunDetailLink key={run.id} run={run} projectName={model.projects.find(project => project.project.id === run.projectId)?.project.name} className="compact-run">
                   <div>
                     <p className="compact-run-title">{run.projectName}</p>
-                    <p className="compact-run-detail">{run.summary}</p>
+                    {/* Each location's sweep is its own job, so its row names the location. */}
+                    <p className="compact-run-detail">{run.location ? `${run.summary} · ${run.location}` : run.summary}</p>
                   </div>
                   <StatusBadge status={run.status} />
                 </RunDetailLink>
               ))
             ) : (
-              <p className="supporting-copy">Run history appears here after the first launch.</p>
+              <p className="supporting-copy">
+                {model.activitySince ? `No failed or running jobs since ${formatDate(model.activitySince)}.` : 'No failed or running jobs.'}
+                {/* An embed may not allow the Runs view. */}
+                {!isEmbed() && <> <Link to="/runs" className="text-link">All runs</Link></>}
+              </p>
             )}
           </div>
         </section>
       </div>
 
-      <section className="page-section">
+      {systemHealth.length > 0 && <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
             <h2 className="section-title-sm">Infrastructure</h2>
           </div>
         </div>
         <div className="divide-y divide-default border-y border-default">
-          {systemHealth.map((item) => {
-            const serviceStatus = item.id === 'api'
-              ? healthSnapshot.apiStatus
-              : item.id === 'worker'
-                ? healthSnapshot.workerStatus
-                : undefined
-            const visibleDetail = serviceStatus
-              ? serviceStatus.state === 'ok' ? undefined : serviceStatusTooltip(serviceStatus)
-              : item.tone === 'positive' ? undefined : item.meta
+          {systemHealth.map(({ card: item, serviceStatus }) => {
+            const visibleDetail = serviceStatus ? serviceStatusTooltip(serviceStatus) : item.meta
 
             return (
               <div key={item.id} className="flex items-start justify-between gap-4 py-3">
@@ -302,7 +305,7 @@ export function OverviewPage() {
             )
           })}
         </div>
-      </section>
+      </section>}
     </div>
   )
 }

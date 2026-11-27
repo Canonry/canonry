@@ -76,6 +76,7 @@ import type {
   ProjectUpsertRequest,
   ProjectPatchRequest,
   RunDto,
+  RunsAttentionDto,
   RunDetailDto,
   MeasurementPlanInput,
   MeasurementPlanCompilePreviewResponse,
@@ -150,6 +151,7 @@ import type {
   SchedulePreviewDto,
   SchedulePreviewRequest,
   NotificationDto,
+  NotificationUpdateRequest,
   SnapshotReportDto,
   SnapshotRequestInput,
   BrandMetricsDto,
@@ -416,6 +418,7 @@ import {
   postApiV1ProjectsByNameResultsClear,
   postApiV1ProjectsByNameRuns,
   getApiV1ProjectsByNameRunsLatest,
+  getApiV1RunsAttention,
   getApiV1RunsById,
   postApiV1RunsByIdCancel,
   postApiV1RunsByIdFill,
@@ -461,6 +464,7 @@ import {
   getApiV1ProjectsByNameNotifications,
   postApiV1ProjectsByNameNotifications,
   deleteApiV1ProjectsByNameNotificationsById,
+  patchApiV1ProjectsByNameNotificationsById,
   postApiV1ProjectsByNameNotificationsByIdTest,
   // Locations
   getApiV1ProjectsByNameLocations,
@@ -2514,6 +2518,15 @@ export class ApiClient {
     )
   }
 
+  /**
+   * Overview's Activity (`GET /runs/attention`): each job's latest run that
+   * failed, finished partly, was cancelled, or is still queued or running,
+   * across the projects the key can see. `since` defaults to 30 days ago.
+   */
+  async getRunsAttention(query: { since?: string } = {}): Promise<RunsAttentionDto> {
+    return this.invoke<RunsAttentionDto>(() => getApiV1RunsAttention({ client: this.heyClient, query: { since: query.since } }))
+  }
+
   async previewRun(project: string): Promise<RunPreviewDto> {
     return this.invoke<RunPreviewDto>(() => getApiV1ProjectsByNameRunPreview({ client: this.heyClient, path: { name: project } }))
   }
@@ -2860,6 +2873,12 @@ export class ApiClient {
   async deleteNotification(project: string, id: string): Promise<void> {
     await this.invoke<unknown>(() =>
       deleteApiV1ProjectsByNameNotificationsById({ client: this.heyClient, path: { name: project, id } }),
+    )
+  }
+
+  async updateNotification(project: string, id: string, body: NotificationUpdateRequest): Promise<NotificationDto> {
+    return this.invoke<NotificationDto>(() =>
+      patchApiV1ProjectsByNameNotificationsById({ client: this.heyClient, path: { name: project, id }, body }),
     )
   }
 

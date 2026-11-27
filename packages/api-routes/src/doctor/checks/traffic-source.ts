@@ -27,6 +27,8 @@ import {
   TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../../traffic-limits.js'
 import { cloudflareWorkerVersionFor } from '../../cloudflare-worker-version.js'
+// Only direct push has no pull watermark; queue pull and future modes take the pull checks.
+import { isCloudflareDirectPush } from '../../traffic-recording.js'
 import { SYNC_FAILURE_WINDOW, readSyncRunState } from './integration-sync.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } from '../types.js'
 
@@ -43,19 +45,6 @@ import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } 
 
 const RECENT_DATA_WARN_DAYS = 7
 const RECENT_DATA_FAIL_DAYS = 30
-
-/**
- * Only the current direct-push Cloudflare transport has no Canonry-side pull
- * watermark. Missing mode is the legacy direct-push shape. Reserved/future
- * modes must flow through normal pull checks instead of inheriting behavior
- * from `sourceType = cloudflare`.
- */
-function isCloudflareDirectPush(source: TrafficSourceProbe): boolean {
-  if (source.sourceType !== TrafficSourceTypes.cloudflare) return false
-  const deliveryMode = source.configJson.deliveryMode
-  return deliveryMode === undefined
-    || deliveryMode === CloudflareTrafficDeliveryModes['direct-push']
-}
 
 function isCloudflareQueuePull(source: TrafficSourceProbe): boolean {
   return source.sourceType === TrafficSourceTypes.cloudflare
@@ -153,6 +142,22 @@ function unrecoveredAlert(
   }
 }
 
+/**
+ * The provider refused the saved credentials (an expired or revoked token).
+ * Unlike a network blip, the next sync fails the same way.
+ */
+const CREDENTIALS_REJECTED = /\bHTTP 40[13]\b/
+
+/** What a person does about sources that keep failing, for the alert's next step. */
+function failingSourceNext(project: string, failing: readonly TrafficSourceProbe[]): string {
+  if (failing.some((s) => s.lastError && CREDENTIALS_REJECTED.test(s.lastError))) {
+    return 'The provider rejected the saved token or key, so every sync will fail until it is replaced. '
+      + `Reconnect the source with a new one (\`cnry traffic sources ${project}\` shows its settings), `
+      + 'then run a backfill for the missing days before the provider stops keeping those logs.'
+  }
+  return `Check the source with \`cnry traffic sources ${project}\`, then reconnect it if needed.`
+}
+
 const sourceConnectedCheck: CheckDefinition = {
   id: 'traffic.source.connected',
   category: CheckCategories.integrations,
@@ -194,6 +199,9 @@ const sourceConnectedCheck: CheckDefinition = {
       return {
         status: recovering ? CheckStatuses.warn : CheckStatuses.fail,
         code: recovering ? 'traffic.source.all-errored-recently' : 'traffic.source.all-errored',
+        // No server-side data arrives at all, and the gap is lost for good once
+        // the provider's log retention passes it: someone has to act.
+        ...(recovering ? {} : { urgent: true }),
         summary: recovering
           ? `The latest sync failed for all ${activeSources.length} active traffic source(s) (${failuresInARow} in a row; this fails at ${SYNC_FAILURE_WINDOW}). ${sinceText}`
           : `All ${activeSources.length} active traffic source(s) are in error state. ${sinceText}`,
@@ -213,17 +221,35 @@ const sourceConnectedCheck: CheckDefinition = {
           : {
               label: 'Traffic sync failing',
               line: `Traffic syncs for ${errored.map((s) => s.displayName).join(', ')} failed ${failuresInARow} times in a row${lastDataAt ? `, with no new data since ${formatCalendarDay(lastDataAt.slice(0, 10))}` : ''}.`,
-              next: `Check the source with \`cnry traffic sources ${ctx.project!.name}\`, then reconnect it if needed.`,
+              next: failingSourceNext(ctx.project!.name, errored),
             },
       }
     }
     if (errored.length > 0) {
+      // The other sources still report, but a source that keeps failing loses
+      // its own share of the traffic just the same, so it is urgent too.
+      const failing = errored.filter((s) =>
+        readSyncRunState(ctx.db, ctx.project!.id, RunKinds['traffic-sync'], { sourceId: s.id }).repeatedFailure)
+      const lastDataAt = failing.map((s) => s.lastSyncedAt).filter((at): at is string => !!at).sort()[0] ?? null
       return {
         status: CheckStatuses.warn,
         code: 'traffic.source.partially-errored',
+        ...(failing.length > 0 ? { urgent: true } : {}),
         summary: `${errored.length} of ${activeSources.length} active traffic source(s) are in error state.`,
         remediation: 'Run `canonry traffic sources <project>` to inspect the failing sources individually.',
-        details: { sourceCount: activeSources.length, pausedCount: sources.length - activeSources.length, erroredIds: errored.map((s) => s.id) },
+        details: {
+          sourceCount: activeSources.length, pausedCount: sources.length - activeSources.length, erroredIds: errored.map((s) => s.id),
+          failingIds: failing.map((s) => s.id),
+        },
+        ...(failing.length > 0
+          ? {
+              alert: {
+                label: 'Traffic sync failing',
+                line: `Traffic syncs for ${failing.map((s) => s.displayName).join(', ')} failed ${SYNC_FAILURE_WINDOW} or more times in a row${lastDataAt ? `, with no new data since ${formatCalendarDay(lastDataAt.slice(0, 10))}` : ''}. Other sources are still reporting.`,
+                next: failingSourceNext(ctx.project!.name, failing),
+              },
+            }
+          : {}),
       }
     }
     return {

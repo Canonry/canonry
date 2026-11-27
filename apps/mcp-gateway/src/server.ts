@@ -63,6 +63,22 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
   const network = new TenantHttpPool()
   const proxy = new GatewayProxy(config.requestTimeoutMs, network, (error, tenantId) => reportBackgroundError(error, Date.now(), tenantId))
   const resource = `${config.issuer}/mcp`
+  // A workspace's own address, `${resource}/<tenant id>`, for clients that keep one connection per
+  // URL. Its tokens work only there and its consent asks only for that workspace. The ID in it is a
+  // registry lookup at consent, never a destination, and no address answers whether a workspace exists.
+  const workspaceId = /^[a-z0-9][\w-]{0,127}$/i
+  /** The workspace an MCP resource names: null for the shared address, undefined when it is not ours. */
+  const addressedWorkspace = (identifier: string): string | null | undefined => {
+    if (identifier === resource) return null
+    const id = identifier.startsWith(`${resource}/`) ? identifier.slice(resource.length + 1) : ''
+    return workspaceId.test(id) ? id : undefined
+  }
+  /** The workspace an authorization asked for by its resource, as `addressedWorkspace` reads it. */
+  const askedWorkspace = (asked: unknown): string | null | undefined => {
+    if (asked === undefined) return null
+    const single: unknown = Array.isArray(asked) && asked.length === 1 ? (asked as unknown[])[0] : asked
+    return typeof single === 'string' ? addressedWorkspace(single) : undefined
+  }
   const activeRefresh = new Map<string, Promise<Connection>>()
   const activeAuthorizations = new Set<string>()
   // A workspace check still running for an interaction. Resolves to the error status the
@@ -221,8 +237,8 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       getResourceServerInfo: (ctx, identifier) => {
         const requested = typeof ctx.oidc.params?.scope === 'string' ? ctx.oidc.params.scope.split(/\s+/) : []
         if (requested.some(scope => scope !== 'read' && scope !== 'offline_access')) throw new errors.InvalidScope('Unsupported scope', 'read offline_access')
-        if (identifier !== resource) throw new errors.InvalidTarget()
-        return { scope: 'read offline_access', audience: resource, accessTokenFormat: 'opaque', accessTokenTTL: 600 }
+        if (addressedWorkspace(identifier) === undefined) throw new errors.InvalidTarget()
+        return { scope: 'read offline_access', audience: identifier, accessTokenFormat: 'opaque', accessTokenTTL: 600 }
       },
     } },
     scopes: ['read', 'offline_access'], responseTypes: ['code'],
@@ -278,7 +294,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     const credential = /^Bearer (\S+)$/i.exec(req.headers.authorization ?? '')
     if (credential) {
       const token = await provider.AccessToken.find(credential[1])
-      if (token?.grantId && token.aud === resource) key = `grant:${token.grantId}`
+      if (token?.grantId && typeof token.aud === 'string' && addressedWorkspace(token.aud) !== undefined) key = `grant:${token.grantId}`
     }
     const now = Date.now()
     let value = buckets.get(key)
@@ -299,19 +315,27 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
   })) })
   server.requestTimeout = config.requestTimeoutMs
   server.headersTimeout = Math.min(config.requestTimeoutMs, 30_000)
-  async function outerBearer(req: IncomingMessage): Promise<{ raw: string; connection: Connection }> {
+  /**
+   * The connection behind a bearer for one address: its own workspace address (`workspace`), the
+   * shared one (null), or any of them (undefined, for disconnect). A token works only at the address
+   * it was issued for, and a workspace address only for a grant to that workspace.
+   */
+  async function outerBearer(req: IncomingMessage, workspace?: string | null): Promise<{ raw: string; connection: Connection }> {
     const match = /^Bearer (\S+)$/i.exec(req.headers.authorization ?? '')
     if (!match) throw new UpstreamError(401)
     const token = await provider.AccessToken.find(match[1])
-    if (!token || token.aud !== resource || !token.scopes.has('read') || !token.grantId) throw new UpstreamError(401)
+    if (!token || typeof token.aud !== 'string' || !token.scopes.has('read') || !token.grantId) throw new UpstreamError(401)
+    const audience = addressedWorkspace(token.aud)
+    if (audience === undefined || (workspace !== undefined && audience !== workspace)) throw new UpstreamError(401)
     const connection = store.get<Connection>('connection', token.grantId)
     if (!connection || connection.revoked || !await provider.Grant.find(token.grantId)) throw new UpstreamError(401)
     if (connection.accountId !== token.accountId || connection.clientId !== token.clientId) throw new UpstreamError(401)
+    if (audience !== null && connection.tenantId !== audience) throw new UpstreamError(401)
     requestTenants.set(req, connection.tenantId)
     return { raw: match[1], connection }
   }
-  async function bearer(req: IncomingMessage) {
-    const authenticated = await outerBearer(req)
+  async function bearer(req: IncomingMessage, workspace: string | null) {
+    const authenticated = await outerBearer(req, workspace)
     return { ...authenticated, connection: await authorizeConnection(authenticated.connection.grantId) }
   }
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -340,17 +364,23 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     if (['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) {
       json(res, 200, { resource, authorization_servers: [config.issuer], scopes_supported: ['read', 'offline_access'], bearer_methods_supported: ['header'], resource_name: 'Canonry' }); return
     }
+    // Any well-formed workspace address has metadata, registered or not, so none reveals a workspace.
+    const metadataFor = /^\/\.well-known\/oauth-protected-resource\/mcp\/([^/]+)$/.exec(url.pathname)?.[1]
+    if (metadataFor !== undefined && workspaceId.test(metadataFor)) {
+      json(res, 200, { resource: `${resource}/${metadataFor}`, authorization_servers: [config.issuer], scopes_supported: ['read', 'offline_access'], bearer_methods_supported: ['header'], resource_name: 'Canonry' }); return
+    }
     if (url.pathname === '/disconnect') {
       if (req.method !== 'POST') throw new UpstreamError(405)
-      const { connection } = await outerBearer(req)
+      const { connection } = await outerBearer(req, undefined)
       await (await provider.Grant.find(connection.grantId))?.destroy()
       await disconnect(connection.grantId)
       json(res, 200, { disconnected: true }); return
     }
-    if (url.pathname === '/mcp') {
+    const addressed = url.pathname === '/mcp' ? null : /^\/mcp\/([^/]+)$/.exec(url.pathname)?.[1]
+    if (addressed === null || (addressed !== undefined && workspaceId.test(addressed))) {
       let authenticated
-      try { authenticated = await bearer(req) }
-      catch (error) { if (error instanceof UpstreamError && error.status === 401) res.setHeader('www-authenticate', `Bearer resource_metadata="${config.issuer}/.well-known/oauth-protected-resource/mcp"`); throw error }
+      try { authenticated = await bearer(req, addressed) }
+      catch (error) { if (error instanceof UpstreamError && error.status === 401) res.setHeader('www-authenticate', `Bearer resource_metadata="${config.issuer}/.well-known/oauth-protected-resource/mcp${addressed === null ? '' : `/${addressed}`}"`); throw error }
       const { connection, raw } = authenticated
       const current = tenant(connection.tenantId)
       const identity = store.get<GatewayIdentity>('identity', connection.accountId)
@@ -370,7 +400,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
         protocolVersions: current.protocolVersions, catalogVersion: current.catalogVersion,
       }, async options => {
         // Admission already read current authority. Long-lived delivery explicitly rechecks it.
-        if (options?.fresh) await bearer(req)
+        if (options?.fresh) await bearer(req, addressed)
       }, error => recordRequestError(req, error))
       return
     }
@@ -379,6 +409,9 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       const uid = interactionMatch[1]
       const details = await provider.interactionDetails(req, res)
       if (details.uid !== uid) throw new UpstreamError(403)
+      // A workspace's own address fixes the workspace; the shared address lets the person type one.
+      const fixedWorkspace = askedWorkspace(details.params.resource)
+      if (fixedWorkspace === undefined) throw new UpstreamError(400)
       const cookieName = `gateway_${uid}`
       const action = `${config.issuer}/interaction/${uid}`
       const showConsent = async (status = 200, unavailable = false) => {
@@ -395,6 +428,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
         })
         res.end(renderConsentPage({ nonce, clientName: client?.clientName ?? String(details.params.client_id),
           redirectUri: String(details.params.redirect_uri), action: `${action}/start`, csrf: browser.csrf,
+          ...(fixedWorkspace === null ? {} : { workspace: fixedWorkspace }),
           unavailable,
         }))
       }
@@ -411,7 +445,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       if (interactionMatch[2] === 'start' && req.method === 'POST') {
         if (req.headers.origin !== config.issuer) throw new UpstreamError(403)
         const form = new URLSearchParams(await readBody(req, config.maxBodyBytes))
-        const selection = (form.get('tenant') ?? '').trim()
+        const selection = fixedWorkspace ?? (form.get('tenant') ?? '').trim()
         const browser = store.take<BrowserState>('browser', uid)
         if (!browser) {
           // A double click sends the accepted form again. Only that browser and form match, and
@@ -461,6 +495,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
         if (!state || state.uid !== uid || state.nonce !== cookie(req, cookieName)) throw new UpstreamError(403)
         const current = { ...tenant(state.tenantId), upstreamClientId: state.upstreamClientId }
         requestTenants.set(req, current.id)
+        if (fixedWorkspace !== null && fixedWorkspace !== current.id) throw new UpstreamError(403)
         if (url.searchParams.has('error') || !url.searchParams.get('code') || (url.searchParams.has('iss') && url.searchParams.get('iss') !== current.issuer) || (state.discovery.authorization_response_iss_parameter_supported && url.searchParams.get('iss') !== current.issuer)) throw new UpstreamError(403)
         const tokens = await exchangeUpstream(current, state.discovery, { grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: state.verifier, redirect_uri: `${config.issuer}/upstream/callback` }, config.requestTimeoutMs, network)
         const authorization: PendingAuthorization = { tenantId: current.id, discovery: state.discovery, tokens, upstreamClientId: current.upstreamClientId }
@@ -476,7 +511,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
           const clientId = String(details.params.client_id)
           const grant = new provider.Grant({ accountId, clientId })
           grant.addOIDCScope('read offline_access')
-          grant.addResourceScope(resource, 'read offline_access')
+          grant.addResourceScope(fixedWorkspace === null ? resource : `${resource}/${fixedWorkspace}`, 'read offline_access')
           const grantId = await grant.save()
           authorization.grantId = grantId
           store.put('pending-authorization', uid, authorization)
