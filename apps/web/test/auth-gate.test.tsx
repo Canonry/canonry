@@ -52,6 +52,28 @@ function dashboardFallback(urlStr: string) {
     })
   }
   if (/\/api\/v1\/projects(?:\?|$)/.test(urlStr)) return jsonResponse([dashboardProject])
+  // A first-run setup link lands on the project's setup tracker, which reads
+  // the setup DTO: both tracks untouched, so the page opens on its start
+  // buttons and runs nothing.
+  const setupMatch = urlStr.match(/\/api\/v1\/projects\/([^/?]+)\/setup/)
+  if (setupMatch) {
+    const name = decodeURIComponent(setupMatch[1])
+    return jsonResponse({
+      project: { name, displayName: name, canonicalDomain: `${name}.example` },
+      complete: false,
+      firstResultAt: null,
+      nextAction: 'run_agent_readiness',
+      tracks: {
+        agentReadiness: { state: 'not_started', runId: null, startedAt: null, finishedAt: null, progress: null, result: null, error: null },
+        aiVisibility: { state: 'not_started', runId: null, runIds: [], startedAt: null, finishedAt: null, baselineRunId: null, blockedBy: 'no_queries', engines: [], queries: { total: 0, nonBrand: 0, branded: 0, unclassified: 0 }, progress: null, providerFailures: null, result: null, error: null, failedEngines: null },
+      },
+    })
+  }
+  const projectMatch = urlStr.match(/\/api\/v1\/projects\/([^/?]+)$/)
+  if (projectMatch) {
+    const name = decodeURIComponent(projectMatch[1])
+    return jsonResponse({ ...dashboardProject, name, displayName: name, canonicalDomain: `${name}.example` })
+  }
   if (urlStr.includes('/projects/') && urlStr.endsWith('/overview')) return jsonResponse({}, 404)
   if (urlStr.includes('/runs/attention')) return jsonResponse({ since: '2026-01-01T00:00:00.000Z', items: [] })
   if (urlStr.includes('/runs')) return jsonResponse([])
@@ -206,11 +228,37 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      await screen.findByRole('heading', { name: 'Overview' })
+      // The link lands on the project's first-run setup tracker (#1503
+      // consolidated onboarding onto it): the token flow is what this test
+      // owns, the tracker page is just where it lands.
+      await screen.findByRole('heading', { name: 'Set up Canonry' })
       expect(tokenRequests).toBe(1)
       // The token is spent: only it is stripped, the other params stay.
       expect(window.location.search).toBe('?project=acme&onboarding=first-run')
       expect(screen.queryByText('Create a dashboard password')).toBeNull()
+    })
+
+    test('clears the setup token from the URL when the browser already has a session', async () => {
+      const token = '0123456789abcdef'.repeat(4)
+      let tokenRequests = 0
+      window.history.pushState({}, '', `/?token=${token}`)
+      onTestFinished(() => { window.history.pushState({}, '', '/') })
+      mockFetch((url, init) => {
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session/setup-token') && init?.method === 'POST') {
+          tokenRequests += 1
+          return jsonResponse({ authenticated: true })
+        }
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: true, setupRequired: false })
+        return dashboardFallback(url)
+      })
+
+      render(<AuthGate />)
+      await screen.findByRole('heading', { name: 'Overview' })
+      // No mint runs — the session already exists — but the token still
+      // leaves the URL as soon as the page reads it.
+      expect(tokenRequests).toBe(0)
+      expect(window.location.search).toBe('')
     })
 
     test('falls back to the password form when the setup token is refused', async () => {
