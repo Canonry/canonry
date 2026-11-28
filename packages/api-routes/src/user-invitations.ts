@@ -15,6 +15,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { userInvitations, users } from '@canonry/canonry-db'
 import {
+  FULL_READ_CAPABILITY,
   createUserInvitationRequestSchema,
   forbidden,
   normalizeInvitationEmail,
@@ -71,7 +72,7 @@ export async function userInvitationRoutes(app: FastifyInstance) {
     }
   }
 
-  app.get('/users/invitations', async (request): Promise<UserInvitationListDto> => {
+  app.get('/users/invitations', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<UserInvitationListDto> => {
     authorize(request, USERS_READ_SCOPE)
     const rows = app.db.select().from(userInvitations).orderBy(desc(userInvitations.createdAt)).all()
     return { invitations: rows.map(toDto) }

@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  ANALYTICS_READ_CAPABILITY,
   AppError,
   MEASUREMENT_DEFAULT_QUERY_CLASS,
   MEASUREMENT_PAGE_DEFAULT_LIMIT,
@@ -1060,7 +1061,7 @@ export interface MeasurementOverviewRoutesOptions {
 export async function measurementOverviewRoutes(app: FastifyInstance, options: MeasurementOverviewRoutesOptions = {}) {
   const cache = options.cache ?? createMeasurementOverviewCache()
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-overview',
+    '/projects/:name/measurement-overview', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseOverviewQuery(request.query)

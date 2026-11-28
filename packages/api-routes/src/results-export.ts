@@ -14,6 +14,7 @@ import {
   type ResultsExportDto,
   type ResultsExportFormat,
   type ResultsExportRecord,
+  FULL_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { withFeatureOutcome } from './feature-outcome.js'
@@ -177,7 +178,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { format?: string; since?: string; until?: string; includeProbes?: string }
-  }>('/projects/:name/results/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
+  }>('/projects/:name/results/export', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const format = parseFormat(request.query.format)
     const includeProbes = parseBoolean(request.query.includeProbes, 'includeProbes')

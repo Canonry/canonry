@@ -8,6 +8,7 @@ import {
   gscDailyTotals,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   GA_SEARCH_LANDING_DEFAULT_LIMIT,
   GA_SEARCH_LANDING_DEFAULT_WINDOW,
   GA_SEARCH_LANDING_MAX_LIMIT,
@@ -372,7 +373,7 @@ export async function gaSearchLandingPagesRoutes(app: FastifyInstance, opts: GaS
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; limit?: string; offset?: string }
-  }>('/projects/:name/ga/search-landing-pages', (request) => (
+  }>('/projects/:name/ga/search-landing-pages', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, (request) => (
     buildGaSearchLandingPages(app.db, request.params.name, request.query, opts)
   ))
 }

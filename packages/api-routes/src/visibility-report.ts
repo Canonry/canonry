@@ -34,6 +34,7 @@ import {
   type VisibilityReportQuery,
   type VisibilityReportResponse,
   normalizeIdentityText as normalizedText,
+  DASHBOARD_READ_CAPABILITY,
 } from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
@@ -1166,6 +1167,7 @@ function readReport(
 export async function visibilityReportRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
     '/projects/:name/visibility-report',
+    { config: { readCapability: DASHBOARD_READ_CAPABILITY } },
     async request => readVisibilityReport(app.db, resolveProject(app.db, request.params.name), request.query),
   )
 }

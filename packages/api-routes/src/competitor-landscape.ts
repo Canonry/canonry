@@ -12,6 +12,7 @@ import {
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
+  DASHBOARD_READ_CAPABILITY,
   brandKeyFromText,
   brandLabelFromDomain,
   compareText as compareStoredIds,
@@ -238,7 +239,7 @@ export async function competitorLandscapeRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: RawQuery
-  }>('/projects/:name/analytics/competitors', async (request) => {
+  }>('/projects/:name/analytics/competitors', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request) => {
     return readCompetitorLandscape(app, request.params.name, request.query)
   })
 }

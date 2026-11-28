@@ -31,6 +31,8 @@ import {
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
+  FULL_READ_CAPABILITY,
   aiReferralClassCounts,
   credentialRedactionValues,
   redactKnownSecrets,
@@ -5096,7 +5098,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   })
 
   // GET /projects/:name/traffic/sources
-  app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db
       .select()
@@ -5112,7 +5114,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   })
 
   // GET /projects/:name/traffic/status
-  app.get<{ Params: { name: string } }>('/projects/:name/traffic/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/traffic/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db
       .select()
@@ -5130,7 +5132,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
   // GET /projects/:name/traffic/sources/:id
   app.get<{ Params: { name: string; id: string } }>(
-    '/projects/:name/traffic/sources/:id',
+    '/projects/:name/traffic/sources/:id', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request) => {
       const project = resolveProject(app.db, request.params.name)
       const row = app.db
@@ -5154,7 +5156,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       since?: string; until?: string; kind?: string; limit?: string; sourceId?: string; granularity?: string; sinceMinutes?: string
       path?: string; agent?: string; cursor?: string; groupBy?: string
     }
-  }>('/projects/:name/traffic/events', async (request) => {
+  }>('/projects/:name/traffic/events', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
     const now = new Date()

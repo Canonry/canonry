@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { notifications } from '@canonry/canonry-db'
 import type { NotificationEvent, NotificationDto, NotificationUpdateRequest } from '@canonry/canonry-contracts'
-import { notificationEventSchema, notificationUpdateRequestSchema, validationError, notFound, deliveryFailed } from '@canonry/canonry-contracts'
+import { FULL_READ_CAPABILITY, notificationEventSchema, notificationUpdateRequestSchema, validationError, notFound, deliveryFailed } from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { redactNotificationUrl } from './notification-redaction.js'
 import { deliverWebhook, resolveWebhookTarget, webhookUserAgent } from './webhooks.js'
@@ -43,7 +43,7 @@ export interface NotificationRoutesOptions {
 export async function notificationRoutes(app: FastifyInstance, opts: NotificationRoutesOptions = {}) {
   const allowLoopback = opts.allowLoopbackWebhooks === true
   // GET /notifications/events — list valid notification event types
-  app.get('/notifications/events', async (_request, reply) => {
+  app.get('/notifications/events', { config: { readCapability: FULL_READ_CAPABILITY } }, async (_request, reply) => {
     return reply.send(VALID_EVENTS)
   })
 
@@ -106,7 +106,7 @@ export async function notificationRoutes(app: FastifyInstance, opts: Notificatio
   }))
 
   // GET /projects/:name/notifications — list notifications
-  app.get<{ Params: { name: string } }>('/projects/:name/notifications', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/notifications', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const rows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()

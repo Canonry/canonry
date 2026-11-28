@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, like } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@canonry/canonry-db'
-import { notFound, validationError, RunKinds, RunStatuses, InsightActionGroups, insightActionGroupByType, type InsightDto, type HealthSnapshotDto } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, notFound, validationError, RunKinds, RunStatuses, InsightActionGroups, insightActionGroupByType, type InsightDto, type HealthSnapshotDto } from '@canonry/canonry-contracts'
 import { notProbeRun, notScopedRun, resolveProject } from './helpers.js'
 
 // Severity ordering for the insights `severity` filter (a MINIMUM-level gate:
@@ -204,7 +204,7 @@ export async function intelligenceRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { dismissed?: string; runId?: string; type?: string; severity?: string; limit?: string }
-  }>('/projects/:name/insights', async (request, reply) => {
+  }>('/projects/:name/insights', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const conditions = [eq(insights.projectId, project.id)]
@@ -256,7 +256,7 @@ export async function intelligenceRoutes(app: FastifyInstance) {
   // GET /projects/:name/insights/:id — get a single insight
   app.get<{
     Params: { name: string; id: string }
-  }>('/projects/:name/insights/:id', async (request, reply) => {
+  }>('/projects/:name/insights/:id', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const row = app.db
@@ -300,7 +300,7 @@ export async function intelligenceRoutes(app: FastifyInstance) {
   // GET /projects/:name/health/latest — latest health snapshot
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/health/latest', async (request, reply) => {
+  }>('/projects/:name/health/latest', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     // Multi-location `--all-locations` sweeps write one healthSnapshot per
@@ -366,7 +366,7 @@ export async function intelligenceRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/health/history', async (request, reply) => {
+  }>('/projects/:name/health/history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = request.query.limit ? parseInt(request.query.limit, 10) : NaN
     const limit = Number.isNaN(parsed) ? 30 : Math.min(Math.max(parsed, 1), 100)

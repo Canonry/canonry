@@ -10,7 +10,7 @@ import type { WordpressConnectionStore } from './wordpress.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import type { AgentProviderOption } from '@canonry/canonry-contracts'
-import { reportMonthSchema, validationError } from '@canonry/canonry-contracts'
+import { FULL_READ_CAPABILITY, reportMonthSchema, validationError } from '@canonry/canonry-contracts'
 import { isInstanceAdministrator } from './auth.js'
 import { resolveProject } from './helpers.js'
 import type { GoogleMarketingDoctorInputResolver } from './doctor/checks/google-marketing.js'
@@ -79,7 +79,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
   const redirectUri = resolveRedirectUri(opts)
 
   // GET /doctor — global checks (config, providers, etc.)
-  app.get<{ Querystring: { check?: string; reportMonth?: string } }>('/doctor', async (request) => {
+  app.get<{ Querystring: { check?: string; reportMonth?: string } }>('/doctor', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const checkIds = parseCheckIds(request.query.check)
     const ctx: DoctorContext = {
       db: app.db,
@@ -113,7 +113,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { check?: string; reportMonth?: string }
-  }>('/projects/:name/doctor', async (request) => {
+  }>('/projects/:name/doctor', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const checkIds = parseCheckIds(request.query.check)
     const ctx: DoctorContext = {

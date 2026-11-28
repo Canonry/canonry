@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, and, desc, ne } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { bingQueryStats, bingUrlInspections, bingCoverageSnapshots, projects, runs } from '@canonry/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomeOperationKinds, OutcomePhases, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, FULL_READ_CAPABILITY, validationError, notFound, RunKinds, RunStatuses, RunTriggers, describeError, percentOf, classifyOutcomeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, OutcomeOperationKinds, OutcomePhases, buildOutcomeDiagnostics, type OutcomePhase } from '@canonry/canonry-contracts'
 import { bingConnectRequestSchema, bingProjectSiteUrl, bingSiteUrlSchema, forbidden, operationInProgress } from '@canonry/canonry-contracts'
 import { isInstanceAdministrator, requireInstanceAdministrator } from './auth.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
@@ -265,7 +265,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   }))
 
   // GET /projects/:name/bing/status
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -343,7 +343,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   }))
 
   // GET /projects/:name/bing/coverage
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/coverage', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/coverage', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -457,7 +457,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/bing/coverage/history', async (request) => {
+  }>('/projects/:name/bing/coverage/history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -484,7 +484,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.get<{
     Params: { name: string }
     Querystring: { url?: string; limit?: string }
-  }>('/projects/:name/bing/inspections', async (request) => {
+  }>('/projects/:name/bing/inspections', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
@@ -827,7 +827,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/bing/performance', async (request) => {
+  }>('/projects/:name/bing/performance', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = Number.parseInt(request.query.limit ?? '', 10)
     const limit = Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 5000) : 5000

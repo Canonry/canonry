@@ -13,6 +13,7 @@ import {
 } from '@canonry/canonry-db'
 import {
   AiVisibilitySetupBlockers,
+  DASHBOARD_READ_CAPABILITY,
   ProjectSetupNextActions,
   QueryClasses,
   RunKinds,
@@ -70,7 +71,7 @@ export async function projectSetupRoutes(app: FastifyInstance, opts: ProjectSetu
 
   // GET /projects/:name/setup — the first-run setup tracker from stored state
   // only: no provider call, crawl or write. Probe runs never count.
-  app.get<{ Params: { name: string } }>('/projects/:name/setup', async (request): Promise<ProjectSetupDto> => {
+  app.get<{ Params: { name: string } }>('/projects/:name/setup', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request): Promise<ProjectSetupDto> => {
     const project = resolveProject(app.db, request.params.name)
     return readProjectSetup(app.db, project, {
       runnableProviders: opts.getRunnableProviderNames?.(),

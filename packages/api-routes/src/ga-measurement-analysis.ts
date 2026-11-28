@@ -11,6 +11,7 @@ import {
   gscSearchData,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   aiEngineForReferralSource,
   aiReferralEngineLabel,
   AiReferralTrafficClasses,
@@ -867,7 +868,7 @@ export async function gaMeasurementAnalysisRoutes(app: FastifyInstance) {
       pathPrefix?: string
       limit?: string
     }
-  }>('/projects/:name/ga/measurement-analysis', request => (
+  }>('/projects/:name/ga/measurement-analysis', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, request => (
     buildGaMeasurementAnalysis(app.db, request.params.name, request.query)
   ))
 }

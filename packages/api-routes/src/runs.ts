@@ -5,6 +5,7 @@ import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn }
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
 import {
+  DASHBOARD_READ_CAPABILITY,
   ProviderWorkflows,
   SEO_RUN_SCOPE,
   type ProviderRouteFamily,
@@ -37,6 +38,7 @@ import {
   serializeRunError,
   readCitationState,
   retrievedSourceSchema,
+  FULL_READ_CAPABILITY,
   type RetrievedSource,
   OVERVIEW_ACTIVITY_DEFAULT_DAYS,
   OVERVIEW_ACTIVITY_EXCLUDED_KINDS,
@@ -361,7 +363,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; since?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
-  }>('/projects/:name/runs', async (request, reply) => {
+  }>('/projects/:name/runs', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const parsedLimit = parseInt(request.query.limit ?? '', 10)
@@ -407,7 +409,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // written after the most recent real sweep must not become the project's
   // public state. Per-run detail endpoints (`GET /runs/:id`) still include
   // probes for operator inspection.
-  app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const countRow = app.db
       .select({ count: sql<number>`count(*)` })
@@ -450,7 +452,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/run-admission: the `admission` or `manualAdmission` of `/runs/latest`
   // without the latest run's answers, for the dashboard's notice on every
   // project page. Agents and the CLI read it on `/runs/latest` and the overview.
-  app.get<{ Params: { name: string }; Querystring: { selection?: string } }>('/projects/:name/run-admission', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { selection?: string } }>('/projects/:name/run-admission', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const selection = request.query.selection ?? RunTriggers.scheduled
     if (selection !== RunTriggers.manual && selection !== RunTriggers.scheduled) {
       throw validationError('"selection" must be one of: manual, scheduled')
@@ -466,7 +468,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // Stored-only preview of exactly POST /projects/:name/runs with its default body.
-  app.get<{ Params: { name: string } }>('/projects/:name/run-preview', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/run-preview', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     return reply.send(previewManualRun(app.db, {
       projectId: project.id,
@@ -506,7 +508,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   //   ?excludeKinds=K — exclude repeated or comma-separated run kinds.
   app.get<{
     Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
-  }>('/runs', async (request, reply) => {
+  }>('/runs', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const limit = parseListLimit(request.query.limit, 500, 5000)
     const since = parseListSince(request.query.since, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
     const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
@@ -539,7 +541,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // `overviewActivityRuns`, applied to every run of the window, so no
   // newer run elsewhere can push a job's failure out of view. The dashboard,
   // `canonry activity`, `canonry overview --all` and MCP read this response.
-  app.get<{ Querystring: { since?: string } }>('/runs/attention', async (request, reply) => {
+  app.get<{ Querystring: { since?: string } }>('/runs/attention', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const since = parseListSince(request.query.since, new Date(Date.now() - OVERVIEW_ACTIVITY_DEFAULT_DAYS * 24 * 60 * 60 * 1000).toISOString())
     const filters = [gte(runs.createdAt, since), notProbeRun(), notInArray(runs.kind, [...OVERVIEW_ACTIVITY_EXCLUDED_KINDS])]
     // A project-scoped key sees only its own project's jobs.
@@ -856,7 +858,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // GET /runs/:id/completeness — answered vs missing slots, and whether a fill would be admitted
-  app.get<{ Params: { id: string } }>('/runs/:id/completeness', async (request, reply) => {
+  app.get<{ Params: { id: string } }>('/runs/:id/completeness', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
     assertProjectScope(request, run.projectId)
@@ -868,7 +870,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // GET /runs/:id — get single run with snapshots
-  app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
+  app.get<{ Params: { id: string } }>('/runs/:id', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
     assertProjectScope(request, run.projectId)

@@ -13,6 +13,8 @@ import {
   runs,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
+  FULL_READ_CAPABILITY,
   RatioUnits,
   RunKinds,
   RunStatuses,
@@ -295,7 +297,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; days?: string; window?: string }
-  }>('/projects/:name/bing/traffic', async (request): Promise<BingTrafficResponseDto> => {
+  }>('/projects/:name/bing/traffic', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingTrafficResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const bounds = app.db
       .select({ latest: sql<string | null>`MAX(${bingTrafficDaily.date})`, earliest: sql<string | null>`MIN(${bingTrafficDaily.date})` })
@@ -470,7 +472,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; days?: string; window?: string; query?: string; match?: string; groupBy?: string; limit?: string; offset?: string }
-  }>('/projects/:name/bing/queries', async (request): Promise<BingQueryTotalsResponseDto> => {
+  }>('/projects/:name/bing/queries', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingQueryTotalsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const result = weeklyList(bingQueryStats, bingQueryStats.query, project.id, { ...request.query, search: request.query.query }, 'query')
     return {
@@ -490,7 +492,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; days?: string; window?: string; page?: string; match?: string; groupBy?: string; limit?: string; offset?: string }
-  }>('/projects/:name/bing/pages', async (request): Promise<BingPageTotalsResponseDto> => {
+  }>('/projects/:name/bing/pages', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingPageTotalsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const result = weeklyList(bingPageStats, bingPageStats.page, project.id, { ...request.query, search: request.query.page }, 'page')
     return {
@@ -510,7 +512,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; days?: string }
-  }>('/projects/:name/bing/crawl-stats', async (request): Promise<BingCrawlStatsResponseDto> => {
+  }>('/projects/:name/bing/crawl-stats', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingCrawlStatsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const latest = app.db.select({ latest: sql<string | null>`MAX(${bingCrawlStats.date})` }).from(bingCrawlStats).where(eq(bingCrawlStats.projectId, project.id)).get()?.latest ?? null
     const window = resolveBingWindow(request.query, latest)
@@ -528,7 +530,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/sitemaps
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/sitemaps', async (request): Promise<BingSitemapsResponseDto> => {
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/sitemaps', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingSitemapsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db.select().from(bingSitemaps).where(eq(bingSitemaps.projectId, project.id))
       .orderBy(sql`${bingSitemaps.parentUrl} IS NOT NULL`, asc(bingSitemaps.url))
@@ -551,7 +553,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/site
-  app.get<{ Params: { name: string }; Querystring: { kind?: string } }>('/projects/:name/bing/site', async (request): Promise<BingSiteResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { kind?: string } }>('/projects/:name/bing/site', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingSiteResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const conditions: SQL[] = [eq(bingSiteSnapshots.projectId, project.id)]
     if (request.query.kind) {
@@ -576,7 +578,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/keyword-demand
-  app.get<{ Params: { name: string }; Querystring: { query?: string } }>('/projects/:name/bing/keyword-demand', async (request): Promise<BingKeywordDemandResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { query?: string } }>('/projects/:name/bing/keyword-demand', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<BingKeywordDemandResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const market = bingKeywordMarket(project.country, project.language)
     const marketWhere = and(
@@ -619,7 +621,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   // ── Live reads ──────────────────────────────────────────────────────────
 
   // GET /projects/:name/bing/query-pages
-  app.get<{ Params: { name: string }; Querystring: { query?: string } }>('/projects/:name/bing/query-pages', async (request): Promise<BingQueryPagesResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { query?: string } }>('/projects/:name/bing/query-pages', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingQueryPagesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const searchQuery = requireText(request.query.query, 'query')
     const site = opts.requireSite(project.canonicalDomain)
@@ -628,7 +630,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/page-queries
-  app.get<{ Params: { name: string }; Querystring: { page?: string } }>('/projects/:name/bing/page-queries', async (request): Promise<BingPageQueriesResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { page?: string } }>('/projects/:name/bing/page-queries', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingPageQueriesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const page = requireHttpUrl(request.query.page, 'page')
     const site = opts.requireSite(project.canonicalDomain)
@@ -637,7 +639,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/query-history
-  app.get<{ Params: { name: string }; Querystring: { query?: string; page?: string } }>('/projects/:name/bing/query-history', async (request): Promise<BingQueryHistoryResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { query?: string; page?: string } }>('/projects/:name/bing/query-history', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingQueryHistoryResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const searchQuery = requireText(request.query.query, 'query')
     const page = request.query.page ? requireHttpUrl(request.query.page, 'page') : null
@@ -665,7 +667,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/url-traffic
-  app.get<{ Params: { name: string }; Querystring: { url?: string; children?: string; page?: string } }>('/projects/:name/bing/url-traffic', async (request): Promise<BingUrlTrafficResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { url?: string; children?: string; page?: string } }>('/projects/:name/bing/url-traffic', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingUrlTrafficResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const url = requireHttpUrl(request.query.url, 'url')
     const page = parsePage(request.query.page)
@@ -685,7 +687,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/url-children
-  app.get<{ Params: { name: string }; Querystring: { url?: string; page?: string } }>('/projects/:name/bing/url-children', async (request): Promise<BingUrlChildrenResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { url?: string; page?: string } }>('/projects/:name/bing/url-children', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingUrlChildrenResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const url = requireHttpUrl(request.query.url, 'url')
     const page = parsePage(request.query.page)
@@ -708,7 +710,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/links
-  app.get<{ Params: { name: string }; Querystring: { url?: string; page?: string } }>('/projects/:name/bing/links', async (request): Promise<BingLinksResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { url?: string; page?: string } }>('/projects/:name/bing/links', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingLinksResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const url = request.query.url ? requireHttpUrl(request.query.url, 'url') : null
     const page = parsePage(request.query.page)
@@ -722,7 +724,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   })
 
   // GET /projects/:name/bing/fetched-urls
-  app.get<{ Params: { name: string }; Querystring: { url?: string } }>('/projects/:name/bing/fetched-urls', async (request): Promise<BingFetchedUrlsResponseDto> => {
+  app.get<{ Params: { name: string }; Querystring: { url?: string } }>('/projects/:name/bing/fetched-urls', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingFetchedUrlsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const url = request.query.url ? requireHttpUrl(request.query.url, 'url') : null
     const site = opts.requireSite(project.canonicalDomain)
@@ -757,7 +759,7 @@ export async function bingDataRoutes(app: FastifyInstance, opts: BingDataRoutesO
   app.get<{
     Params: { name: string }
     Querystring: { keyword?: string; country?: string; language?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/bing/keywords', async (request): Promise<BingKeywordResearchResponseDto> => {
+  }>('/projects/:name/bing/keywords', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request): Promise<BingKeywordResearchResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const keyword = requireText(request.query.keyword, 'keyword')
     const projectMarket = bingKeywordMarket(project.country, project.language)

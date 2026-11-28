@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { eq, and, asc, desc, gt, gte, lt, lte, ne, inArray, or, isNull, isNotNull, sql } from 'drizzle-orm'
 import {
   ADS_WRITE_SCOPE,
+  ANALYTICS_READ_CAPABILITY,
   AdsActivationEntityTypes,
   AdsAdGroupBillingEventTypes,
   AdsCampaignBiddingTypes,
@@ -2453,7 +2454,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     return response
   }))
 
-  app.get<{ Params: { name: string } }>('/projects/:name/ads/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(adsConnections)
       .where(eq(adsConnections.projectId, project.id)).get()
@@ -2520,7 +2521,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   app.get<{
     Params: { name: string }
     Querystring: { state?: string; limit?: string | number; cursor?: string }
-  }>('/projects/:name/ads/operations', async (request) => {
+  }>('/projects/:name/ads/operations', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = adsUnresolvedOperationListQuerySchema.safeParse(request.query)
     if (!parsed.success) {
@@ -2590,7 +2591,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   })
 
   app.get<{ Params: { name: string; operationKey: string } }>(
-    '/projects/:name/ads/operations/:operationKey',
+    '/projects/:name/ads/operations/:operationKey', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request) => {
       const project = resolveProject(app.db, request.params.name)
       const row = app.db
@@ -3051,7 +3052,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     return response
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/ads/campaigns', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/campaigns', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
     const campaignRows = app.db.select().from(adsCampaigns)
@@ -3125,7 +3126,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
   app.get<{
     Params: { name: string }
     Querystring: { level?: string; entityId?: string; from?: string; to?: string }
-  }>('/projects/:name/ads/insights', async (request) => {
+  }>('/projects/:name/ads/insights', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { level, entityId, from, to } = request.query
 
@@ -3173,7 +3174,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     return response
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/ads/delivery-diagnostics', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/delivery-diagnostics', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const connection = app.db.select().from(adsConnections)
       .where(eq(adsConnections.projectId, project.id)).get()
@@ -3680,7 +3681,7 @@ export async function adsRoutes(app: FastifyInstance, opts: AdsRoutesOptions): P
     }
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/ads/summary', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ads/summary', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(adsConnections)
       .where(eq(adsConnections.projectId, project.id)).get()

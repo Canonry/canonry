@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { apiKeys, dashboardSessions, projects } from '@canonry/canonry-db'
 import {
+  FULL_READ_CAPABILITY,
   createApiKeyRequestSchema,
   forbidden,
   isReadOnlyKey,
@@ -75,7 +76,7 @@ export async function keysRoutes(app: FastifyInstance) {
   // keys is who can reach this install, which is an administrator's business.
   // Returns SAFE metadata only. A project-scoped key sees only keys scoped to
   // that same project, never full-instance or sibling-project keys.
-  app.get('/keys', async (request) => {
+  app.get('/keys', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     requireAdminSession(request)
     const scopedProjectId = request.apiKey?.projectId
     const rows = scopedProjectId
@@ -115,6 +116,14 @@ export async function keysRoutes(app: FastifyInstance) {
 
   // Create a key — requires the keys.write scope. Mints a `cnry_…` token,
   // stores only its sha256 hash + prefix, and returns the plaintext ONCE.
+  //
+  // Capability scopes narrow a READ key to a subset of read endpoints:
+  // `dashboard.read` (visibility/dashboard), `analytics.read` (broader
+  // analytics, includes dashboard), `full.read` (exports, raw runs, full
+  // query lists; includes both bundles). Capabilities are scope tokens,
+  // stored in the same `scopes` array and verified server-side by the auth
+  // plugin — a legacy `read` key keeps every capability, `embed` keeps only
+  // the dashboard bundle. See `capabilitiesForScopes` (#817).
   app.post('/keys', async (request) => {
     requireAdminSession(request)
     requireScope(request, KEYS_WRITE_SCOPE)

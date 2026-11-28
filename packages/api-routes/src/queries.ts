@@ -1,4 +1,4 @@
-import { isProviderAvailable, isSweepProvider } from '@canonry/canonry-contracts'
+import { FULL_READ_CAPABILITY, isProviderAvailable, isSweepProvider } from '@canonry/canonry-contracts'
 import { assertOpenRouterRouteScope } from './provider-models.js'
 import crypto from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
@@ -64,7 +64,7 @@ export interface QueryRoutesOptions {
 
 export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions) {
   // GET /projects/:name/queries
-  app.get<{ Params: { name: string } }>('/projects/:name/queries', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/queries', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     return reply.send(projectQueryDtos(app.db, project))
   })
@@ -346,7 +346,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
 
   // Legacy aliases for pre-queries API clients. These keep old clients working
   // while storing everything in the canonical queries table.
-  app.get<{ Params: { name: string } }>('/projects/:name/keywords', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/keywords', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, keyword: r.query, createdAt: r.createdAt })))

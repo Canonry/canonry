@@ -11,6 +11,7 @@ import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   AI_PROVIDER_INFRA_DOMAINS,
+  ANALYTICS_READ_CAPABILITY,
   MEASUREMENT_CHANGES_DEFAULT_SORT,
   MEASUREMENT_CHANGES_NOISE_ANSWERS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
@@ -1881,7 +1882,7 @@ function qualityResponse(
 
 export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-portfolio-summary',
+    '/projects/:name/measurement-portfolio-summary', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const nested = request.query.includeNestedMarkets
@@ -1898,7 +1899,7 @@ export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
   )
 
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-property-competitors',
+    '/projects/:name/measurement-property-competitors', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseLimitQuery(request.query, measurementPropertyCompetitorsQuerySchema, 'Invalid measurement property competitors query')
@@ -1908,7 +1909,7 @@ export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
   )
 
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-changes',
+    '/projects/:name/measurement-changes', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseLimitQuery(request.query, measurementChangesQuerySchema, 'Invalid measurement changes query')
@@ -1918,7 +1919,7 @@ export async function measurementPortfolioReadRoutes(app: FastifyInstance) {
   )
 
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-data-quality',
+    '/projects/:name/measurement-data-quality', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseLimitQuery(request.query, measurementDataQualityQuerySchema, 'Invalid measurement data quality query')

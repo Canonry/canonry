@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
+  FULL_READ_CAPABILITY,
   instanceStatusDtoSchema,
   forbidden,
   RunKinds,
@@ -183,7 +184,7 @@ function projectStatus(opts: StatusRoutesOptions, project: typeof projects.$infe
 }
 
 export async function statusRoutes(app: FastifyInstance, opts: StatusRoutesOptions) {
-  app.get<{ Querystring: { project?: string; problems?: string } }>('/status', async (request: FastifyRequest<{ Querystring: { project?: string; problems?: string } }>) => {
+  app.get<{ Querystring: { project?: string; problems?: string } }>('/status', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request: FastifyRequest<{ Querystring: { project?: string; problems?: string } }>) => {
     const requested = request.query.project
     const scopedId = request.principal?.projectId ?? request.apiKey?.projectId ?? null
     if (requested) {

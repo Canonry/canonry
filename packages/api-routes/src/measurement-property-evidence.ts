@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  ANALYTICS_READ_CAPABILITY,
   MEASUREMENT_EVIDENCE_DEFAULT_SHAPE,
   MEASUREMENT_PAGE_DEFAULT_LIMIT,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
@@ -388,7 +389,7 @@ function pageOf<Row>(
 
 export async function measurementPropertyEvidenceRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-property-evidence',
+    '/projects/:name/measurement-property-evidence', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseEvidenceQuery(request.query)

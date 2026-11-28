@@ -1,13 +1,13 @@
 import { and, asc, count, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaAcquisitionDaily as acquisition, gaMeasurementSyncStates } from '@canonry/canonry-db'
-import { gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, normalizeUrlPath, parseWindow, resolveDateRange, validationError, formatValidationIssues, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, gaAcquisitionDimensionSchema, gaAcquisitionQuerySchema, GaAcquisitionDimensions, normalizePathPrefix, normalizeUrlPath, parseWindow, resolveDateRange, validationError, formatValidationIssues, type GaAcquisitionDimension, type GaAcquisitionResponse } from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { literalPathPrefixCondition } from './path-prefix-condition.js'
 
 /** SQL aggregation keeps both totals and grouped pagination independent of the page cap. */
 export async function gaAcquisitionRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> & { window?: string } }>('/projects/:name/ga/acquisition', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> & { window?: string } }>('/projects/:name/ga/acquisition', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const input = { ...request.query }
     if (input.window !== undefined && (input.startDate !== undefined || input.endDate !== undefined)) throw validationError('Use window or explicit startDate/endDate, not both.')

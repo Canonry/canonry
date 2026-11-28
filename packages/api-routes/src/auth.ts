@@ -8,9 +8,11 @@ import {
   ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
+  capabilitiesForScopes,
   EMBED_QUERY_LIMIT_HEADER,
   EMBED_QUERIES_WRITE_SCOPE,
   forbidden,
+  FULL_READ_CAPABILITY,
   isReadOnlyKey,
   intersectScopes,
   normalizeEmbedProjectTabs,
@@ -24,6 +26,7 @@ import {
   splitList,
   UserRoles,
   WILDCARD_SCOPE,
+  type ReadCapability,
   type UserRole,
 } from '@canonry/canonry-contracts'
 import { assertSameOriginWrite } from './same-origin.js'
@@ -166,6 +169,19 @@ declare module 'fastify' {
     writeScope?: string
 
     /**
+     * Read capability this route requires (`dashboard.read`,
+     * `analytics.read`, or `full.read`). The auth plugin refuses a caller
+     * whose key does not carry it with 403 — default deny. A read route
+     * without this marker requires the full bundle for API-key callers;
+     * tagging it with a narrower bundle is the explicit act that opens it
+     * to those keys (or list it in `READ_CAPABILITY_EXEMPT_OPERATIONS`
+     * when another gate already binds the key). Only set this on read
+     * routes: the marker says nothing about writes, and a write route stays
+     * governed by the method gate plus `writeScope`.
+     */
+    readCapability?: ReadCapability
+
+    /**
      * This route's POST is a PROTOCOL ENVELOPE, not an operation.
      *
      * A JSON-RPC transport (MCP over Streamable HTTP) carries every message —
@@ -223,6 +239,57 @@ function isMcpAuthorizationRoute(request: FastifyRequest): boolean {
 }
 
 /**
+ * Read routes an API key reaches WITHOUT a read capability (#817).
+ *
+ * These are not project-data read surfaces, so the capability bundles do
+ * not govern them — each keeps the gate that already decides who may call
+ * it. A route lands here only when that gate actually binds an API key
+ * (`requireScope` with a named scope, `requireOperator`,
+ * `requirePaidReadScope`, `requireInstanceAdministrator`); a
+ * `requireAdminSession` alone does NOT qualify, because it passes every key
+ * (a key carries no role). Everything else a key reads must declare a
+ * `readCapability` or hold the full bundle — see the default-deny gate in
+ * `authPlugin`. The guard test `read-capability-coverage.test.ts` fails on
+ * a GET that is neither tagged nor listed here.
+ */
+export const READ_CAPABILITY_EXEMPT_OPERATIONS: ReadonlySet<string> = new Set([
+  // The caller's own key row: metadata about itself, nothing else's.
+  'GET /api/v1/keys/self',
+  // Own gate: requireScope('read') — only the wildcard and legacy read keys.
+  'GET /api/v1/mcp/profile',
+  // Own gates: requireScope('logs.read') + requireOperator.
+  'GET /api/v1/operations/logs',
+  // Own gate: requireOperator (host-approved operator key only).
+  'GET /api/v1/telemetry',
+  'GET /api/v1/seo/operator/tasks/{id}',
+  // Own gate: requireLiveRead (administrator session + google-marketing.read-live).
+  'GET /api/v1/projects/{name}/google-ads/customers',
+  'GET /api/v1/projects/{name}/gtm/accounts',
+  'GET /api/v1/projects/{name}/gtm/accounts/{accountId}/containers',
+  'GET /api/v1/projects/{name}/gtm/accounts/{accountId}/containers/{containerId}/workspaces',
+  // Own gate: readGrant (administrator session + paid-read + GBP live-read scope).
+  'GET /api/v1/projects/{name}/gbp/local-posts',
+  'GET /api/v1/projects/{name}/gbp/local-post',
+  'GET /api/v1/projects/{name}/gbp/reviews/live',
+  'GET /api/v1/projects/{name}/gbp/local-post-attempt',
+  // Own gates: requireAdminSession + requirePaidReadScope (wildcard key only).
+  'GET /api/v1/projects/{name}/discover/sessions/{id}/harvest',
+  // Own gate: requireInstanceAdministrator (administrator session or full-instance key).
+  'GET /api/v1/projects/{name}/agent/conversations',
+  'GET /api/v1/projects/{name}/agent/conversations/{id}',
+  'GET /api/v1/projects/{name}/agent/transcript',
+  'GET /api/v1/projects/{name}/agent/memory',
+  'GET /api/v1/projects/{name}/agent/providers',
+])
+
+/** True when this read route is exempt from the capability default-deny. */
+export function isReadCapabilityExempt(request: FastifyRequest): boolean {
+  return READ_CAPABILITY_EXEMPT_OPERATIONS.has(
+    matchOperationTemplate(request.method, request.routeOptions.url ?? request.url),
+  )
+}
+
+/**
  * Reject the request unless the caller carries the named scope (or the
  * wildcard `'*'`). The wildcard is what `canonry init` writes for the
  * install's root key, and it is also what an admin account carries —
@@ -247,6 +314,31 @@ export function requireScope(request: FastifyRequest, scope: string): void {
     throw forbidden(VIEWER_DENIED_MESSAGE)
   }
   throw forbidden(`This action requires the "${scope}" scope on your API key.`)
+}
+
+/**
+ * Reject the request unless the caller carries the named read capability
+ * (or the wildcard / legacy `read` scope, which map to every capability).
+ * Mirrors `requireScope`, but against the capability bundles derived from
+ * the key's scopes (`capabilitiesForScopes`) rather than one scope token.
+ * Routes that declare `readCapability` are enforced centrally by the auth
+ * plugin; call this directly only when the capability a route needs cannot
+ * be known from its static config.
+ */
+export function requireCapability(request: FastifyRequest, capability: ReadCapability): void {
+  // A viewer on a route that only reads is allowed through — see the
+  // `readSemantic` route config above.
+  if (request.readSemanticGrant) return
+
+  const scopes = principalScopes(request)
+  // No principal on the request means the auth plugin didn't run — same
+  // "auth not enforced" treatment as `requireScope`.
+  if (!scopes) return
+  if (capabilitiesForScopes(scopes).has(capability)) return
+  if (request.principal?.kind === 'user') {
+    throw forbidden(VIEWER_DENIED_MESSAGE)
+  }
+  throw forbidden(`This action requires the "${capability}" capability on your API key.`)
 }
 
 /** What a viewer is told when they reach something only an admin can do. */
@@ -1001,6 +1093,33 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       !isTransportEnvelopeRoute(request)
     ) {
       throw forbidden('This API key is read-only and cannot perform write operations.')
+    }
+
+    // Capability gate. A route that declares `readCapability` in its config
+    // refuses any caller whose key does not carry it — default deny, so a
+    // narrow key cannot reach a tagged read surface it was never granted.
+    // The MCP transport re-dispatches each tool call as a fresh authenticated
+    // request, so the check re-applies per operation there too.
+    const requiredCapability = request.routeOptions.config.readCapability
+    if (requiredCapability) {
+      requireCapability(request, requiredCapability)
+    }
+
+    // Default-deny for unclassified reads (#817). A safe-method route that
+    // declares no `readCapability` still refuses an API-key caller that does
+    // not carry the full bundle: classification is opt-out (an explicit
+    // exemption above), never opt-in, so a new read surface cannot silently
+    // open to narrow keys. Signed-in people never reach this — the hook
+    // returns early for sessions — and paid reads keep their own gate
+    // (`paidRead`), as do the exempt routes above.
+    if (
+      !WRITE_METHODS.has(request.method)
+      && request.principal?.kind === 'api-key'
+      && !requiredCapability
+      && !isPaidReadRoute(request)
+      && !isReadCapabilityExempt(request)
+    ) {
+      requireCapability(request, FULL_READ_CAPABILITY)
     }
 
     enforceEmbedProjectTabs(request, opts.embedProjectTabs)

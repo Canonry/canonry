@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { and, count, desc, eq, gte, lt, or, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { measurementQueryTemplates, projects, researchRunQueries, researchRuns } from '@canonry/canonry-db'
-import { alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchBatchCreateSchema, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchBatchCreate, type ResearchBatchDto, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection, type ResearchRunCreate } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, alreadyExists, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, isBrowserProvider, missingDependency, notFound, researchDailyLimitExceeded, ResearchQueryStatuses, ResearchRunStatuses, researchBatchCreateSchema, researchRunCreateSchema, UserRoles, validationError, type LocationContext, type ResearchBatchCreate, type ResearchBatchDto, type ResearchRunDetailDto, type ResearchRunListDto, type ResearchRunPrincipal, type ResearchRunQueryDto, type ResearchRunSummaryDto, type ResearchRunScope, type ResearchScopeSelection, deduplicateResearchQueries, compileQueryClassifier, expandResearchTemplate, effectiveBrandNames, type QueryTrackingTemplateProvenance, type ResearchTemplateSelection, type ResearchRunCreate } from '@canonry/canonry-contracts'
 import { canRunResearch, requireResearchGrant } from './auth.js'
 import { RESEARCH_RUN_SCOPE, WILDCARD_SCOPE, engineReturnsSources, resolveProviderModel } from '@canonry/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -195,7 +195,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     return reply.status(202).send({ runs } satisfies ResearchBatchDto)
   })
 
-  app.get<{ Params: { name: string }; Querystring: { limit?: string; cursor?: string } }>('/projects/:name/research/runs', async (request) => {
+  app.get<{ Params: { name: string }; Querystring: { limit?: string; cursor?: string } }>('/projects/:name/research/runs', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const requested = Number.parseInt(request.query.limit ?? '', 10)
     const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 100) : 20
@@ -254,7 +254,7 @@ export async function researchRoutes(app: FastifyInstance, opts: ResearchRoutesO
     return { runs, nextCursor, providers, access: { canRun, dailyRunLimit: canRun && limited ? viewerDailyRunLimit : null } } satisfies ResearchRunListDto
   })
 
-  app.get<{ Params: { name: string; runId: string } }>('/projects/:name/research/runs/:runId', async (request) => {
+  app.get<{ Params: { name: string; runId: string } }>('/projects/:name/research/runs/:runId', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     return getDetail(app, project.id, request.params.runId)
   })

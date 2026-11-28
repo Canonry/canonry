@@ -8,6 +8,7 @@ import {
   runs,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
   DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES,
   DISCOVERY_PROMOTE_COMPETITOR_CAP,
@@ -340,7 +341,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
 
   // GET /projects/:name/discover/sessions — list sessions for a project
   app.get<{ Params: { name: string }; Querystring: { limit?: string } }>(
-    '/projects/:name/discover/sessions',
+    '/projects/:name/discover/sessions', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const parsedLimit = parseInt(request.query.limit ?? '', 10)
@@ -360,7 +361,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
 
   // GET /projects/:name/discover/sessions/:id — single session with probes
   app.get<{ Params: { name: string; id: string } }>(
-    '/projects/:name/discover/sessions/:id',
+    '/projects/:name/discover/sessions/:id', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const session = app.db
@@ -508,7 +509,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // payload the POST would persist. Read-only, so the operator can preview
   // the bucketed basket before running `canonry discover promote`.
   app.get<{ Params: { name: string; id: string } }>(
-    '/projects/:name/discover/sessions/:id/promote',
+    '/projects/:name/discover/sessions/:id/promote', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const session = app.db

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { journeyEvents, journeyVisitorAliases, journeyVisitors, journeyVisits, projects, trafficSources } from '@canonry/canonry-db'
 import {
+  FULL_READ_CAPABILITY,
   formatValidationIssues,
   JOURNEY_LIST_VISITS_PER_VISITOR,
   JOURNEY_LOOKBACK_DAYS,
@@ -604,7 +605,7 @@ function median(values: number[]): number | null {
 
 /** Stored AI visitor journeys. Reads only; no provider call or write. */
 export async function journeyRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys/summary', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys/summary', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
     const query = parseQuery(journeySummaryQuerySchema, request.query)
@@ -656,7 +657,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     return response
   })
 
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
     const query = parseQuery(journeysQuerySchema, request.query)
@@ -690,7 +691,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     return response
   })
 
-  app.get<{ Params: { name: string; visitorKey: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys/:visitorKey', async request => {
+  app.get<{ Params: { name: string; visitorKey: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys/:visitorKey', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
     const query = parseQuery(journeyDetailQuerySchema, request.query)

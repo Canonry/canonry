@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { bingSitemaps, gscSitemaps, runs, siteCrawlPages, siteCrawlSnapshots, sitemapListSyncs } from '@canonry/canonry-db'
-import { RunKinds, RunStatuses, hostMatchesDomain, isSitemapOwnedByProperty, type EngineSitemapDto, type SitemapCoverageResponseDto } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, RunKinds, RunStatuses, hostMatchesDomain, isSitemapOwnedByProperty, type EngineSitemapDto, type SitemapCoverageResponseDto } from '@canonry/canonry-contracts'
 import type { BingConnectionStore } from './bing.js'
 import type { GoogleConnectionStore } from './google.js'
 import { notProbeRun, resolveProject } from './helpers.js'
@@ -16,7 +16,7 @@ export interface SitemapRoutesOptions {
 
 export async function sitemapRoutes(app: FastifyInstance, opts: SitemapRoutesOptions) {
   // GET /projects/:name/sitemaps
-  app.get<{ Params: { name: string } }>('/projects/:name/sitemaps', async (request): Promise<SitemapCoverageResponseDto> => {
+  app.get<{ Params: { name: string } }>('/projects/:name/sitemaps', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SitemapCoverageResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
 
     // The site's own sitemaps: the files the latest surfaced Agent Readiness audit scan

@@ -9,6 +9,7 @@ import {
 } from '@canonry/canonry-db'
 import {
   BacklinkSources,
+  DASHBOARD_READ_CAPABILITY,
   TREND_SURFACE_DEFAULT_WINDOW,
   TrendBetter,
   TrendSurfaces,
@@ -90,7 +91,7 @@ export async function trendsRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { surface?: string; window?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/trends', async (request): Promise<TrendsResponse> => {
+  }>('/projects/:name/trends', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request): Promise<TrendsResponse> => {
     const project = resolveProject(app.db, request.params.name)
     const surface = parseSurface(request.query.surface)
     const selection = parseSelection(request.query, surface)
