@@ -143,6 +143,17 @@ export function AuthGate() {
     return true
   }
 
+  // The token leaves the browser history as soon as the page reads it
+  // (#1176) — including when this browser already has a session and no
+  // mint runs at all. The token itself lives in state, so stripping the
+  // URL loses nothing the mint needs.
+  useEffect(() => {
+    if (!setupToken) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('token')
+    window.history.replaceState(null, '', url)
+  }, [])
+
   // Initial session check.
   //
   // Both questions go out together rather than one after the other: asking the
