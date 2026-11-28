@@ -2702,7 +2702,7 @@ export async function createServer(opts: {
   // so a caller must prove it already holds it by presenting that exact key.
   // Any other key, however valid, is narrower or a different credential, and
   // a password planted with it would outlive that key's revocation.
-  // `/session/setup` is in the auth skip-list, so this parses the bearer by
+  // `/session/setup` verifies its own credentials, so this parses the bearer by
   // authPlugin's rule and compares SHA-256 digests in constant time.
   const requestPresentsKey = (
     request: FastifyRequest,
@@ -2881,7 +2881,7 @@ export async function createServer(opts: {
   // local, so a token that leaks to a remote caller still cannot mint.
   app.post<{
     Body: { token?: string };
-  }>(apiPrefix + "/session/setup-token", legacySessionRouteOptions, async (request, reply) => {
+  }>(apiPrefix + "/session/setup-token", { ...legacySessionRouteOptions, config: { skipInstanceAuth: true } }, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
