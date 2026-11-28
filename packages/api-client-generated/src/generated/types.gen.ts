@@ -35,7 +35,7 @@ export type SeoContext = {
     connections: Array<{
         id: string;
         label: string;
-        provider: 'dataforseo';
+        provider: 'dataforseo' | 'cloro';
         capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     }>;
     scopes: Array<{
@@ -290,7 +290,7 @@ export type SeoRunDetail = {
             }>;
             coreKeyword: string | null;
             provenance: {
-                provider: 'dataforseo';
+                provider: 'dataforseo' | 'cloro';
                 dataset: string;
                 engine: 'google';
                 locationCode: number;
@@ -314,7 +314,7 @@ export type SeoRunDetail = {
             top4To10: number | null;
             top11To20: number | null;
             provenance: {
-                provider: 'dataforseo';
+                provider: 'dataforseo' | 'cloro';
                 dataset: string;
                 engine: 'google';
                 locationCode: number;
@@ -343,7 +343,7 @@ export type SeoRunDetail = {
             keywordDifficulty: number | null;
             serpFeatures: Array<string>;
             provenance: {
-                provider: 'dataforseo';
+                provider: 'dataforseo' | 'cloro';
                 dataset: string;
                 engine: 'google';
                 locationCode: number;
@@ -378,7 +378,7 @@ export type SeoRunDetail = {
                 rankOrganic: number;
             }>;
             provenance: {
-                provider: 'dataforseo';
+                provider: 'dataforseo' | 'cloro';
                 dataset: string;
                 engine: 'google';
                 locationCode: number;
@@ -400,7 +400,7 @@ export type SeoRunDetail = {
             organicKeywords: number | null;
             estimatedOrganicTraffic: number | null;
             provenance: {
-                provider: 'dataforseo';
+                provider: 'dataforseo' | 'cloro';
                 dataset: string;
                 engine: 'google';
                 locationCode: number;
@@ -435,7 +435,7 @@ export type SeoRunDetail = {
             kind: 'shared' | 'missing' | 'outranked';
             rankGap: number | null;
             provenance: {
-                provider: 'dataforseo';
+                provider: 'dataforseo' | 'cloro';
                 dataset: string;
                 engine: 'google';
                 locationCode: number;
@@ -588,7 +588,7 @@ export type SeoOverview = {
         inTop10: number | null;
         estimatedOrganicTraffic: number | null;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;
@@ -717,7 +717,7 @@ export type SeoKeywordMetricsList = {
         }>;
         coreKeyword: string | null;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;
@@ -746,7 +746,7 @@ export type SeoCompetitorList = {
         organicKeywords: number | null;
         estimatedOrganicTraffic: number | null;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;
@@ -788,7 +788,7 @@ export type SeoKeywordGapList = {
         kind: 'shared' | 'missing' | 'outranked';
         rankGap: number | null;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;
@@ -819,7 +819,7 @@ export type SeoDomainIntelligenceList = {
         top4To10: number | null;
         top11To20: number | null;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;
@@ -855,7 +855,7 @@ export type SeoRankedKeywordList = {
         keywordDifficulty: number | null;
         serpFeatures: Array<string>;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;
@@ -897,7 +897,7 @@ export type SeoMarketRankingList = {
             rankOrganic: number;
         }>;
         provenance: {
-            provider: 'dataforseo';
+            provider: 'dataforseo' | 'cloro';
             dataset: string;
             engine: 'google';
             locationCode: number;

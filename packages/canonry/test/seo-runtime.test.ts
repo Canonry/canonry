@@ -272,3 +272,88 @@ describe('market-rankings retries with the real upstream adapter', () => {
     expect(h.holds()).toEqual([[0, 0], [0, 0], [0, 0]])
   })
 })
+
+describe('cloro SEO connection', () => {
+  it('offers a cloro connection for market rankings only', async () => {
+    const config: SeoInstallConfig = { enabled: true, fundingMode: 'hosted', policy: { maxRunCostMicros: 100_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }, connections: { rankings: { provider: 'cloro', label: 'Search rankings', enabled: true, apiKey: 'test-secret', creditMicros: 800 } } }
+    const h = createSeoHarness({ getSeoRuntime: () => runtime.getRuntime(), onSeoRunRequested: () => runtime.wake() })
+    const runtime = new SeoRuntime(h.db, () => config)
+    cleanups.push(async () => { await runtime.stop(); await h.close() })
+    const context = (await h.app.inject({ url: '/api/v1/projects/alpha/seo/context' })).json()
+    expect(context.connections).toEqual([{ id: 'rankings', label: 'Search rankings', provider: 'cloro', capabilities: ['market-rankings'] }])
+    // A profile for another dataset is refused before any paid call.
+    const refused = await h.app.inject({ method: 'PUT', url: '/api/v1/projects/alpha/seo/profiles/main', payload: { ...seoProfileFixture, connectionId: 'rankings' } })
+    expect(refused.statusCode).toBe(400)
+    expect(refused.json().error.message).toMatch(/does not support every requested capability/)
+  })
+
+  /** A market-rankings refresh of two tracked queries at depth 10 through a cloro connection (5 credits at 800 microUSD a search). */
+  async function cloroRefresh(fetch: (url: string, init?: RequestInit) => Promise<Response>) {
+    const config: SeoInstallConfig = { enabled: true, fundingMode: 'hosted', policy: { maxRunCostMicros: 100_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }, connections: { rankings: { provider: 'cloro', label: 'Search rankings', enabled: true, apiKey: 'test-secret', creditMicros: 800 } } }
+    vi.stubGlobal('fetch', fetch)
+    const h = createSeoHarness({ getSeoRuntime: () => runtime.getRuntime(), onSeoRunRequested: () => runtime.wake() })
+    const runtime = new SeoRuntime(h.db, () => config)
+    cleanups.push(async () => { await runtime.stop(); await h.close() })
+    const now = new Date().toISOString()
+    h.db.insert(queries).values([{ id: 'q1', projectId: 'alpha', query: 'solar installer', createdAt: now }, { id: 'q2', projectId: 'alpha', query: 'home battery', createdAt: now }]).run()
+    const base = '/api/v1/projects/alpha/seo'
+    const saved = await h.app.inject({ method: 'PUT', url: `${base}/profiles/markets`, payload: {
+      ...seoProfileFixture, connectionId: 'rankings', name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }],
+      scope: { kind: 'project' }, rankings: { locations: [], depth: 10, device: 'desktop', searchText: 'query' },
+    } })
+    expect(saved.statusCode, saved.body).toBe(200)
+    const intent = (await h.app.inject({ method: 'POST', url: `${base}/refresh-intents`, payload: { profileId: 'markets' } })).json()
+    const accepted = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'cloro-rankings' } })
+    expect(accepted.statusCode, accepted.body).toBe(202)
+    const id = accepted.json().id as string
+    return {
+      ...h, runtime,
+      status: () => h.db.select().from(seoJobs).where(eq(seoJobs.id, id)).get()?.status,
+      holds: () => h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros]),
+      rows: async () => (await h.app.inject({ url: `${base}/market-rankings?profileId=markets` })).json().items as SeoMarketRanking[],
+    }
+  }
+  /** A cloro answer that ranks alpha.com at 4 for "solar installer" and at 7 for any other query, charged 5 credits. */
+  const cloroAnswer = (init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as { query: string }
+    const rank = body.query === 'solar installer' ? 4 : 7
+    return Response.json({ success: true, result: { organicResults: [{ position: rank, link: 'https://www.alpha.com/solar', displayedLink: 'https://www.alpha.com' }] } }, { headers: { 'X-Credits-Charged': '5', 'X-Request-ID': `request-${body.query}` } })
+  }
+
+  it('refreshes market rankings through cloro and spends the credits it reports', async () => {
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => cloroAnswer(init))
+    const h = await cloroRefresh(fetch)
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.status()).toBe('completed'), { timeout: 5000 })
+    // The project-wide market searches the profile's country code (2840) as the United States.
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>).map(body => [body.query, body.country, body.location]).sort())
+      .toEqual([['home battery', 'US', undefined], ['solar installer', 'US', undefined]])
+    // cloro gives the organic position only, so the absolute rank stays empty.
+    expect((await h.rows()).map(row => [row.searchText, row.searchStatus, row.rankOrganic, row.rankAbsolute, row.depth, row.provenance?.provider]))
+      .toEqual([['home battery', 'completed', 7, null, 10, 'cloro'], ['solar installer', 'completed', 4, null, 10, 'cloro']])
+    // Each search reserved and spent 5 credits at 800 microUSD.
+    expect(h.holds()).toEqual([[0, 8000], [0, 8000], [0, 8000]])
+  })
+
+  it('waits for a cloro search that ends after 90 seconds, saves its result and charge once, and runs the next search', async () => {
+    let finish = () => {}
+    const fetch = vi.fn((_url: string, init?: RequestInit) => fetch.mock.calls.length === 1
+      // The first search answers only when the test releases it; the second answers at once.
+      ? new Promise<Response>(resolve => { finish = () => resolve(cloroAnswer(init)) })
+      : Promise.resolve(cloroAnswer(init)))
+    const h = await cloroRefresh(fetch)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    h.runtime.start()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    // Past the 90 seconds other providers get: the search is still running, not aborted.
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetch.mock.calls[0]![1]?.signal?.aborted).toBe(false)
+    expect([h.status(), fetch.mock.calls.length]).toEqual(['running', 1])
+    finish()
+    vi.useRealTimers()
+    await vi.waitFor(() => expect(h.status()).toBe('completed'), { timeout: 5000 })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect((await h.rows()).map(row => [row.searchText, row.searchStatus, row.rankOrganic])).toEqual([['home battery', 'completed', 7], ['solar installer', 'completed', 4]])
+    expect(h.holds()).toEqual([[0, 8000], [0, 8000], [0, 8000]])
+  })
+})

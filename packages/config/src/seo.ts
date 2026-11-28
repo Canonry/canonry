@@ -18,6 +18,13 @@ export const seoInstallConfigSchema = z.object({
     enabled: z.boolean(),
     login: z.string().trim().min(1).max(320),
     password: z.string().min(1).max(1000),
+  }).strict(), z.object({
+    provider: z.literal('cloro'),
+    label: z.string().min(1).max(120),
+    enabled: z.boolean(),
+    apiKey: z.string().trim().min(1).max(1000),
+    /** What one cloro credit costs this host, in microUSD (800 is $30 for 37,500 credits). cloro bills in credits, never in money. */
+    creditMicros: z.number().int().positive().max(1_000_000),
   }).strict()])),
 }).strict()
 export type SeoInstallConfig = z.infer<typeof seoInstallConfigSchema>

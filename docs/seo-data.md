@@ -205,6 +205,27 @@ The Market rankings view shows Google rank counts with a caption naming the quer
 
 A refresh runs its searches one at a time, so a large one takes a while. Restarting the server mid-search leaves that search for operator reconciliation, as with any paid request; avoid restarts while a market-rankings refresh runs.
 
+### cloro for market rankings
+
+[cloro](https://cloro.dev/serp-api/organic-results/) is an opt-in second source for market rankings only. Add it as its own connection and point the market-rankings profile at it; the other datasets keep their DataForSEO connection.
+
+```yaml
+seo:
+  connections:
+    rankings:
+      provider: cloro
+      label: Search rankings
+      enabled: true
+      apiKey: your-cloro-api-key
+      creditMicros: 800 # what one cloro credit costs you; $30 for 37,500 credits is 800
+```
+
+- **Locations.** A country location code (2840 for the United States: 2000 plus the ISO country number) searches the whole country, so the project-wide market works with a country code. Every other location must use Google's canonical name as its `label`, such as `Dallas,Texas,United States`, with its Google geotarget id as `locationCode`. cloro targets the search by that name, and the last part gives the country. A label that is not a canonical name is refused when the profile is quoted, before any paid call.
+- **Depth and device.** Each search asks for `depth / 10` results pages on `desktop` or `mobile`. Positions count organic results across pages. cloro gives the organic position only, so the absolute rank is empty.
+- **Run time.** A sync cloro search can take up to 6 minutes. The refresh waits up to 13 minutes for one cloro search (the search, one redirect lookup and the waits before retries), not the 90 seconds it gives DataForSEO, so it does not abort a search that cloro still finishes and charges.
+- **Credits and refresh limits.** cloro bills in credits: 3 for the first page, 2 for each further page, and 2 because the search is sync (depth 10 is 5 credits, depth 50 is 13, depth 100 is 23). The refresh reserves that count plus 1 credit for a redirect lookup, times `creditMicros`, against the host limits, and settles each search at the `X-Credits-Charged` it reports times `creditMicros`. A refused request (any status other than 200) costs nothing. A search whose answer is lost waits for reconciliation like any paid request.
+- **Results.** A completed search checked the requested depth. When cloro returns fewer results pages than asked, the row is partial and its depth is the deepest organic position returned, so a site that is not in those results is not a miss in the requested depth. On mobile, Google hides most result links behind its own redirect; the site then comes from the address Google displays. When the site's own best result is a redirect, one `/v1/monitor/google/goto` call resolves its page address (0 credits on a paid cloro account; the estimate keeps 1 credit). A lookup that fails leaves the page address empty and does not fail the search. Rivals keep their domain only. A search with no organic result, or none that names its site, fails and keeps its charge. cloro retries Google errors itself, so a failed cloro search is not sent again in the same refresh.
+
 ## Aero analysis
 
 Aero can prioritize keyword and ranking opportunities from saved evidence with the
