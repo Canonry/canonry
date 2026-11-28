@@ -84,7 +84,9 @@ function buildServeOpenLine(input: {
 }): string {
   // A first-run setup token turns the setup URL into a one-click sign-in
   // (#1176). The token is hex, so it needs no encoding; without one the URL
-  // opens the password form as before.
+  // opens the password form as before. A project that already has a site
+  // audit opens the dashboard root instead — the token rides on that URL
+  // too, so the printed link signs in whenever the server issues one.
   const withToken = (url: string) => input.setupToken
     ? `${url}${url.includes('?') ? '&' : '?'}token=${input.setupToken}`
     : url
@@ -95,7 +97,7 @@ function buildServeOpenLine(input: {
     const firstRun = input.projectCount === 1 ? '&onboarding=first-run' : ''
     return `Open ${withToken(`${input.url}/setup?project=${encodeURIComponent(input.firstProjectName)}${firstRun}`)} to run its first Agent Readiness audit scan.`
   }
-  return `Open ${input.url}`
+  return `Open ${withToken(input.url)}`
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
