@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { RawEventSampleEventTypes, rawEventSamples, type RawEventSampleEventType } from '@canonry/canonry-db'
-import { escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, formatValidationIssues, type TrafficSampleKind, type TrafficSamplesResponse } from '@canonry/canonry-contracts'
+import { FULL_READ_CAPABILITY, escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, formatValidationIssues, type TrafficSampleKind, type TrafficSamplesResponse } from '@canonry/canonry-contracts'
 import { requireAdminSession } from './auth.js'
 import { resolveProject } from './helpers.js'
 
@@ -15,7 +15,7 @@ const wireKind = new Map<string, TrafficSampleKind>(Object.entries(storedKind).m
 
 /** Bounded stored evidence only. Reading samples never changes retention or rollups. */
 export async function trafficSamplesRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/samples', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/samples', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
     const input = { ...request.query }

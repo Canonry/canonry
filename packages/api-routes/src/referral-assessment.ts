@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, lte, ne, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { aiReferralEventsHourly as referrals, gaAiReferrals, gaTrafficSummaries, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
-import { aiReferralClassCounts, inclusiveDayCount, notFound, referralAssessmentQuerySchema, validationError, type ReferralAssessment, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, aiReferralClassCounts, inclusiveDayCount, notFound, referralAssessmentQuerySchema, validationError, type ReferralAssessment, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
 import { resolveProject } from './helpers.js'
 import { resolveWinningDimensions } from './ga-ai-referral-aggregation.js'
@@ -149,7 +149,7 @@ export function buildReferralAssessment(db: DatabaseClient, projectName: string,
 }
 
 export async function referralAssessmentRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/referral-assessment', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/referral-assessment', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const input = { ...request.query }
     for (const key of ['burstThreshold', 'ratioThreshold', 'limit']) {
       if (input[key] !== undefined) input[key] = Number(input[key])

@@ -21,6 +21,7 @@ import type {
 } from '@canonry/canonry-contracts'
 import {
   AppError,
+  FULL_READ_CAPABILITY,
   classifyProviderErrorMessage,
   ConnectionActions,
   describeError,
@@ -278,7 +279,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   // providers point. That is administrator territory even to read, so a
   // view-only account is refused here at the server rather than merely being
   // shown no link to it.
-  app.get('/settings', async (request) => {
+  app.get('/settings', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
@@ -338,7 +339,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
   })
 
-  app.get<{ Params: { name: string } }>('/settings/providers/:name', async request => {
+  app.get<{ Params: { name: string } }>('/settings/providers/:name', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireInstanceAdministrator(request)
     return connection(request.params.name)
   })

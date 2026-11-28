@@ -4,6 +4,8 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
+  FULL_READ_CAPABILITY,
   validationError, notFound, normalizeProjectDomain, parseWindow,
   forbidden, operationInProgress, quotaExceeded, providerError, escapeLikePattern, AppError,
   isSitemapOwnedByProperty,
@@ -545,7 +547,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   }
 
   // GET /projects/:name/google/connections
-  app.get<{ Params: { name: string } }>('/projects/:name/google/connections', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/google/connections', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conns = opts.googleConnectionStore?.listConnections(project.canonicalDomain) ?? []
     return conns.map(googleConnectionDto)
@@ -944,7 +946,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; days?: string; query?: string; page?: string; limit?: string; offset?: string; window?: string; orderBy?: string }
-  }>('/projects/:name/google/gsc/performance', async (request) => {
+  }>('/projects/:name/google/gsc/performance', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { startDate, endDate, query, page, limit, offset } = request.query
 
@@ -1060,7 +1062,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; window?: string }
-  }>('/projects/:name/google/gsc/performance/daily', async (request) => {
+  }>('/projects/:name/google/gsc/performance/daily', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { startDate, endDate } = request.query
     assertForwardRange(startDate, endDate)
@@ -1302,7 +1304,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; limit?: string; window?: string }
-  }>('/projects/:name/google/gsc/top-pages', async (request) => {
+  }>('/projects/:name/google/gsc/top-pages', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { startDate, endDate, limit } = request.query
     assertForwardRange(startDate, endDate)
@@ -1398,7 +1400,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { startDate?: string; endDate?: string; window?: string; limit?: string; offset?: string }
-  }>('/projects/:name/google/gsc/query-totals', async (request) => {
+  }>('/projects/:name/google/gsc/query-totals', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { startDate, endDate, limit, offset } = request.query
     assertForwardRange(startDate, endDate)
@@ -1524,7 +1526,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { url?: string; limit?: string }
-  }>('/projects/:name/google/gsc/inspections', async (request) => {
+  }>('/projects/:name/google/gsc/inspections', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { url, limit } = request.query
 
@@ -1557,7 +1559,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   })
 
   // GET /projects/:name/google/gsc/deindexed
-  app.get<{ Params: { name: string } }>('/projects/:name/google/gsc/deindexed', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/google/gsc/deindexed', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
     const allInspections = app.db
@@ -1606,7 +1608,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   })
 
   // GET /projects/:name/google/gsc/coverage
-  app.get<{ Params: { name: string } }>('/projects/:name/google/gsc/coverage', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/google/gsc/coverage', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
     // Get the latest inspection per URL
@@ -1757,7 +1759,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/google/gsc/coverage/history', async (request) => {
+  }>('/projects/:name/google/gsc/coverage/history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = parseInt(request.query.limit ?? '90', 10)
     const limit = Number.isNaN(parsed) || parsed <= 0 ? 90 : parsed
@@ -1787,7 +1789,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { sitemapIndex?: string }
-  }>('/projects/:name/google/gsc/sitemaps', async (request) => {
+  }>('/projects/:name/google/gsc/sitemaps', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
       throw validationError('Google OAuth is not configured')
@@ -2457,7 +2459,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
   // GET /projects/:name/gbp/accounts — accounts the OAuth user can access, so
   // the operator can pick which one a project tracks (discover --account).
-  app.get<{ Params: { name: string } }>('/projects/:name/gbp/accounts', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/gbp/accounts', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     // Same boundary: every Business Profile account the OAuth principal can
     // reach, not just this project's.
     assertNotProjectScoped(request, 'listing Business Profile accounts')
@@ -2498,7 +2500,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { selected?: string }
-  }>('/projects/:name/gbp/locations', async (request) => {
+  }>('/projects/:name/gbp/locations', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const response = listSelectionResponse(project)
     const filter = request.query.selected
@@ -2621,7 +2623,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string; metric?: string }
-  }>('/projects/:name/gbp/metrics', async (request) => {
+  }>('/projects/:name/gbp/metrics', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpDailyMetrics.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpDailyMetrics.locationName, request.query.locationName))
@@ -2641,7 +2643,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string }
-  }>('/projects/:name/gbp/keywords', async (request) => {
+  }>('/projects/:name/gbp/keywords', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpKeywordImpressions.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpKeywordImpressions.locationName, request.query.locationName))
@@ -2670,7 +2672,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string }
-  }>('/projects/:name/gbp/place-actions', async (request) => {
+  }>('/projects/:name/gbp/place-actions', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpPlaceActions.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpPlaceActions.locationName, request.query.locationName))
@@ -2692,7 +2694,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string }
-  }>('/projects/:name/gbp/lodging', async (request) => {
+  }>('/projects/:name/gbp/lodging', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpLodgingSnapshots.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpLodgingSnapshots.locationName, request.query.locationName))
@@ -2720,7 +2722,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string }
-  }>('/projects/:name/gbp/attributes', async (request) => {
+  }>('/projects/:name/gbp/attributes', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpAttributesSnapshots.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpAttributesSnapshots.locationName, request.query.locationName))
@@ -2758,7 +2760,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string }
-  }>('/projects/:name/gbp/places', async (request): Promise<GbpPlaceDetailsListResponse> => {
+  }>('/projects/:name/gbp/places', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<GbpPlaceDetailsListResponse> => {
     const project = resolveProject(app.db, request.params.name)
     const conditions = [eq(gbpPlaceDetails.projectId, project.id)]
     if (request.query.locationName) conditions.push(eq(gbpPlaceDetails.locationName, request.query.locationName))
@@ -2791,7 +2793,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string; negative?: string; limit?: string }
-  }>('/projects/:name/gbp/reviews', async (request): Promise<GbpReviewListResponse> => {
+  }>('/projects/:name/gbp/reviews', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<GbpReviewListResponse> => {
     const project = resolveProject(app.db, request.params.name)
     const { locationName } = request.query
     const negativeOnly = parseReviewNegativeFlag(request.query.negative)
@@ -2867,7 +2869,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   app.get<{
     Params: { name: string }
     Querystring: { locationName?: string }
-  }>('/projects/:name/gbp/summary', async (request) => {
+  }>('/projects/:name/gbp/summary', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const locationName = request.query.locationName ?? null
 

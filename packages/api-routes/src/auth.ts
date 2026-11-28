@@ -12,6 +12,7 @@ import {
   EMBED_QUERY_LIMIT_HEADER,
   EMBED_QUERIES_WRITE_SCOPE,
   forbidden,
+  FULL_READ_CAPABILITY,
   isReadOnlyKey,
   intersectScopes,
   normalizeEmbedProjectTabs,
@@ -170,11 +171,13 @@ declare module 'fastify' {
     /**
      * Read capability this route requires (`dashboard.read`,
      * `analytics.read`, or `full.read`). The auth plugin refuses a caller
-     * whose key does not carry it with 403 — default deny. A route without
-     * this marker keeps its existing gates; tagging a route is the explicit
-     * act that closes it to narrow keys. Only set this on read routes: the
-     * marker says nothing about writes, and a write route stays governed by
-     * the method gate plus `writeScope`.
+     * whose key does not carry it with 403 — default deny. A read route
+     * without this marker requires the full bundle for API-key callers;
+     * tagging it with a narrower bundle is the explicit act that opens it
+     * to those keys (or list it in `READ_CAPABILITY_EXEMPT_OPERATIONS`
+     * when another gate already binds the key). Only set this on read
+     * routes: the marker says nothing about writes, and a write route stays
+     * governed by the method gate plus `writeScope`.
      */
     readCapability?: ReadCapability
 
@@ -233,6 +236,57 @@ function isMcpAuthorizationRoute(request: FastifyRequest): boolean {
   return isTransportEnvelopeRoute(request)
     || ((request.method === 'GET' || request.method === 'HEAD')
       && matchOperationTemplate('GET', request.routeOptions.url ?? request.url) === 'GET /api/v1/mcp/profile')
+}
+
+/**
+ * Read routes an API key reaches WITHOUT a read capability (#817).
+ *
+ * These are not project-data read surfaces, so the capability bundles do
+ * not govern them — each keeps the gate that already decides who may call
+ * it. A route lands here only when that gate actually binds an API key
+ * (`requireScope` with a named scope, `requireOperator`,
+ * `requirePaidReadScope`, `requireInstanceAdministrator`); a
+ * `requireAdminSession` alone does NOT qualify, because it passes every key
+ * (a key carries no role). Everything else a key reads must declare a
+ * `readCapability` or hold the full bundle — see the default-deny gate in
+ * `authPlugin`. The guard test `read-capability-coverage.test.ts` fails on
+ * a GET that is neither tagged nor listed here.
+ */
+export const READ_CAPABILITY_EXEMPT_OPERATIONS: ReadonlySet<string> = new Set([
+  // The caller's own key row: metadata about itself, nothing else's.
+  'GET /api/v1/keys/self',
+  // Own gate: requireScope('read') — only the wildcard and legacy read keys.
+  'GET /api/v1/mcp/profile',
+  // Own gates: requireScope('logs.read') + requireOperator.
+  'GET /api/v1/operations/logs',
+  // Own gate: requireOperator (host-approved operator key only).
+  'GET /api/v1/telemetry',
+  'GET /api/v1/seo/operator/tasks/{id}',
+  // Own gate: requireLiveRead (administrator session + google-marketing.read-live).
+  'GET /api/v1/projects/{name}/google-ads/customers',
+  'GET /api/v1/projects/{name}/gtm/accounts',
+  'GET /api/v1/projects/{name}/gtm/accounts/{accountId}/containers',
+  'GET /api/v1/projects/{name}/gtm/accounts/{accountId}/containers/{containerId}/workspaces',
+  // Own gate: readGrant (administrator session + paid-read + GBP live-read scope).
+  'GET /api/v1/projects/{name}/gbp/local-posts',
+  'GET /api/v1/projects/{name}/gbp/local-post',
+  'GET /api/v1/projects/{name}/gbp/reviews/live',
+  'GET /api/v1/projects/{name}/gbp/local-post-attempt',
+  // Own gates: requireAdminSession + requirePaidReadScope (wildcard key only).
+  'GET /api/v1/projects/{name}/discover/sessions/{id}/harvest',
+  // Own gate: requireInstanceAdministrator (administrator session or full-instance key).
+  'GET /api/v1/projects/{name}/agent/conversations',
+  'GET /api/v1/projects/{name}/agent/conversations/{id}',
+  'GET /api/v1/projects/{name}/agent/transcript',
+  'GET /api/v1/projects/{name}/agent/memory',
+  'GET /api/v1/projects/{name}/agent/providers',
+])
+
+/** True when this read route is exempt from the capability default-deny. */
+export function isReadCapabilityExempt(request: FastifyRequest): boolean {
+  return READ_CAPABILITY_EXEMPT_OPERATIONS.has(
+    matchOperationTemplate(request.method, request.routeOptions.url ?? request.url),
+  )
 }
 
 /**
@@ -1044,13 +1098,28 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // Capability gate. A route that declares `readCapability` in its config
     // refuses any caller whose key does not carry it — default deny, so a
     // narrow key cannot reach a tagged read surface it was never granted.
-    // Untouched routes keep their existing gates; tagging a route is the
-    // explicit act that closes it. The MCP transport re-dispatches each tool
-    // call as a fresh authenticated request, so the check re-applies per
-    // operation there too.
+    // The MCP transport re-dispatches each tool call as a fresh authenticated
+    // request, so the check re-applies per operation there too.
     const requiredCapability = request.routeOptions.config.readCapability
     if (requiredCapability) {
       requireCapability(request, requiredCapability)
+    }
+
+    // Default-deny for unclassified reads (#817). A safe-method route that
+    // declares no `readCapability` still refuses an API-key caller that does
+    // not carry the full bundle: classification is opt-out (an explicit
+    // exemption above), never opt-in, so a new read surface cannot silently
+    // open to narrow keys. Signed-in people never reach this — the hook
+    // returns early for sessions — and paid reads keep their own gate
+    // (`paidRead`), as do the exempt routes above.
+    if (
+      !WRITE_METHODS.has(request.method)
+      && request.principal?.kind === 'api-key'
+      && !requiredCapability
+      && !isPaidReadRoute(request)
+      && !isReadCapabilityExempt(request)
+    ) {
+      requireCapability(request, FULL_READ_CAPABILITY)
     }
 
     enforceEmbedProjectTabs(request, opts.embedProjectTabs)

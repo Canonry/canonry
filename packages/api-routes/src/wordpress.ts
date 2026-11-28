@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { AppError, bucketDuration, notFound, OutcomeReasonCodes, OutcomeStatuses, providerError, validationError, describeError } from '@canonry/canonry-contracts'
+import { AppError, FULL_READ_CAPABILITY, bucketDuration, notFound, OutcomeReasonCodes, OutcomeStatuses, providerError, validationError, describeError } from '@canonry/canonry-contracts'
 import type {
   OutcomeReasonCode,
   WordpressBulkMetaEntryResultDto,
@@ -279,7 +279,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     return reply.status(204).send()
   }))
 
-  app.get<{ Params: { name: string } }>('/projects/:name/wordpress/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/wordpress/status', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const stored = opts.wordpressConnectionStore?.getConnection(project.name)
     if (!stored) {
@@ -309,7 +309,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/pages', async (request) => {
+  }>('/projects/:name/wordpress/pages', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -325,7 +325,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { slug?: string; env?: string }
-  }>('/projects/:name/wordpress/page', async (request) => {
+  }>('/projects/:name/wordpress/page', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -466,7 +466,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { slug?: string; env?: string }
-  }>('/projects/:name/wordpress/schema', async (request) => {
+  }>('/projects/:name/wordpress/schema', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -522,7 +522,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/schema/status', async (request) => {
+  }>('/projects/:name/wordpress/schema/status', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -535,7 +535,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/llms-txt', async (request) => {
+  }>('/projects/:name/wordpress/llms-txt', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -567,7 +567,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/audit', async (request) => {
+  }>('/projects/:name/wordpress/audit', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -577,7 +577,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     })
   })
 
-  app.get<{ Params: { name: string }; Querystring: { slug?: string } }>('/projects/:name/wordpress/diff', async (request) => {
+  app.get<{ Params: { name: string }; Querystring: { slug?: string } }>('/projects/:name/wordpress/diff', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
@@ -590,7 +590,7 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     })
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/wordpress/staging/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/wordpress/staging/status', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     return withWordpressErrorHandling(async () => {
       const store = requireStore()
       const project = resolveProject(app.db, request.params.name)

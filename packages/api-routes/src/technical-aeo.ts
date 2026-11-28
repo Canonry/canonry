@@ -19,6 +19,7 @@ import {
 } from '@canonry/canonry-db'
 import {
   AGENT_READINESS_PATH_SEGMENTS,
+  ANALYTICS_READ_CAPABILITY,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -1010,7 +1011,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes()) app.get<{
     Params: { name: string }
     Querystring: { runId?: string }
-  }>(path, async (request): Promise<SiteAuditScoreDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteAuditScoreDto> => {
     const project = resolveProject(app.db, request.params.name)
     const latest = resolveAudit(project.id, request.query.runId)
 
@@ -1113,7 +1114,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/pages')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; status?: string; sort?: string; limit?: string; offset?: string }
-  }>(path, async (request): Promise<SiteAuditPagesResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteAuditPagesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
 
     const latest = resolveAudit(project.id, request.query.runId)
@@ -1168,7 +1169,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/trend')) app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>(path, async (request): Promise<SiteAuditTrendResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteAuditTrendResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const limit = parsePositiveInt(request.query.limit, 30, 365)
 
@@ -1194,7 +1195,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/crawl')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; date?: string }
-  }>(path, async (request): Promise<SiteCrawlSummaryDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlSummaryDto> => {
     const project = resolveProject(app.db, request.params.name)
     const requestedDate = parseCrawlDate(request.query.date, request.query.runId)
     const target = resolveCrawl(project.id, request.query.runId, requestedDate)
@@ -1265,7 +1266,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/graph')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; maxNodes?: string; maxEdges?: string; linkKind?: string }
-  }>(path, async (request): Promise<SiteCrawlGraphResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlGraphResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const linkKind = parseLinkKind(request.query.linkKind)
     const target = resolveCrawl(project.id, request.query.runId)
@@ -1451,7 +1452,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       maxNodes?: string
       maxEdges?: string
     }
-  }>(path, async (request): Promise<SiteHealthSubgraphResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteHealthSubgraphResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const hops = Math.min(3, parsePositiveInt(request.query.hops, 1, 3))
     const maxNodes = parseBoundedLimit(
@@ -1641,7 +1642,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       toUrl?: string
       maxDepth?: string
     }
-  }>(path, async (request): Promise<SiteHealthPathResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteHealthPathResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const maxDepth = parseBoundedLimit(
       request.query.maxDepth,
@@ -1791,7 +1792,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       cursor?: string
       limit?: string
     }
-  }>(path, async (request): Promise<SiteHealthChangesResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteHealthChangesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const scopeFilter = request.query.scope ?? 'all'
     if (scopeFilter !== 'all' && scopeFilter !== 'pages' && scopeFilter !== 'links') {
@@ -2171,7 +2172,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
 
   // Stored issue groups use the same published attempt and non-probe run selection as page evidence.
   for (const path of agentReadinessRoutes('/issues')) app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    path, async (request) => {
+    path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseSiteAuditIssueQuery(request.query)
       const target = resolveCrawl(project.id, query.runId)
@@ -2181,7 +2182,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     },
   )
   for (const path of agentReadinessRoutes('/issues/:issueId/pages')) app.get<{ Params: { name: string; issueId: string }; Querystring: Record<string, unknown> }>(
-    path, async (request) => {
+    path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseSiteAuditIssueQuery(request.query)
       const target = resolveCrawl(project.id, query.runId)
@@ -2197,7 +2198,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/crawl/pages/audit')) app.get<{
     Params: { name: string }
     Querystring: { runId?: unknown; nodeKey?: unknown; url?: unknown }
-  }>(path, async (request): Promise<SiteCrawlPageAuditDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlPageAuditDto> => {
     const project = resolveProject(app.db, request.params.name)
     const scalarQueryString = (value: unknown, name: string): string | undefined => {
       if (value === undefined) return undefined
@@ -2271,7 +2272,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       sort?: string
       site?: string
     }
-  }>(path, async (request): Promise<SiteCrawlPagesResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlPagesResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const requestedDate = parseCrawlDate(request.query.date, request.query.runId)
     const target = resolveCrawl(project.id, request.query.runId, requestedDate)
@@ -2399,7 +2400,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/structure')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; parentPath?: string; cursor?: string; limit?: string; site?: string }
-  }>(path, async (request): Promise<SiteCrawlStructureResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlStructureResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const parentPath = normalizeParentPath(request.query.parentPath)
     const target = resolveCrawl(project.id, request.query.runId)
@@ -2507,7 +2508,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
       followable?: string
       linkKind?: string
     }
-  }>(path, async (request): Promise<SiteCrawlInternalLinksResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlInternalLinksResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const linkKind = parseLinkKind(request.query.linkKind)
     const target = resolveCrawl(project.id, request.query.runId)
@@ -2569,7 +2570,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/internal-links/neighbors')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; nodeKey?: string; url?: string; limit?: string; linkKind?: string }
-  }>(path, async (request): Promise<SiteCrawlNeighborsResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlNeighborsResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const linkKind = parseLinkKind(request.query.linkKind)
     if (!request.query.nodeKey && !request.query.url) {
@@ -2634,7 +2635,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/dead-links')) app.get<{
     Params: { name: string }
     Querystring: { runId?: string; cursor?: string; limit?: string }
-  }>(path, async (request): Promise<SiteCrawlDeadLinksResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteCrawlDeadLinksResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const target = resolveCrawl(project.id, request.query.runId)
     const legacyAuditAvailable = hasLegacyAudit(project.id)
@@ -2704,7 +2705,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   for (const path of agentReadinessRoutes('/runs')) app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>(path, async (request): Promise<SiteHealthScansResponseDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteHealthScansResponseDto> => {
     const project = resolveProject(app.db, request.params.name)
     const limit = parseBoundedLimit(request.query.limit, SITE_HEALTH_SCANS_DEFAULT_LIMIT, SITE_HEALTH_SCANS_MAX_LIMIT)
     const rows = app.db
@@ -2760,7 +2761,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   // progress percentage for an unknown final corpus.
   for (const path of agentReadinessRoutes('/runs/:runId/progress')) app.get<{
     Params: { name: string; runId: string }
-  }>(path, async (request): Promise<SiteAuditRunProgressDto> => {
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteAuditRunProgressDto> => {
     const project = resolveProject(app.db, request.params.name)
     const run = app.db.select().from(runs).where(and(
       eq(runs.id, request.params.runId),
@@ -2823,7 +2824,7 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
   // the caller back to the immutable Agent Readiness snapshot instead.
   for (const path of agentReadinessRoutes('/runs/:runId/page-health-preview')) app.get<{
     Params: { name: string; runId: string }
-  }>(path, async (request): Promise<SiteAuditLivePageHealthDto> => (
+  }>(path, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request): Promise<SiteAuditLivePageHealthDto> => (
     app.db.transaction((tx) => {
       const project = tx.select().from(projects).where(eq(projects.name, request.params.name)).get()
       if (!project) throw notFound('Project', request.params.name)

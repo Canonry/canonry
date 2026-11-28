@@ -5,6 +5,7 @@ import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn }
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
 import {
+  DASHBOARD_READ_CAPABILITY,
   ProviderWorkflows,
   SEO_RUN_SCOPE,
   type ProviderRouteFamily,
@@ -451,7 +452,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/run-admission: the `admission` or `manualAdmission` of `/runs/latest`
   // without the latest run's answers, for the dashboard's notice on every
   // project page. Agents and the CLI read it on `/runs/latest` and the overview.
-  app.get<{ Params: { name: string }; Querystring: { selection?: string } }>('/projects/:name/run-admission', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { selection?: string } }>('/projects/:name/run-admission', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const selection = request.query.selection ?? RunTriggers.scheduled
     if (selection !== RunTriggers.manual && selection !== RunTriggers.scheduled) {
       throw validationError('"selection" must be one of: manual, scheduled')
@@ -467,7 +468,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // Stored-only preview of exactly POST /projects/:name/runs with its default body.
-  app.get<{ Params: { name: string } }>('/projects/:name/run-preview', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/run-preview', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     return reply.send(previewManualRun(app.db, {
       projectId: project.id,
@@ -540,7 +541,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // `overviewActivityRuns`, applied to every run of the window, so no
   // newer run elsewhere can push a job's failure out of view. The dashboard,
   // `canonry activity`, `canonry overview --all` and MCP read this response.
-  app.get<{ Querystring: { since?: string } }>('/runs/attention', async (request, reply) => {
+  app.get<{ Querystring: { since?: string } }>('/runs/attention', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const since = parseListSince(request.query.since, new Date(Date.now() - OVERVIEW_ACTIVITY_DEFAULT_DAYS * 24 * 60 * 60 * 1000).toISOString())
     const filters = [gte(runs.createdAt, since), notProbeRun(), notInArray(runs.kind, [...OVERVIEW_ACTIVITY_EXCLUDED_KINDS])]
     // A project-scoped key sees only its own project's jobs.

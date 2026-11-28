@@ -3,7 +3,7 @@ import type { SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runFills, auditLog, projects, competitors, querySnapshots, runs, queries, parseJsonColumn, researchRuns, researchRunQueries, insights, healthSnapshots } from '@canonry/canonry-db'
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
-import { runFillInProgress,
+import { FULL_READ_CAPABILITY, runFillInProgress,
   auditHistoryQuerySchema,
   escapeLikePattern,
   type AuditHistoryQuery,
@@ -74,7 +74,7 @@ export async function historyRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: AuditHistoryQuery
-  }>('/projects/:name/history', async (request, reply) => {
+  }>('/projects/:name/history', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const filters = [eq(auditLog.projectId, project.id)]
     if (request.operatorAccess !== true) filters.push(ne(auditLog.entityType, 'telemetry'))
@@ -97,7 +97,7 @@ export async function historyRoutes(app: FastifyInstance) {
   // list is not under the /projects/:name auth gate, so filter explicitly
   // (NULL-project instance-level entries are intentionally hidden from a
   // scoped key).
-  app.get<{ Querystring: AuditHistoryQuery }>('/history', async (request, reply) => {
+  app.get<{ Querystring: AuditHistoryQuery }>('/history', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const scopedProjectId = request.apiKey?.projectId
     const filters = scopedProjectId ? [eq(auditLog.projectId, scopedProjectId)] : []
     // Internal telemetry state must not escape through its audit diff.
@@ -120,7 +120,7 @@ export async function historyRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; offset?: string; location?: string }
-  }>('/projects/:name/snapshots', async (request, reply) => {
+  }>('/projects/:name/snapshots', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const limit = parseInt(request.query.limit ?? '50', 10)
@@ -235,7 +235,7 @@ export async function historyRoutes(app: FastifyInstance) {
   })
 
   // GET /projects/:name/timeline — per-query citation state over time
-  app.get<{ Params: { name: string }; Querystring: { location?: string; limit?: string } }>('/projects/:name/timeline', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { location?: string; limit?: string } }>('/projects/:name/timeline', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     // Get project queries
@@ -473,7 +473,7 @@ export async function historyRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { run1: string; run2: string }
-  }>('/projects/:name/snapshots/diff', async (request, reply) => {
+  }>('/projects/:name/snapshots/diff', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const { run1, run2 } = request.query

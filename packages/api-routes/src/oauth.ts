@@ -5,7 +5,7 @@ import { and, eq, inArray, isNull, lt } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
-import { notFound, RESEARCH_RUN_SCOPE } from '@canonry/canonry-contracts'
+import { FULL_READ_CAPABILITY, notFound, RESEARCH_RUN_SCOPE } from '@canonry/canonry-contracts'
 import { renderAuthorizationHandoff, renderConsentPage, renderSignInPage } from './oauth-pages.js'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
@@ -809,7 +809,7 @@ export function resolveOAuthAccessToken(
  */
 export function registerOAuthAdminRoutes(app: FastifyInstance, opts: { db: DatabaseClient }): void {
   const { db } = opts
-  app.get('/oauth/clients', async (request: FastifyRequest) => {
+  app.get('/oauth/clients', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request: FastifyRequest) => {
     requireAdminSession(request)
     const now = new Date().toISOString()
     const clients = db.select().from(oauthClients).all()

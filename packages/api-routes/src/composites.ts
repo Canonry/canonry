@@ -21,6 +21,7 @@ import { SentimentService, type SentimentServiceOptions } from './sentiment-serv
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  DASHBOARD_READ_CAPABILITY,
   isCitationStateMeasured,
   readCitationState,
   competitorAutoAliasNames,
@@ -135,7 +136,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
   app.get<{
     Params: { name: string }
     Querystring: { location?: string; since?: string }
-  }>('/projects/:name/overview', async (request, reply) => {
+  }>('/projects/:name/overview', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const filterLocation = (request.query.location ?? '').trim() || null
@@ -435,7 +436,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
   app.get<{
     Params: { name: string }
     Querystring: { q?: string; limit?: string }
-  }>('/projects/:name/search', async (request, reply) => {
+  }>('/projects/:name/search', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const rawQuery = (request.query.q ?? '').trim()
     if (rawQuery.length < 2) {

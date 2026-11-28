@@ -4,7 +4,7 @@ import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 import { filterTrackedSnapshots, querySnapshots, runs, queries } from '@canonry/canonry-db'
-import { CitationStates, notFound, notImplemented, readCitationState, validationError, type GroundingSource } from '@canonry/canonry-contracts'
+import { CitationStates, FULL_READ_CAPABILITY, notFound, notImplemented, readCitationState, validationError, type GroundingSource } from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { assertProjectScope, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
@@ -39,7 +39,7 @@ function getScreenshotDir(): string {
 export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
 
   // GET /screenshots/:snapshotId — serve a screenshot PNG
-  app.get<{ Params: { snapshotId: string } }>('/screenshots/:snapshotId', async (request, reply) => {
+  app.get<{ Params: { snapshotId: string } }>('/screenshots/:snapshotId', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const { snapshotId } = request.params
 
     const snapshot = app.db
@@ -103,7 +103,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
   }))
 
   // GET /cdp/status — CDP connection health + tab status
-  app.get('/cdp/status', async (_request, reply) => {
+  app.get('/cdp/status', { config: { readCapability: FULL_READ_CAPABILITY } }, async (_request, reply) => {
     if (!opts.getCdpStatus) {
       const err = notImplemented('CDP not configured')
       return reply.code(err.statusCode).send(err.toJSON())
@@ -141,7 +141,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
 
   // GET /projects/:name/runs/:runId/browser-diff — API vs Browser comparison
   app.get<{ Params: { name: string; runId: string } }>(
-    '/projects/:name/runs/:runId/browser-diff',
+    '/projects/:name/runs/:runId/browser-diff', { config: { readCapability: FULL_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
 

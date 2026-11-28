@@ -12,6 +12,7 @@ import { asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { users, userSessions } from '@canonry/canonry-db'
 import {
+  FULL_READ_CAPABILITY,
   alreadyExists,
   createUserRequestSchema,
   forbidden,
@@ -76,7 +77,7 @@ export interface UserRoutesOptions {
 export async function userRoutes(app: FastifyInstance, opts: UserRoutesOptions = {}) {
   // Listing accounts tells you who can reach this install, which is not a
   // view-only concern — an admin (or an API key) only.
-  app.get('/users', async (request) => {
+  app.get('/users', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     refuseProjectScopedKey(request)
     requireAdminSession(request)
     requireBroadInstanceKey(request)

@@ -3,6 +3,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules, seoProfiles, trafficSources } from '@canonry/canonry-db'
 import {
+  DASHBOARD_READ_CAPABILITY,
   ProviderWorkflows,
   SEO_RUN_SCOPE,
   type ScheduleDto,
@@ -250,7 +251,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   // An empty project returns [] rather than a 404 so discovery callers can
   // distinguish "none configured" without treating expected absence as a
   // failed resource load. The singular route below keeps its legacy contract.
-  app.get<{ Params: { name: string } }>('/projects/:name/schedules', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/schedules', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db
       .select()
@@ -266,7 +267,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   // Returns the single schedule matching the requested kind (default
   // 'answer-visibility'). The legacy callsite that didn't pass a kind keeps
   // working unchanged.
-  app.get<{ Params: { name: string }; Querystring: { kind?: string } }>('/projects/:name/schedule', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { kind?: string } }>('/projects/:name/schedule', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const kind = parseKindParam(request.query?.kind)
 

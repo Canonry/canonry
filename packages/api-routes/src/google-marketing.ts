@@ -1,4 +1,4 @@
-import { WINDOW_SETS, parseWindowIn } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, WINDOW_SETS, parseWindowIn } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, desc, eq, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -1400,12 +1400,12 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
 
   // --- Stored connection status -------------------------------------------------
 
-  app.get<{ Params: { name: string } }>('/projects/:name/google-ads/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/google-ads/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     return googleAdsStatus(app, opts, asProjectRef(project))
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/gtm/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/gtm/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     return gtmStatus(app, opts, asProjectRef(project))
   })
@@ -2076,7 +2076,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
   app.get<{
     Params: { name: string }
     Querystring: { window?: string }
-  }>('/projects/:name/google-ads/performance', async (request) => {
+  }>('/projects/:name/google-ads/performance', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const query = parseBody(googleAdsPerformanceQuerySchema, { ...request.query, window: parseWindowIn(request.query.window, WINDOW_SETS.googleAdsMetrics, { fallback: GOOGLE_ADS_PERFORMANCE_DEFAULT_WINDOW }) }, 'Google Ads performance')
     return googleAdsPerformance(app, project.id, query.window ?? GOOGLE_ADS_PERFORMANCE_DEFAULT_WINDOW)
@@ -2087,7 +2087,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; cursor?: string }
-  }>('/projects/:name/google-ads/snapshots', async (request) => {
+  }>('/projects/:name/google-ads/snapshots', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const query = parseBody(snapshotPageQuerySchema, request.query, 'Google Ads snapshot page')
     const cursor = decodeSnapshotCursor(query.cursor)
@@ -2114,7 +2114,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     }
   })
 
-  app.get<{ Params: { name: string; snapshotId: string } }>('/projects/:name/google-ads/snapshots/:snapshotId', async (request) => {
+  app.get<{ Params: { name: string; snapshotId: string } }>('/projects/:name/google-ads/snapshots/:snapshotId', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(googleAdsRawSnapshots).where(and(
       eq(googleAdsRawSnapshots.projectId, project.id),
@@ -2129,7 +2129,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; cursor?: string }
-  }>('/projects/:name/gtm/snapshots', async (request) => {
+  }>('/projects/:name/gtm/snapshots', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const query = parseBody(snapshotPageQuerySchema, request.query, 'GTM snapshot page')
     const cursor = decodeSnapshotCursor(query.cursor)
@@ -2156,7 +2156,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     }
   })
 
-  app.get<{ Params: { name: string; snapshotId: string } }>('/projects/:name/gtm/snapshots/:snapshotId', async (request) => {
+  app.get<{ Params: { name: string; snapshotId: string } }>('/projects/:name/gtm/snapshots/:snapshotId', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(gtmRawSnapshots).where(and(
       eq(gtmRawSnapshots.projectId, project.id),
@@ -2236,7 +2236,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
    * hand, which fails only after saving and produces a contract that silently
    * checks the wrong thing on a typo.
    */
-  app.get<{ Params: { name: string } }>('/projects/:name/conversion-tracking/options', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/conversion-tracking/options', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
 
     const adsSnapshot = latestGoogleAdsSnapshot(app, project.id)
@@ -2277,7 +2277,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     }
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/conversion-tracking/contracts', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/conversion-tracking/contracts', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     return app.db.select().from(conversionTrackingContracts)
       .where(eq(conversionTrackingContracts.projectId, project.id))
@@ -2310,7 +2310,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     return contract
   })
 
-  app.get<{ Params: { name: string; contractId: string } }>('/projects/:name/conversion-tracking/contracts/:contractId', async (request) => {
+  app.get<{ Params: { name: string; contractId: string } }>('/projects/:name/conversion-tracking/contracts/:contractId', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(conversionTrackingContracts).where(and(
       eq(conversionTrackingContracts.projectId, project.id),
@@ -2374,7 +2374,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
     return reply.status(204).send()
   })
 
-  app.get<{ Params: { name: string; contractId: string } }>('/projects/:name/conversion-tracking/contracts/:contractId/integrity', async (request) => {
+  app.get<{ Params: { name: string; contractId: string } }>('/projects/:name/conversion-tracking/contracts/:contractId/integrity', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db.select().from(conversionTrackingContracts).where(and(
       eq(conversionTrackingContracts.projectId, project.id),

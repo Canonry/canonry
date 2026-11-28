@@ -9,9 +9,11 @@ import {
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   AppError,
   BacklinkSources,
   CcReleaseSyncStatuses,
+  FULL_READ_CAPABILITY,
   OutcomeReasonCodes,
   OutcomeStatuses,
   RunKinds,
@@ -346,7 +348,7 @@ function computeSourceAvailability(
 }
 
 export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoutesOptions) {
-  app.get('/backlinks/status', async (_request, reply) => {
+  app.get('/backlinks/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (_request, reply) => {
     if (!opts.getBacklinksStatus) {
       throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
     }
@@ -436,7 +438,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.status(201).send(mapSyncRow(inserted!))
   })
 
-  app.get('/backlinks/syncs/latest', async (_request, reply) => {
+  app.get('/backlinks/syncs/latest', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (_request, reply) => {
     const row = app.db
       .select()
       .from(ccReleaseSyncs)
@@ -446,7 +448,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.send(row ? mapSyncRow(row) : null)
   })
 
-  app.get('/backlinks/syncs', async (_request, reply) => {
+  app.get('/backlinks/syncs', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (_request, reply) => {
     const rows = app.db
       .select()
       .from(ccReleaseSyncs)
@@ -455,12 +457,12 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.send(rows.map(mapSyncRow))
   })
 
-  app.get('/backlinks/releases', async (_request, reply) => {
+  app.get('/backlinks/releases', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (_request, reply) => {
     const releases = opts.listCachedReleases?.() ?? []
     return reply.send(releases)
   })
 
-  app.get('/backlinks/latest-release', async (_request, reply) => {
+  app.get('/backlinks/latest-release', { config: { readCapability: FULL_READ_CAPABILITY } }, async (_request, reply) => {
     if (!opts.discoverLatestRelease) {
       throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
     }
@@ -522,7 +524,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     Params: { name: string }
     Querystring: { release?: string; excludeCrawlers?: string; source?: string }
   }>(
-    '/projects/:name/backlinks/summary',
+    '/projects/:name/backlinks/summary', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const source = parseSourceParam(request.query.source)
@@ -536,7 +538,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; offset?: string; release?: string; excludeCrawlers?: string; source?: string }
-  }>('/projects/:name/backlinks/domains', async (request, reply) => {
+  }>('/projects/:name/backlinks/domains', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const source = parseSourceParam(request.query.source)
 
@@ -598,7 +600,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     Params: { name: string }
     Querystring: { source?: string }
   }>(
-    '/projects/:name/backlinks/history',
+    '/projects/:name/backlinks/history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const source = parseSourceParam(request.query.source)
@@ -626,7 +628,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     Params: { name: string }
     Querystring: { excludeCrawlers?: string }
   }>(
-    '/projects/:name/backlinks/sources',
+    '/projects/:name/backlinks/sources', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const excludeCrawlers = parseExcludeCrawlers(request.query.excludeCrawlers)

@@ -309,7 +309,7 @@ export async function competitorRoutes(app: FastifyInstance, opts: CompetitorRou
   // GET /projects/:name/competitor-auto-aliases: a dry run of answer-derived
   // alias detection over the stored answers. Never writes, never calls a
   // provider or any competitor site.
-  app.get<{ Params: { name: string } }>('/projects/:name/competitor-auto-aliases', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/competitor-auto-aliases', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const detection = await previews.request(project.id)
     const tracked = detection.competitors.filter(competitor => competitor.marketKeys === undefined)

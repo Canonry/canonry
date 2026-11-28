@@ -2,6 +2,7 @@ import { and, eq, gte, lte } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { unrecognizedAgentEventsHourly } from '@canonry/canonry-db'
 import {
+  FULL_READ_CAPABILITY,
   formatValidationIssues,
   trafficUnrecognizedAgentsQuerySchema,
   validationError,
@@ -22,7 +23,7 @@ function hourFloor(iso: string): string {
 
 /** Bots and agents no classifier rule recognizes, summed by name. Stored rows only. */
 export async function trafficUnrecognizedAgentsRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/unrecognized-agents', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/unrecognized-agents', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
     const input = { ...request.query }

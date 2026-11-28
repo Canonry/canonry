@@ -4,6 +4,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars, type DatabaseClient } from '@canonry/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
+  DASHBOARD_READ_CAPABILITY,
+  FULL_READ_CAPABILITY,
   ProviderWorkflows,
   alreadyExists,
   describeError,
@@ -585,7 +587,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
   // GET /projects — list all. A project-scoped key sees ONLY its own project,
   // so the embedded dashboard's project switcher can never enumerate siblings.
-  app.get('/projects', async (request, reply) => {
+  app.get('/projects', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const scoped = request.apiKey?.projectId
     const rows = scoped
       ? app.db.select().from(projects).where(eq(projects.id, scoped)).all()
@@ -595,12 +597,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name — get single
-  app.get<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     return reply.send(formatProject(project, readNegativeReviewMaxStars(app.db, project.id)))
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/delete-preview', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/delete-preview', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const pid = project.id
 
@@ -740,7 +742,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name/locations — list locations
-  app.get<{ Params: { name: string } }>('/projects/:name/locations', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/locations', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     return reply.send({
@@ -818,7 +820,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name/export — export as canonry.yaml format
-  app.get<{ Params: { name: string }; Querystring: { includeSecrets?: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
+  app.get<{ Params: { name: string }; Querystring: { includeSecrets?: string } }>('/projects/:name/export', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const includeSecrets = request.query.includeSecrets === 'true'
     if (includeSecrets) requireSecretExportScope(request)

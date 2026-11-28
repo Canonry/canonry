@@ -3,7 +3,7 @@ import { eq, desc, and, inArray, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, gaSyncCoverage, runs } from '@canonry/canonry-db'
-import { GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, calendarDateRange, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend, type GA4AiReferralMonth, type GA4AiReferralMonthlyTrend } from '@canonry/canonry-contracts'
+import { ANALYTICS_READ_CAPABILITY, GA_OVERVIEW_WINDOWS, GA_SEARCH_LANDING_WINDOWS, shiftIsoCalendarDate, calendarDateRange, WINDOW_SETS, breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames, linearTrend, type GA4AiReferralDailyTrend, type GA4AiReferralMonth, type GA4AiReferralMonthlyTrend } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -927,7 +927,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/ga/status', async (request, _reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ga/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const saConn = opts.ga4CredentialStore?.getConnection(project.name)
@@ -1585,7 +1585,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; days?: string; window?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/ga/traffic', async (request, _reply) => {
+  }>('/projects/:name/ga/traffic', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2024,7 +2024,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/ga/ai-referral-history', async (request, _reply) => {
+  }>('/projects/:name/ga/ai-referral-history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2071,7 +2071,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/ga/ai-referral-daily', async (request, _reply) => {
+  }>('/projects/:name/ga/ai-referral-daily', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2138,7 +2138,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/ga/social-referral-history', async (request, _reply) => {
+  }>('/projects/:name/ga/social-referral-history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2165,7 +2165,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/social-referral-trend
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/ga/social-referral-trend', async (request, _reply) => {
+  }>('/projects/:name/ga/social-referral-trend', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2233,7 +2233,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/attribution-trend
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/ga/attribution-trend', async (request, _reply) => {
+  }>('/projects/:name/ga/attribution-trend', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2350,7 +2350,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string }
-  }>('/projects/:name/ga/overview', async (request, _reply) => {
+  }>('/projects/:name/ga/overview', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
     const window = parseGaOverviewWindow(request.query.window)
@@ -2378,7 +2378,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { window?: string; startDate?: string; endDate?: string }
-  }>('/projects/:name/ga/session-history', async (request, _reply) => {
+  }>('/projects/:name/ga/session-history', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
@@ -2421,7 +2421,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/coverage
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/ga/coverage', async (request, _reply) => {
+  }>('/projects/:name/ga/coverage', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 

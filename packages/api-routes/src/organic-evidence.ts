@@ -16,6 +16,7 @@ import {
   trafficSources,
 } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   AiReferralTrafficClasses,
   CitationStates,
   isCitationStateMeasured,
@@ -637,7 +638,7 @@ export function buildOrganicEvidence(
 
 export async function organicEvidenceRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: { period?: string } }>(
-    '/projects/:name/organic-evidence',
+    '/projects/:name/organic-evidence', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       return buildOrganicEvidence(app.db, request.params.name, parseOrganicEvidencePeriod(request.query.period))
     },

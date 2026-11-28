@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  FULL_READ_CAPABILITY,
   canonicalMeasurementPlanJson,
   compileMeasurementPlan,
   compileMeasurementPlanPreview,
@@ -329,7 +330,7 @@ function activePlanContainsKey(plan: StoredMeasurementPlan, stableKey: string): 
 
 /** Immutable Target/group measurement-plan persistence. */
 export async function measurementPlanRoutes(app: FastifyInstance, opts: MeasurementPlanRoutesOptions) {
-  app.get<{ Params: { name: string } }>('/projects/:name/measurement-plan', async request => {
+  app.get<{ Params: { name: string } }>('/projects/:name/measurement-plan', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const active = activePlanVersion(app, project.id)
     return { active: active ? activeDto(active.version) : null }
@@ -503,7 +504,7 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
     return reply.send({ stableKey: segment.stableKey, retiredAt })
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/measurement-plan/versions', async request => {
+  app.get<{ Params: { name: string } }>('/projects/:name/measurement-plan/versions', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const active = activePlanVersion(app, project.id)
     const versions = app.db.select().from(measurementPlanVersions)
@@ -514,7 +515,7 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
     }
   })
 
-  app.get<{ Params: { name: string; revision: string } }>('/projects/:name/measurement-plan/versions/:revision', async request => {
+  app.get<{ Params: { name: string; revision: string } }>('/projects/:name/measurement-plan/versions/:revision', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     if (!/^[1-9]\d*$/.test(request.params.revision)) {
       throw notFound('Measurement plan revision', request.params.revision)

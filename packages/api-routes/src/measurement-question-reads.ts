@@ -10,6 +10,7 @@
 import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  ANALYTICS_READ_CAPABILITY,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   RunKinds,
   RunStatuses,
@@ -483,7 +484,7 @@ function sourcesForResult(
 
 export async function measurementQuestionReadRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-property-questions',
+    '/projects/:name/measurement-property-questions', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parsePropertyQuestionsQuery(request.query)
@@ -527,7 +528,7 @@ export async function measurementQuestionReadRoutes(app: FastifyInstance) {
   )
 
   app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>(
-    '/projects/:name/measurement-question-result',
+    '/projects/:name/measurement-question-result', { config: { readCapability: ANALYTICS_READ_CAPABILITY } },
     async request => {
       const project = resolveProject(app.db, request.params.name)
       const query = parseQuestionResultQuery(request.query)

@@ -3,7 +3,9 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { comparableMeasurementVersionIds } from './measurement-report-adapter.js'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
+  ANALYTICS_READ_CAPABILITY,
   AppError,
+  FULL_READ_CAPABILITY,
   MEASUREMENT_GROUP_MEMBERSHIP_CSV_MAX_BYTES,
   alreadyExists,
   canonicalMeasurementPlanV2Json,
@@ -615,7 +617,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     return { etag: measurementDraftEtag(etagVersion), changed, warnings, counts: draftCounts(authoring) }
   }
 
-  app.get<{ Params: { name: string } }>('/projects/:name/measurement-setup', async request => {
+  app.get<{ Params: { name: string } }>('/projects/:name/measurement-setup', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const active = activePlanVersionRow(app.db, project.id)
     const draft = draftRow(app.db, project.id)
@@ -671,7 +673,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft', async (request, reply) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const row = draftRow(app.db, project.id)
     if (!row) return { draft: null, etag: null }
@@ -680,7 +682,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     return { draft: draftDto(row), etag }
   })
 
-  app.get<{ Params: { name: string }; Querystring: PageQuery }>('/projects/:name/measurement-plan/draft/targets', async request => {
+  app.get<{ Params: { name: string }; Querystring: PageQuery }>('/projects/:name/measurement-plan/draft/targets', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const authoring = parseStoredAuthoring(requireDraft(project).authoringJson)
     return paginate<MeasurementDraftTarget>(
@@ -691,7 +693,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     )
   })
 
-  app.get<{ Params: { name: string }; Querystring: PageQuery }>('/projects/:name/measurement-plan/draft/assignments', async request => {
+  app.get<{ Params: { name: string }; Querystring: PageQuery }>('/projects/:name/measurement-plan/draft/assignments', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const authoring = parseStoredAuthoring(requireDraft(project).authoringJson)
     return paginate<MeasurementDraftAssignment>(
@@ -702,7 +704,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     )
   })
 
-  app.get<{ Params: { name: string }; Querystring: PageQuery }>('/projects/:name/measurement-plan/draft/groups', async request => {
+  app.get<{ Params: { name: string }; Querystring: PageQuery }>('/projects/:name/measurement-plan/draft/groups', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const authoring = parseStoredAuthoring(requireDraft(project).authoringJson)
     return paginate<MeasurementDraftGroup>(
@@ -1457,7 +1459,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   }
 
-  app.get<{ Params: { name: string } }>('/projects/:name/measurement-query-sets', async request => {
+  app.get<{ Params: { name: string } }>('/projects/:name/measurement-query-sets', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const sets = app.db.select().from(measurementQuerySets)
       .where(eq(measurementQuerySets.projectId, project.id))
@@ -1483,7 +1485,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   })
 
-  app.get<{ Params: { name: string; setId: string } }>('/projects/:name/measurement-query-sets/:setId', async request => {
+  app.get<{ Params: { name: string; setId: string } }>('/projects/:name/measurement-query-sets/:setId', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     return querySetDetail(project.id, request.params.setId)
   })
@@ -1577,7 +1579,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   }
 
-  app.get<{ Params: { name: string } }>('/projects/:name/measurement-query-templates', async request => {
+  app.get<{ Params: { name: string } }>('/projects/:name/measurement-query-templates', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db.select().from(measurementQueryTemplates)
       .where(eq(measurementQueryTemplates.projectId, project.id))

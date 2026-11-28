@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { SeoRepository, competitors, currentSeoTaskCondition, currentSeoTasks, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoKeywordGapKinds, SeoKeywordGapModes, SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
   compareSeoCompetitorsBy, compareSeoKeywordGapsBy, compareMarketRankingsBy, compareText, countMarketRankings, effectiveDomains, groupMarketRankings, marketRankingRow, matchesMarketRankingFilter, matchesMarketRankingText, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
   seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoCompetitorQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema, seoTrendsQuerySchema,
@@ -468,7 +469,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     return { id: task.id, status: app.db.select().from(seoTasks).where(eq(seoTasks.id, task.id)).get()!.status } satisfies SeoReconcileResult
   })
   type Params = { name: string; id: string }
-  app.get<{ Params: Params }>('/projects/:name/seo/context', async request => {
+  app.get<{ Params: Params }>('/projects/:name/seo/context', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const current = status(project.id)
     const active = activeMeasurementPlan(app.db, project.id)
@@ -479,9 +480,9 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     }) : [{ kind: SeoScopeKinds.project, key: null, label: 'Project', capabilities: active ? [] : current.capabilities, supported: !active && current.capabilities.length > 0, reason: active ? 'Publish a current Advanced Measurement plan first.' : current.reason }]
     return { available: current.available, reason: current.reason, connections: getRuntime()?.connections.map(connection => ({ id: connection.id, label: connection.label, provider: connection.adapter.provider, capabilities: [...connection.adapter.capabilities] })) ?? [], scopes, access: { canRun: can(request, SEO_RUN_SCOPE), canWrite: can(request, SEO_WRITE_SCOPE) } } satisfies SeoContext
   })
-  app.get<{ Params: Params }>('/projects/:name/seo/status', async request => status(resolveProject(app.db, request.params.name).id))
-  app.get<{ Params: Params }>('/projects/:name/seo/profiles', async request => ({ profiles: profiles(resolveProject(app.db, request.params.name).id) }))
-  app.get<{ Params: Params }>('/projects/:name/seo/profiles/:id', async request => profile(resolveProject(app.db, request.params.name).id, request.params.id))
+  app.get<{ Params: Params }>('/projects/:name/seo/status', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => status(resolveProject(app.db, request.params.name).id))
+  app.get<{ Params: Params }>('/projects/:name/seo/profiles', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => ({ profiles: profiles(resolveProject(app.db, request.params.name).id) }))
+  app.get<{ Params: Params }>('/projects/:name/seo/profiles/:id', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => profile(resolveProject(app.db, request.params.name).id, request.params.id))
   app.put<{ Params: Params; Body: unknown }>('/projects/:name/seo/profiles/:id', { config: { writeScope: SEO_WRITE_SCOPE } }, async request => {
     requireScope(request, SEO_WRITE_SCOPE); requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
@@ -546,14 +547,14 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     if (id === requestedId) opts.onSeoRunRequested?.(id)
     return reply.status(id === requestedId ? 202 : 200).send(runSummary(accepted))
   })
-  app.get<{ Params: Params; Querystring: { profileId?: string } }>('/projects/:name/seo/runs', async request => {
+  app.get<{ Params: Params; Querystring: { profileId?: string } }>('/projects/:name/seo/runs', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     if (request.query.profileId) profile(project.id, request.query.profileId)
     const rows = app.db.select().from(seoJobs).where(and(eq(seoJobs.projectId, project.id), isNotNull(seoJobs.runId), request.query.profileId ? eq(seoJobs.profileId, request.query.profileId) : undefined)).orderBy(desc(seoJobs.createdAt), sql`seo_jobs.rowid DESC`).limit(100).all()
     const counts = taskCounts(rows.map(row => row.id))
     return { runs: rows.map(row => runDto(row, counts.filter(group => group.jobId === row.id))) }
   })
-  app.get<{ Params: Params }>('/projects/:name/seo/runs/:id', async request => {
+  app.get<{ Params: Params }>('/projects/:name/seo/runs/:id', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const row = job(resolveProject(app.db, request.params.name).id, request.params.id)
     const rows = tasks(row.id); const results = resultRows(rows)
     return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, comparison: task.request.comparison ?? null, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null, ...taskSearch(task), retried: task.retryOf !== null })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20), competitors: results.competitors.slice(0, 20), keywordGaps: results.keywordGaps.slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length, competitors: results.competitors.length, keywordGaps: results.keywordGaps.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
@@ -564,12 +565,12 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     cancelSeoRefresh(app.db, project.id, row.id)
     return runSummary(job(project.id, row.id))
   })
-  app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>('/projects/:name/seo/overview', async request => {
+  app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>('/projects/:name/seo/overview', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name); const query = queryInput(request.query); const latest = selected(project.id, query); const row = selected(project.id, query, true); const rows = row ? tasks(row.id) : []; const results = resultRows(rows)
     const domain = primaryDomainIntelligence(results.domainIntelligence, row?.profile.targets[0])
     return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: results.marketRankings.length, competitorCount: results.competitors.length, keywordGapCount: results.keywordGaps.length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domainTop10(domain), estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
   })
-  app.get<{ Params: Params; Querystring: { profileId?: string; days?: string; keyword?: string } }>('/projects/:name/seo/trends', async request => {
+  app.get<{ Params: Params; Querystring: { profileId?: string; days?: string; keyword?: string } }>('/projects/:name/seo/trends', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const query = request.query
     const parsed = seoTrendsQuerySchema.safeParse({ ...query, days: query.days === undefined ? undefined : Number(query.days) })
     if (!parsed.success) throw validationError('Select an SEO profile, a trend window of 30, 90 or 180 days, and an optional keyword of up to 512 characters.')
@@ -577,12 +578,12 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const saved = profile(project.id, parsed.data.profileId)
     return readSeoTrends(app.db, project.id, saved, parsed.data, marketRankingRows)
   })
-  for (const [path, key] of [['keyword-metrics', 'keywordMetrics'], ['domain-intelligence', 'domainIntelligence'], ['ranked-keywords', 'rankedKeywords']] as const) app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>(`/projects/:name/seo/${path}`, async request => {
+  for (const [path, key] of [['keyword-metrics', 'keywordMetrics'], ['domain-intelligence', 'domainIntelligence'], ['ranked-keywords', 'rankedKeywords']] as const) app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>(`/projects/:name/seo/${path}`, { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const query = queryInput(request.query); const row = selected(resolveProject(app.db, request.params.name).id, query, true)
     const items = row ? resultRows(tasks(row.id))[key] : []; const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset }
   })
-  app.get<{ Params: Params; Querystring: SeoCompetitorQuery }>('/projects/:name/seo/competitors', async request => {
+  app.get<{ Params: Params; Querystring: SeoCompetitorQuery }>('/projects/:name/seo/competitors', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const raw = request.query as Record<string, unknown>
     const parsed = seoCompetitorQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
     if (!parsed.success) throw validationError('Invalid SEO competitor selection.')
@@ -592,7 +593,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoCompetitorList
   })
-  app.get<{ Params: Params; Querystring: SeoKeywordGapQuery }>('/projects/:name/seo/keyword-gaps', async request => {
+  app.get<{ Params: Params; Querystring: SeoKeywordGapQuery }>('/projects/:name/seo/keyword-gaps', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const raw = request.query as Record<string, unknown>
     const parsed = seoKeywordGapQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
     if (!parsed.success) throw validationError('Invalid SEO keyword-gap selection.')
@@ -602,7 +603,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoKeywordGapList
   })
-  app.get<{ Params: Params; Querystring: SeoMarketRankingQuery }>('/projects/:name/seo/market-rankings', async request => {
+  app.get<{ Params: Params; Querystring: SeoMarketRankingQuery }>('/projects/:name/seo/market-rankings', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const raw = (request.query ?? {}) as Record<string, unknown>
     const parsed = seoMarketRankingQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
     if (!parsed.success) throw validationError('Invalid SEO evidence selection.')
@@ -614,7 +615,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoMarketRankingList
   })
-  app.get<{ Params: Params; Querystring: SeoMarketRankingSummaryQuery }>('/projects/:name/seo/market-rankings/summary', async request => {
+  app.get<{ Params: Params; Querystring: SeoMarketRankingSummaryQuery }>('/projects/:name/seo/market-rankings/summary', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const parsed = seoMarketRankingSummaryQuerySchema.safeParse(request.query ?? {})
     if (!parsed.success) throw validationError('Invalid SEO evidence selection.')
     const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)

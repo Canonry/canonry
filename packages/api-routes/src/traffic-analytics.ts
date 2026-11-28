@@ -2,6 +2,7 @@ import { and, desc, eq, gte, lt, lte, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { aiReferralEventsHourly, aiUserFetchEventsHourly, crawlerEventsHourly, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
 import {
+  ANALYTICS_READ_CAPABILITY,
   aiReferralClassCounts,
   deltaPercent,
   formatAiReferralClassSummary,
@@ -520,7 +521,7 @@ function readTrafficActivity(db: DatabaseClient, projectId: string, windowDays: 
 }
 
 export async function trafficAnalyticsRoutes(app: FastifyInstance) {
-  app.get<{ Params: { name: string }; Querystring: { period?: string } }>('/projects/:name/traffic/analytics', async request => {
+  app.get<{ Params: { name: string }; Querystring: { period?: string } }>('/projects/:name/traffic/analytics', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const periodDays = parseTrafficAnalyticsPeriod(request.query.period)
     const project = resolveProject(app.db, request.params.name)
     const response: TrafficAnalyticsResponse = { activity: readTrafficActivity(app.db, project.id, periodDays) }

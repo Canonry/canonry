@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  DASHBOARD_READ_CAPABILITY,
   competitorSuggestionsQuerySchema,
   CompetitorSuggestionStatuses,
   COMPETITOR_SUGGESTION_COUNT_UNITS,
@@ -36,7 +37,7 @@ export async function competitorSuggestionRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: RawQuery
-  }>('/projects/:name/competitor-suggestions', async request => {
+  }>('/projects/:name/competitor-suggestions', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const parsed = competitorSuggestionsQuerySchema.safeParse({ ...request.query, ...(request.query.window !== undefined ? { window: parseWindow(request.query.window) } : {}) })
     if (!parsed.success) throw validationError('Invalid competitor suggestion query', { issues: parsed.error.issues })

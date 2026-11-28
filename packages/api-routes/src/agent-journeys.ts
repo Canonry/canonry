@@ -3,7 +3,8 @@ import type { FastifyInstance } from 'fastify'
 import { agentJourneyCaptureDays, agentJourneyEvents, aiUserFetchLikelyFakeHourly, trafficSources, type DatabaseClient } from '@canonry/canonry-db'
 import {
   AGENT_JOURNEY_DAILY_EVENT_LIMIT, AGENT_JOURNEY_IDLE_MINUTES, AGENT_JOURNEY_READ_EVENT_LIMIT, AGENT_JOURNEY_RETENTION_DAYS,
-  AgentJourneyAttributions, AgentJourneyCorrelationBases, AgentTrustLevels, TrafficSourceTypes, TrafficSourceStatuses,
+  AgentJourneyAttributions, AgentJourneyCorrelationBases, AgentTrustLevels, FULL_READ_CAPABILITY,
+  TrafficSourceTypes, TrafficSourceStatuses,
   agentJourneysQuerySchema, compareText, formatValidationIssues, notFound, resolveMeasurementTarget, trafficSourceTypeSchema, validationError,
   type AgentJourney, type AgentJourneyContext, type AgentJourneyDetailResponse, type AgentJourneyEvent,
   type AgentJourneysQuery, type AgentJourneysResponse, type MeasurementTargetUrlMatcher, type StoredAgentTrust, type TrafficSourceType,
@@ -173,7 +174,7 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
 }
 
 export async function agentJourneyRoutes(app: FastifyInstance, opts: { journeyKeySecret?: string }): Promise<void> {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/agent-journeys', async request => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/agent-journeys', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const query = parseSelection(request.query)
     const { context, groups } = readSequences(app.db, request.params.name, query, Boolean(opts.journeyKeySecret))
@@ -185,7 +186,7 @@ export async function agentJourneyRoutes(app: FastifyInstance, opts: { journeyKe
     }
     return response
   })
-  app.get<{ Params: { name: string; journeyId: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/agent-journeys/:journeyId', async request => {
+  app.get<{ Params: { name: string; journeyId: string }; Querystring: Record<string, unknown> }>('/projects/:name/traffic/agent-journeys/:journeyId', { config: { readCapability: FULL_READ_CAPABILITY } }, async request => {
     requireAdminSession(request)
     const query = parseSelection(request.query)
     const { context, groups } = readSequences(app.db, request.params.name, query, Boolean(opts.journeyKeySecret))

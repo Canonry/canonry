@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { apiKeys, dashboardSessions, projects } from '@canonry/canonry-db'
 import {
+  FULL_READ_CAPABILITY,
   createApiKeyRequestSchema,
   forbidden,
   isReadOnlyKey,
@@ -75,7 +76,7 @@ export async function keysRoutes(app: FastifyInstance) {
   // keys is who can reach this install, which is an administrator's business.
   // Returns SAFE metadata only. A project-scoped key sees only keys scoped to
   // that same project, never full-instance or sibling-project keys.
-  app.get('/keys', async (request) => {
+  app.get('/keys', { config: { readCapability: FULL_READ_CAPABILITY } }, async (request) => {
     requireAdminSession(request)
     const scopedProjectId = request.apiKey?.projectId
     const rows = scopedProjectId

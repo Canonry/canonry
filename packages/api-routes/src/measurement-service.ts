@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import {
+  ANALYTICS_READ_CAPABILITY,
   deliveryFailed,
   effectiveDomains,
   measurementDiscoveryRequestSchema,
@@ -72,7 +73,7 @@ export async function measurementServiceRoutes(app: FastifyInstance, opts: Measu
     }
   })
 
-  app.get<{ Params: { name: string }; Querystring: { revision?: string; runId?: string; queryClass?: string } }>('/projects/:name/measurement-report', async request => {
+  app.get<{ Params: { name: string }; Querystring: { revision?: string; runId?: string; queryClass?: string } }>('/projects/:name/measurement-report', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async request => {
     const project = resolveProject(app.db, request.params.name)
     const rawRevision = request.query.revision
     if (typeof rawRevision !== 'string' || !/^[1-9]\d*$/.test(rawRevision)) {

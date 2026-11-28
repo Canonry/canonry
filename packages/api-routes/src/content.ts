@@ -7,6 +7,7 @@ import {
   buildContentGapRows,
 } from '@canonry/canonry-intelligence'
 import {
+  ANALYTICS_READ_CAPABILITY,
   AppError,
   contentTargetDismissRequestSchema,
   notFound,
@@ -218,7 +219,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
       ['surface-class']?: string
       ownable?: string
     }
-  }>('/projects/:name/content/targets', async (request) => {
+  }>('/projects/:name/content/targets', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const includeInProgress = request.query['include-in-progress'] === 'true'
     const limit = parseLimitParam(request.query.limit)
@@ -262,7 +263,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // GET /projects/:name/content/sources — URL-level competitive evidence map
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/content/sources', async (request) => {
+  }>('/projects/:name/content/sources', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const input = loadOrchestratorInput(app.db, project)
     const rows = buildContentSourceRows(input)
@@ -277,7 +278,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // GET /projects/:name/content/gaps — competitor-only-cited queries
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/content/gaps', async (request) => {
+  }>('/projects/:name/content/gaps', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const input = loadOrchestratorInput(app.db, project)
     const rows = buildContentGapRows(input)
@@ -292,7 +293,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // GET /projects/:name/content/dismissals — list current dismissals
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/content/dismissals', async (request) => {
+  }>('/projects/:name/content/dismissals', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db
       .select()
@@ -384,7 +385,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // LLM cost or waiting for a network round trip.
   app.get<{
     Params: { name: string; targetRef: string }
-  }>('/projects/:name/content/recommendations/:targetRef/analysis', async (request, reply) => {
+  }>('/projects/:name/content/recommendations/:targetRef/analysis', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const row = app.db
       .select()
@@ -533,7 +534,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // recommendation_briefs table, so it never collides with explanations.
   app.get<{
     Params: { name: string; targetRef: string }
-  }>('/projects/:name/content/recommendations/:targetRef/brief', async (request, reply) => {
+  }>('/projects/:name/content/recommendations/:targetRef/brief', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const { targetRef } = request.params
     const recommendation = findRecommendationByRef(app.db, project, targetRef)
@@ -655,7 +656,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   // `canonry content map`.
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/content/domain-classifications', async (request) => {
+  }>('/projects/:name/content/domain-classifications', { config: { readCapability: ANALYTICS_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const rows = app.db
       .select()

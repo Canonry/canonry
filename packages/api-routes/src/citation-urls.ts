@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { groupRunsByCreatedAt, pickGroupRepresentative, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import {
+  DASHBOARD_READ_CAPABILITY,
   canonicalCitedUrl,
   categorizeSource,
   citedUrlHost,
@@ -81,7 +82,7 @@ interface UrlAggregate {
  * ones the latest sweep cited for the first time.
  */
 export async function citationUrlRoutes(app: FastifyInstance) {
-  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/citations/urls', async (request) => {
+  app.get<{ Params: { name: string }; Querystring: Record<string, unknown> }>('/projects/:name/citations/urls', { config: { readCapability: DASHBOARD_READ_CAPABILITY } }, async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const query = request.query ?? {}
     for (const key of Object.keys(query)) {
