@@ -3043,8 +3043,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   // normalizes each event into `NormalizedTrafficRequest`, runs the shared
   // classifier + rollup pipeline, and updates `last_worker_version`.
   //
-  // Auth: opt-out of the global cnry_* bearer check (see `auth.ts`
-  // `shouldSkipAuth`). The handler reads `X-Canonry-Source-Id` to resolve
+  // The handler reads `X-Canonry-Source-Id` to resolve
   // the credential row, then verifies bearer hash + HMAC. Any failure
   // returns a single 401 — never disambiguate which leg failed to a caller
   // (defends against credential-leg enumeration).
@@ -3073,6 +3072,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
     },
     config: {
+      skipInstanceAuth: true,
       rateLimit: {
         hook: 'onRequest',
         max: opts.cloudflareIngestIpRateLimitMax ?? DEFAULT_CLOUDFLARE_INGEST_RATE_LIMIT_MAX,

@@ -85,7 +85,9 @@ export function useDashboardOverview(initialDashboard?: DashboardVm | null, opti
     ...getApiV1RunsAttentionOptions({ client: heyClient }),
     enabled: loadActivity,
     staleTime: RUNS_STALE_MS,
-    refetchInterval: (query) => query.state.data?.items.some(({ run }) =>
+    // An answer without `items` reads as nothing running, as the list below
+    // reads it; throwing here crashed the hook's effect instead.
+    refetchInterval: (query) => query.state.data?.items?.some(({ run }) =>
       run.status === RunStatuses.running || run.status === RunStatuses.queued) ? 3000 : RUNS_STALE_MS,
   })
 

@@ -6,7 +6,7 @@ import { RunStatuses, defaultSearchSitemapUrl, describeError, FeatureNames, Outc
 import { BingApiError, getUrlInfo, getCrawlIssues, isBlockingCrawlIssue, parseBingDate } from '@canonry/canonry-integration-bing'
 import type { CanonryConfig } from './config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
-import { inspectUrlsPaced, INSPECT_SWEEP_MAX_URLS, INSPECT_DAILY_QUOTA } from './gsc-inspect-paced.js'
+import { inspectUrlsPaced } from './gsc-inspect-paced.js'
 import type { PacedInspectDeps } from './gsc-inspect-paced.js'
 import { credentialGateKey, sharedRateGate } from './inspect-rate-gate.js'
 import { isRetryableHttpError } from '@canonry/canonry-contracts'
@@ -26,11 +26,24 @@ function bingRunFailure(err: unknown): ReturnType<typeof runFailure> {
  *
  * Twice the GSC figure, because Bing's ceiling is unpublished and the cost of
  * probing it is high: once the account throttles, the block outlasts the run
- * and takes every other project on the key with it. The volume does not need
- * the speed — a full daily refresh across all connected projects is ~100 URLs,
- * so 2s spacing finishes everything in about three minutes.
+ * and takes every other project on the key with it.
  */
 export const BING_INSPECT_SPACING_MS = 2_000
+
+/**
+ * Pages one run checks: never-checked pages first, then the stalest. The rest
+ * rotate in on later runs, so a 200-page sitemap is fully re-checked about
+ * every ten days of daily runs.
+ *
+ * Bing allows far fewer page checks than a sitemap holds. Measured on the
+ * shared key in November 2026: a lone project's run was throttled after about
+ * 70 Bing calls in two and a half minutes (its data sync's calls and about 33
+ * page checks), and a run that kept checking until Bing refused it ended
+ * partial every day on every project. A batch of 20 after the data sync's
+ * 25 to 35 calls stays well under that, so a run finishes the work it planned
+ * instead of being cut off, and leaves the key unthrottled for the next job.
+ */
+export const BING_INSPECT_RUN_MAX_URLS = 20
 
 interface BingInspectSitemapOptions {
   sitemapUrl?: string
@@ -143,26 +156,21 @@ export async function executeBingInspectSitemap(
       blockedUrls = new Set()
     }
 
-    // Same budget guard as the GSC sweep: a sitemap larger than the daily
-    // allowance cannot finish, and grinding into the wall surfaces as a failure
-    // rather than as "the quota ran out".
-    const skipped = Math.max(0, sitemapUrls.length - INSPECT_SWEEP_MAX_URLS)
     // Saved successes are our resume cursor: finish never-inspected URLs
-    // first, then refresh the stalest. A cap or throttle must not keep
+    // first, then refresh the stalest. A batch or throttle must not keep
     // replaying the same successful prefix of a sitemap forever.
     const dueUrls = [...sitemapUrls].sort((a, b) => (lastInspected.get(a) ?? '').localeCompare(lastInspected.get(b) ?? ''))
-    const targetUrls = dueUrls.slice(0, INSPECT_SWEEP_MAX_URLS)
-    if (skipped > 0) {
-      log.warn('sitemap.over-budget', {
-        runId,
-        projectId,
-        sitemapUrls: sitemapUrls.length,
-        inspecting: targetUrls.length,
-        skipped,
-        dailyQuota: INSPECT_DAILY_QUOTA,
-        note: `Sitemap has ${sitemapUrls.length} pages; inspecting the ${targetUrls.length} least recently inspected. ${skipped} pages will not have a verdict from this run.`,
-      })
-    }
+    const targetUrls = dueUrls.slice(0, BING_INSPECT_RUN_MAX_URLS)
+    // Pages left for later runs by the batch: planned, not missing work.
+    const rotated = sitemapUrls.length - targetUrls.length
+    log.info('inspect.batch', {
+      runId,
+      projectId,
+      sitemapUrls: sitemapUrls.length,
+      inspecting: targetUrls.length,
+      neverInspected: discovered.length,
+      rotated,
+    })
 
     // Narrowed once here — the guard above proves it, but TypeScript cannot
     // carry that through the callback closure below.
@@ -350,9 +358,11 @@ export async function executeBingInspectSitemap(
       },
     }).run()
 
-    // Zero-measurement failures were rejected above. Any work still missing
-    // from this run makes the measured result partial, including cap deferrals.
-    const status = errors > 0 || outcome.aborted || skipped > 0 ? RunStatuses.partial : RunStatuses.completed
+    // Zero-measurement failures were rejected above. A run that checked its
+    // whole batch is complete: the pages it left are the rotation's next
+    // batches, not missing work. Only a batch cut short (a failed page, or a
+    // throttle that stopped the run) is partial.
+    const status = errors > 0 || outcome.aborted ? RunStatuses.partial : RunStatuses.completed
 
     // A `partial` run used to carry a NULL error, so the one surface that could
     // have told the operator "0 of 45 URLs were inspected" said nothing at all.
@@ -361,10 +371,8 @@ export async function executeBingInspectSitemap(
       status === RunStatuses.completed
         ? null
         : outcome.aborted
-          ? `Stopped after provider failures; ${total - inspected} of ${total} pages were not inspected (${total - inspected - errors} not attempted).`
-          : skipped > 0
-            ? `${total - inspected} of ${total} pages were not inspected in this run (${skipped} deferred by the per-run budget; ${errors} failed).`
-            : `${errors} of ${targetUrls.length} pages could not be inspected.`
+          ? `Stopped after provider failures; ${targetUrls.length - inspected} of ${targetUrls.length} pages in this run's batch were not inspected (${targetUrls.length - inspected - errors} not attempted).`
+          : `${errors} of ${targetUrls.length} pages could not be inspected.`
 
     db.update(runs)
       .set({ status, error: degradedReason, finishedAt: new Date().toISOString() })

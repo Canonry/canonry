@@ -400,6 +400,82 @@ describe('GA4 sync stores the overview', () => {
     expect(periods.filter(row => row.period === GaOverviewPeriods.current).map(row => row.sessions).sort()).toEqual([1700, 19100, 38100, 6500])
   })
 
+  // The 90- and 180-day reports are the slow ones: one property's ran past
+  // the request timeout on every attempt while every daily report answered.
+  const timedOut = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+
+  it("keeps a slow window's earlier totals, and still stores the daily data", async () => {
+    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000, '180d': 38000 })
+    await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
+    vi.restoreAllMocks()
+    stubSync({ '7d': 1700, '30d': 6500, '90d': 19100, '180d': 38100 })
+    const readWindow = vi.mocked(gaModule.fetchWindowMetrics).getMockImplementation()!
+    vi.mocked(gaModule.fetchWindowMetrics).mockImplementation(async (token, property, windowKey, options) => {
+      if (windowKey === '90d' || windowKey === '180d') throw timedOut()
+      return readWindow(token, property, windowKey, options)
+    })
+    vi.mocked(gaModule.fetchWindowSummary).mockImplementation(async (_token, _property, windowKey) => {
+      if (windowKey === '180d') throw timedOut()
+      return { windowKey, periodStart: '2026-09-24', periodEnd: '2026-10-24', totalSessions: 2, totalOrganicSessions: 0, totalDirectSessions: 0, totalUsers: 2 }
+    })
+
+    const response = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().keptWindows).toEqual([
+      { window: '90d', error: expect.stringContaining('timeout') },
+      { window: '180d', error: expect.stringContaining('timeout') },
+    ])
+    const current = ctx.db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, ctx.projectId)).all()
+      .filter(row => row.period === GaOverviewPeriods.current)
+    expect(Object.fromEntries(current.map(row => [row.windowKey, row.sessions]))).toEqual({ '7d': 1700, '30d': 6500, '90d': 19000, '180d': 38000 })
+    expect(ctx.db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, ctx.projectId)).all()).toHaveLength(8)
+    const summaries = ctx.db.select().from(gaTrafficWindowSummaries).where(eq(gaTrafficWindowSummaries.projectId, ctx.projectId)).all()
+    expect(Object.fromEntries(summaries.map(row => [row.windowKey, row.totalSessions]))).toEqual({ '7d': 2, '30d': 2, '90d': 2, '180d': 1 })
+
+    const latestRun = ctx.db.select().from(runs).where(eq(runs.projectId, ctx.projectId)).all()
+      .filter(run => run.kind === 'ga-sync')
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]!
+    expect(latestRun.status).toBe('completed')
+    expect(vi.mocked(gaModule.fetchDailyTotals)).toHaveBeenCalled()
+    expect(ctx.db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, ctx.projectId)).all()
+      .every(row => row.syncRunId === latestRun.id)).toBe(true)
+  })
+
+  it('reads the days of a failed longest window from the ranges it would have reported', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-06T16:00:00Z'))
+    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000, '180d': 38000 })
+    const readWindow = vi.mocked(gaModule.fetchWindowMetrics).getMockImplementation()!
+    vi.mocked(gaModule.fetchWindowMetrics).mockImplementation(async (token, property, windowKey, options) => {
+      if (windowKey === '180d') throw timedOut()
+      return { ...await readWindow(token, property, windowKey, options), timeZone: 'America/Los_Angeles' }
+    })
+
+    const response = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
+
+    expect(response.statusCode, response.body).toBe(200)
+    // The 180 days ending yesterday in the property's zone (2026-05-10 to
+    // 2026-11-05), the 180 before them, and today: the ranges GA4 reports.
+    expect(vi.mocked(gaModule.fetchDailyTotals).mock.calls.map(call => call[3]?.dateRange)).toEqual([
+      { startDate: '2025-11-11', endDate: '2026-11-06' },
+    ])
+  })
+
+  it('fails the sync when no window report answers, since none names the reporting zone', async () => {
+    stubSync({ '7d': 1600, '30d': 6400, '90d': 19000, '180d': 38000 })
+    vi.mocked(gaModule.fetchWindowMetrics).mockRejectedValue(timedOut())
+
+    const response = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/overview/ga/sync', payload: { days: 30 } })
+
+    expect(response.statusCode).toBe(500)
+    const run = ctx.db.select().from(runs).where(eq(runs.projectId, ctx.projectId)).all().find(row => row.kind === 'ga-sync')!
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('timeout')
+    expect(vi.mocked(gaModule.fetchDailyTotals)).not.toHaveBeenCalled()
+    expect(ctx.db.select().from(gaDailyTotals).all()).toEqual([])
+  })
+
   it.each([30, 60])('reuses %i fetched days while extending to 90 and 180, preserving old rows and empty-day coverage', async (initialDays) => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-11-06T16:00:00Z'))

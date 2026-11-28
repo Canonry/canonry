@@ -8,7 +8,6 @@ import { expect, test } from 'vitest'
 import { ADS_ACTIVATE_SCOPE, ADS_APPROVE_SCOPE, ADS_WRITE_SCOPE } from '@canonry/canonry-contracts'
 import { createClient, migrate, apiKeys, notifications, projects, queries, runs, measurementPlanDrafts } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import { shouldSkipAuth } from '../src/auth.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
 function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
@@ -39,8 +38,9 @@ function insertApiKey(db: ReturnType<typeof createClient>, rawKey = `cnry_${cryp
   return rawKey
 }
 
-test('auth protects non-public routes while keeping public exceptions reachable', async () => {
+test.each(['/api/v1', '/projects/team/api/v1'])('auth distinguishes registered routes under %s', async (prefix) => {
   const { app, tmpDir } = buildApp({
+    routePrefix: prefix,
     getGoogleAuthConfig: () => ({ clientId: 'google-client-id', clientSecret: 'google-client-secret' }),
     googleConnectionStore: {
       listConnections: () => [],
@@ -53,31 +53,39 @@ test('auth protects non-public routes while keeping public exceptions reachable'
   await app.ready()
 
   try {
-    const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects' })
+    const listRes = await app.inject({ method: 'GET', url: `${prefix}/projects` })
     expect(listRes.statusCode).toBe(401)
     expect(JSON.parse(listRes.body).error.code).toBe('AUTH_REQUIRED')
 
     const runRes = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/probe/runs',
+      url: `${prefix}/projects/probe/runs`,
       payload: {},
     })
     expect(runRes.statusCode).toBe(401)
 
-    expect(shouldSkipAuth('/api/v1/projects/probe/traffic/cloudflare/ingest')).toBe(true)
-    expect(shouldSkipAuth('/api/v1/projects/probe/traffic/cloudflare/ingest/extra')).toBe(false)
+    // The ingest handler checks a source credential itself.
+    const ingest = await app.inject({
+      method: 'POST', url: `${prefix}/projects/probe/traffic/cloudflare/ingest`,
+      headers: { authorization: 'Bearer unknown-source-credential' }, payload: {},
+    })
+    expect(ingest.statusCode).toBe(401)
+    expect(ingest.json().error.code).toBe('AUTH_REQUIRED')
 
-    const openApiRes = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    const openApiRes = await app.inject({ method: 'GET', url: `${prefix}/openapi.json` })
     expect(openApiRes.statusCode).toBe(200)
 
-    const callbackRes = await app.inject({ method: 'GET', url: '/api/v1/google/callback' })
+    const callbackRes = await app.inject({ method: 'GET', url: `${prefix}/google/callback` })
     expect(callbackRes.statusCode).toBe(400)
 
     // The Google Ads / GTM callback is also public ONLY at its exact signed
     // callback endpoint; a missing state reaches its verifier (400), not the
     // auth middleware (401).
-    const marketingCallbackRes = await app.inject({ method: 'GET', url: '/api/v1/google-marketing/callback' })
+    const marketingCallbackRes = await app.inject({ method: 'GET', url: `${prefix}/google-marketing/callback` })
     expect(marketingCallbackRes.statusCode).toBe(400)
+
+    const confirmation = await app.inject({ method: 'POST', url: `${prefix}/google-marketing/callback/confirm/pending` })
+    expect(confirmation.statusCode).toBe(401)
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -955,6 +963,53 @@ test('a pre-existing row whose stored overrides name an unselected engine stays 
       payload: { ...base, providers: ['openai'], providerModels: { openai: 'gpt-5-nano' } },
     })
     expect(blocked.statusCode).toBe(403)
+  } finally {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('a project whose name ends in an auth-skip suffix still requires authentication', async () => {
+  const { app, db, tmpDir } = buildApp()
+  const rawKey = insertApiKey(db)
+  await app.ready()
+
+  try {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { authorization: `Bearer ${rawKey}` },
+      payload: { name: 'session', displayName: 'Session', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(created.statusCode).toBe(201)
+
+    // No credential: every detail-route verb must still answer 401.
+    const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/session' })
+    expect(getRes.statusCode).toBe(401)
+
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/session',
+      payload: { name: 'session', displayName: 'Hijacked', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    expect(putRes.statusCode).toBe(401)
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/session',
+      payload: { displayName: 'Hijacked' },
+    })
+    expect(patchRes.statusCode).toBe(401)
+
+    const deleteRes = await app.inject({ method: 'DELETE', url: '/api/v1/projects/session' })
+    expect(deleteRes.statusCode).toBe(401)
+    expect(deleteRes.body.toLowerCase()).not.toContain('example.com')
+
+    // Encoded static segment and the openapi.json name both still route to
+    // the detail handler and must not inherit the public suffix.
+    expect((await app.inject({ method: 'GET', url: '/api/v1/%70rojects/session' })).statusCode).toBe(401)
+    expect((await app.inject({ method: 'DELETE', url: '/api/v1/%70rojects/session' })).statusCode).toBe(401)
+    expect((await app.inject({ method: 'GET', url: '/api/v1/projects/openapi.json' })).statusCode).toBe(401)
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

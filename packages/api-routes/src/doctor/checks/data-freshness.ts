@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray } from 'drizzle-orm'
-import { CheckCategories, CheckScopes, CheckStatuses, formatIsoDateInTimeZone } from '@canonry/canonry-contracts'
+import { and, desc, eq } from 'drizzle-orm'
+import { CheckCategories, CheckScopes, CheckStatuses, RunKinds, RunStatuses, formatIsoDateInTimeZone, truncateUtf16, type RunKind } from '@canonry/canonry-contracts'
 import { gaDailyTotals, gscDailyTotals, gscDataWatermarks, runs } from '@canonry/canonry-db'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
+import { readSyncRunState } from './sync-run-state.js'
 
 /**
  * Is daily data still ARRIVING, not just "is the connection valid"?
@@ -16,6 +17,9 @@ import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
  *    advances anyway, and that is read in preference to the newest row.
  *  - If nothing has synced recently, the finding is that nobody is syncing, not
  *    that the site lost its tag: a different code and a different remediation.
+ *  - If the newest sync failed, the finding is the failing sync and its error.
+ *    Two timed-out GA4 syncs once read as "syncs are running" and pointed at
+ *    the tag, because a failed run was not counted at all.
  *  - These stay `warn`. A broken credential is a `fail` in the auth category and
  *    must keep the headline; stale data is the downstream symptom, and it used
  *    to outrank its own cause and send a second alert pointing at the wrong fix.
@@ -40,6 +44,8 @@ export const SYNC_IDLE_DAYS = 3
 export const NOT_SYNCING_URGENT_DAYS = 8
 /** Search Console reports on Pacific dates, so a UTC "today" reads a day high for most of the UTC morning. */
 export const GSC_REPORTING_TIME_ZONE = 'America/Los_Angeles'
+/** Longest sync error quoted in a summary; the full text stays in `details`. */
+const SUMMARY_ERROR_LIMIT = 300
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -72,7 +78,7 @@ interface FreshnessSpec {
   agingDays: number
   staleDays: number
   timeZone?: string
-  syncKinds: string[]
+  syncKind: RunKind
   syncCommand: (projectName: string) => string
   quietExplanation: string
   brokenExplanation: string
@@ -83,11 +89,11 @@ function skipped(code: string, summary: string): CheckOutput {
 }
 
 /** Has anything actually synced lately? Without this, "no data" reads as breakage on a project nobody syncs. */
-function lastSyncAgeDays(ctx: DoctorContext, kinds: string[]): number | null {
+function lastSyncAgeDays(ctx: DoctorContext, kind: RunKind): number | null {
   const row = ctx.db
     .select({ createdAt: runs.createdAt })
     .from(runs)
-    .where(and(eq(runs.projectId, ctx.project!.id), inArray(runs.kind, kinds), eq(runs.status, 'completed')))
+    .where(and(eq(runs.projectId, ctx.project!.id), eq(runs.kind, kind), eq(runs.status, RunStatuses.completed)))
     .orderBy(desc(runs.createdAt))
     .limit(1)
     .get()
@@ -100,7 +106,7 @@ function grade(ctx: DoctorContext, spec: FreshnessSpec, newestDate: string | und
   const projectName = ctx.project!.name
   const code = (suffix: string) => `${spec.source}.data.${suffix}`
   const sync = spec.syncCommand(projectName)
-  const syncAge = lastSyncAgeDays(ctx, spec.syncKinds)
+  const syncAge = lastSyncAgeDays(ctx, spec.syncKind)
   const syncIdle = syncAge === null || syncAge >= SYNC_IDLE_DAYS
 
   if (!newestDate) {
@@ -130,6 +136,28 @@ function grade(ctx: DoctorContext, spec: FreshnessSpec, newestDate: string | und
       summary: `${spec.label} data is current through ${newestDate}.`,
       remediation: null,
       details,
+    }
+  }
+  // The syncs ran and failed, so the data could not arrive. Name the failure
+  // and its error; the tag and the schedule are not what needs fixing.
+  const syncState = readSyncRunState(ctx.db, ctx.project!.id, spec.syncKind)
+  if (syncState.latestStatus === RunStatuses.failed) {
+    const errorText = syncState.latestError ?? 'no error was recorded'
+    const shownError = errorText.length > SUMMARY_ERROR_LIMIT ? `${truncateUtf16(errorText, SUMMARY_ERROR_LIMIT)}...` : errorText
+    const failures = syncState.consecutiveFailures
+    return {
+      status: CheckStatuses.warn,
+      code: code('sync-failing'),
+      ...(age >= spec.staleDays ? { urgent: true } : {}),
+      summary: `${failures <= 1 ? `The latest ${spec.label} sync` : `The last ${failures} ${spec.label} syncs`} failed, and stored data ends ${newestDate} (${age} days). Latest error: ${shownError}`,
+      remediation: `Fix the cause the error names, then run \`${sync}\`.`,
+      details: {
+        ...details,
+        consecutiveFailures: failures,
+        latestRunAt: syncState.latestRunAt,
+        latestError: syncState.latestError,
+        lastSuccessAt: syncState.lastSuccessAt,
+      },
     }
   }
   // Nothing has run, so the honest finding is an idle pipeline. Saying "check
@@ -165,7 +193,7 @@ const GA_SPEC: FreshnessSpec = {
   label: 'GA4',
   agingDays: GA_DATA_AGING_DAYS,
   staleDays: GA_DATA_STALE_DAYS,
-  syncKinds: ['ga-sync'],
+  syncKind: RunKinds['ga-sync'],
   syncCommand: name => `canonry ga sync ${name}`,
   quietExplanation: 'GA4 omits days with no sessions, so a genuinely quiet period clears itself on the next visit.',
   brokenExplanation: 'If the site did have visitors, check that the GA4 tag or its Tag Manager container is still on the live site.',
@@ -177,7 +205,7 @@ const GSC_SPEC: FreshnessSpec = {
   agingDays: GSC_DATA_AGING_DAYS,
   staleDays: GSC_DATA_STALE_DAYS,
   timeZone: GSC_REPORTING_TIME_ZONE,
-  syncKinds: ['gsc-sync'],
+  syncKind: RunKinds['gsc-sync'],
   syncCommand: name => `canonry google sync ${name}`,
   quietExplanation: 'Search Console omits days with no impressions and reports two to three days behind, so a quiet period clears itself.',
   brokenExplanation: 'If the site did have impressions, check that the property still lists this site and the connected account still has access.',

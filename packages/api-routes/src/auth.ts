@@ -114,9 +114,8 @@ declare module 'fastify' {
     /** Derived only from the host allowlist and direct bearer authentication. */
     operatorAccess?: boolean
     /**
-     * The API key that authenticated the current request. Present on every
-     * request that passed `authPlugin` (i.e. everything not in the
-     * skip-paths list). Routes that need scope checks should call
+     * The API key that authenticated the current request.
+     * Routes that need scope checks should call
      * `requireScope(request, '<scope>')`.
      *
      * Absent when the request was authenticated by a signed-in person — see
@@ -133,6 +132,9 @@ declare module 'fastify' {
     readSemanticGrant?: boolean
   }
   interface FastifyContextConfig {
+    /** Public routes and handlers that verify their own credentials opt out at registration. */
+    skipInstanceAuth?: boolean
+
     /**
      * This route's POST does not change anything.
      *
@@ -481,55 +483,6 @@ export function requireGooglePropertyDiscovery(request: FastifyRequest): void {
  */
 export function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')
-}
-
-const SKIP_PATHS = ['/health']
-
-export function shouldSkipAuth(url: string): boolean {
-  if (SKIP_PATHS.includes(url)) return true
-  if (url.endsWith('/openapi.json')) return true
-  // Both OAuth callback routes (`/google/callback` and
-  // `/projects/:name/google/callback`) end with this suffix. `endsWith` (not
-  // `includes`) so a future route that merely contains the substring — e.g.
-  // `/google/callback/anything` — does not silently become unauthenticated.
-  if (url.endsWith('/google/callback')) return true
-  // Shared Google Ads / Tag Manager OAuth callback. This is intentionally the
-  // same exact-suffix rule as the legacy Google callback above: only the
-  // signed state verifier in that route may receive an unauthenticated request.
-  if (url.endsWith('/google-marketing/callback')) return true
-  if (url.endsWith('/session') || url.endsWith('/session/setup')) return true
-  // First-run setup with the one-time token `canonry serve` prints (#1176).
-  // Like `/session/setup` it resolves its own authority in the handler, so
-  // the auth plugin must let the unauthenticated request through. The exact
-  // suffix keeps a future route that merely contains the string authenticated.
-  if (url.endsWith('/session/setup-token')) return true
-  // The sign-in surface. It cannot require a credential: the sign-in screen has
-  // to be able to ask whether a sign-in is needed, offer the form, and clear a
-  // dead session, none of which it can do while holding something it does not
-  // have yet. Each of the three does its own resolution.
-  if (url.endsWith('/auth/session') || url.endsWith('/auth/login') || url.endsWith('/auth/logout')) return true
-  // Seeing and ending your own sessions is part of the sign-in surface: it has
-  // to work from a session that the rest of the API might already be refusing.
-  // Both routes resolve the cookie themselves, and the DELETE runs its own
-  // same-origin check below.
-  if (url.endsWith('/auth/sessions')) return true
-  // Sign in with ChatGPT. `start` and `callback` run before anyone is signed
-  // in; the rest are a person's own ChatGPT settings, which must work for a
-  // view-only person too. Each resolves the sign-in cookie itself, and the
-  // writes run their own same-origin check (chatgpt-routes.ts).
-  if (
-    url.endsWith('/auth/chatgpt/status')
-    || url.endsWith('/auth/chatgpt/start')
-    || url.endsWith('/auth/chatgpt/callback')
-    || url.endsWith('/auth/chatgpt/disconnect')
-    || url.endsWith('/auth/chatgpt/models')
-    || url.endsWith('/auth/chatgpt/model')
-  ) return true
-  // Cloudflare Worker ingest carries its own per-source bearer + HMAC
-  // (verified inside the route handler). A canonry `cnry_*` key isn't
-  // available to the Worker — that would defeat the per-source isolation.
-  if (url.endsWith('/traffic/cloudflare/ingest')) return true
-  return false
 }
 
 /** OAuth-backed internal MCP credentials cannot outlive their transport cleanup indefinitely. */
@@ -894,8 +847,8 @@ function applyScopedWriteGates(request: FastifyRequest): void {
 
 export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
   app.addHook('onRequest', async (request, reply) => {
+    if (request.routeOptions.config?.skipInstanceAuth === true) return
     const url = request.url.split('?')[0]!
-    if (shouldSkipAuth(url)) return
 
     const header = request.headers.authorization
     let key: typeof apiKeys.$inferSelect | undefined
@@ -1038,7 +991,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     // cannot perform any write — keyed off the HTTP method, NOT per-route
     // `requireScope` calls, so a newly added write route is protected
     // automatically. Safe methods (GET/HEAD/OPTIONS) always pass. This runs
-    // after `shouldSkipAuth` (so public routes stay open) and does not gate
+    // after the public-route check and does not gate
     // the `last_used_at` write above (infrastructural usage tracking).
     if (
       isReadOnlyKey(scopes) &&

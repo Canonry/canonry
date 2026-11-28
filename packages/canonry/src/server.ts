@@ -248,6 +248,7 @@ import { GTM_READONLY_SCOPE } from "@canonry/canonry-integration-google-tag-mana
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
 import { executeBingSync } from "./bing-sync.js";
+import { runBingJob } from "./bing-job-lane.js";
 import { maybeRefreshGscCoverage, runWasUserInitiated, type CoverageRefreshDeps } from "./coverage-refresh.js";
 import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
@@ -3753,10 +3754,13 @@ export async function createServer(opts: {
       projectId: string,
       inspectOpts?: { sitemapUrl?: string },
     ) => {
-      executeBingInspectSitemap(opts.db, runId, projectId, {
-        ...inspectOpts,
-        config: opts.config,
-      })
+      // One Bing job per API key at a time, syncs first: see bing-job-lane.ts.
+      runBingJob(opts.db, opts.config, projectId, "inspect", () =>
+        executeBingInspectSitemap(opts.db, runId, projectId, {
+          ...inspectOpts,
+          config: opts.config,
+        }),
+      )
         .then(() => {
           // Unlike executeGscSync, the Bing executor resolves even when the run
           // ends `failed` (every URL errored), so gate the cross-engine GSC
@@ -3787,11 +3791,11 @@ export async function createServer(opts: {
         });
     },
     onBingSyncRequested: (runId: string, projectId: string) => {
-      executeBingSync(opts.db, runId, projectId, { config: opts.config }).catch(
-        (err: unknown) => {
-          app.log.error({ runId, err }, "Bing sync failed");
-        },
-      );
+      runBingJob(opts.db, opts.config, projectId, "sync", () =>
+        executeBingSync(opts.db, runId, projectId, { config: opts.config }),
+      ).catch((err: unknown) => {
+        app.log.error({ runId, err }, "Bing sync failed");
+      });
     },
     wordpressConnectionStore,
     ga4CredentialStore,

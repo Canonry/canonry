@@ -15,7 +15,7 @@ import {
   GSC_DATA_STALE_DAYS,
   GSC_REPORTING_TIME_ZONE,
 } from '../src/doctor/checks/data-freshness.js'
-import { formatIsoDateInTimeZone } from '@canonry/canonry-contracts'
+import { formatIsoDateInTimeZone, serializeRunError } from '@canonry/canonry-contracts'
 import type { CheckDefinition, DoctorContext, ProjectInfo } from '../src/doctor/types.js'
 import type { GoogleConnectionStore } from '../src/google.js'
 
@@ -71,6 +71,12 @@ describe('data freshness checks', () => {
   }
   const syncedAt = (kind: string, iso: string, status = 'completed') => {
     db.insert(runs).values({ id: crypto.randomUUID(), projectId: project.id, kind, status, trigger: 'scheduled', createdAt: iso }).run()
+  }
+  const failedSync = (kind: string, iso: string, message: string) => {
+    db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: project.id, kind, status: 'failed', trigger: 'scheduled',
+      error: serializeRunError({ message }), createdAt: iso,
+    }).run()
   }
   const ga = (projectId: string, date: string) => {
     const now = new Date().toISOString()
@@ -150,6 +156,36 @@ describe('data freshness checks', () => {
       expect(aging.remediation).toMatch(/quiet/i)
     })
 
+    it('names the failing sync and its error, not the tag, when the newest syncs failed', async () => {
+      // Two daily syncs timed out after the last good one, two and a half days
+      // ago. That once read as "syncs are running" and pointed at the tag.
+      ga(project.id, daysAgo(GA_DATA_AGING_DAYS))
+      syncedAt('ga-sync', hoursAgo(60))
+      failedSync('ga-sync', hoursAgo(36), 'The operation was aborted due to timeout')
+      failedSync('ga-sync', hoursAgo(12), 'The operation was aborted due to timeout')
+
+      const result = await gaCheck.run(gaCtx())
+
+      expect(result).toMatchObject({ status: 'warn', code: 'ga.data.sync-failing', details: { consecutiveFailures: 2 } })
+      expect(result.urgent).toBeUndefined()
+      expect(result.summary).toContain('The last 2 GA4 syncs failed')
+      expect(result.summary).toContain('aborted due to timeout')
+      expect(result.remediation).toContain('canonry ga sync client')
+      expect(result.remediation).not.toMatch(/tag/i)
+    })
+
+    it('is urgent once failing syncs leave the data stale, and grades only the newest sync', async () => {
+      ga(project.id, daysAgo(GA_DATA_STALE_DAYS))
+      failedSync('ga-sync', hoursAgo(30), 'GA4 API error (500)')
+      const failing = await gaCheck.run(gaCtx())
+      expect(failing).toMatchObject({ status: 'warn', code: 'ga.data.sync-failing', urgent: true })
+      expect(failing.summary).toContain('The latest GA4 sync failed')
+
+      // A newer sync that completed but brought nothing back is the old finding.
+      syncedAt('ga-sync', hoursAgo(2))
+      expect(await gaCheck.run(gaCtx())).toMatchObject({ status: 'warn', code: 'ga.data.stale', urgent: true })
+    })
+
     it('escalates the code, but never the status, so a failing auth check keeps the headline', async () => {
       ga(project.id, daysAgo(GA_DATA_STALE_DAYS))
       syncedAt('ga-sync', hoursAgo(3))
@@ -202,6 +238,16 @@ describe('data freshness checks', () => {
       // a sync. The sync command belongs to the never-synced and not-syncing codes.
       expect(result.remediation).toMatch(/impressions/i)
       expect(result.remediation).toMatch(/property/i)
+    })
+
+    it('names a failing Search Console sync instead of the property', async () => {
+      watermark(project.id, gscDaysAgo(GSC_DATA_AGING_DAYS))
+      syncedAt('gsc-sync', hoursAgo(30))
+      failedSync('gsc-sync', hoursAgo(4), 'Search Console API error (503)')
+      const result = await gscCheck.run(gscCtx())
+      expect(result).toMatchObject({ status: 'warn', code: 'gsc.data.sync-failing' })
+      expect(result.summary).toContain('Search Console API error (503)')
+      expect(result.remediation).toContain('canonry google sync client')
     })
 
     it('warns at the aging limit', async () => {
