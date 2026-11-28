@@ -133,4 +133,4 @@ describe('capabilitiesForScopes (#817)', () => {
     expect(isReadOnlyKey(['full.read'])).toBe(true)
     expect(isReadOnlyKey(['dashboard.read', 'settings.write'])).toBe(false)
   })
-}))
+})
