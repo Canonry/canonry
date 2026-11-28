@@ -46,6 +46,9 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
 })
 
+/** `/api/v1/runs/attention` with nothing needing attention, in the shape the server sends. */
+const emptyActivity = { since: '2026-01-23T00:00:00.000Z', items: [] }
+
 describe('useDashboardOverview', () => {
   test('updates project metadata from the refreshed list while retaining cached summaries', async () => {
     let currentProject = metadataProject
@@ -170,11 +173,39 @@ describe('useDashboardOverview', () => {
     })
   })
 
+  test('reads an Activity answer without items as nothing running, in the poll as in the list', async () => {
+    // React reports an error thrown by a query option as a window error event.
+    const errors: unknown[] = []
+    const onError = (event: ErrorEvent) => { errors.push(event.error) }
+    window.addEventListener('error', onError)
+    onTestFinished(() => window.removeEventListener('error', onError))
+    let activityReads = 0
+    const restoreFetch = mockFetch((path) => {
+      const url = new URL(path, 'http://localhost')
+      if (/\/projects\/[^/]+\/overview$/.test(url.pathname)) return jsonResponse(null)
+      if (url.pathname === '/api/v1/projects') return jsonResponse([metadataProject])
+      if (url.pathname === '/api/v1/runs/attention') {
+        activityReads += 1
+        return jsonResponse({ since: emptyActivity.since })
+      }
+      if (url.pathname === '/api/v1/runs') return jsonResponse([])
+      return jsonResponse({ error: `unexpected ${path}` }, 404)
+    })
+    onTestFinished(restoreFetch)
+
+    const { result } = renderHook(() => useDashboardOverview(null, { includeSettings: false }), { wrapper })
+
+    await waitFor(() => expect(activityReads).toBe(1))
+    await waitFor(() => expect(result.current.dashboard?.portfolioOverview.recentRuns).toEqual([]))
+    expect(errors).toEqual([])
+  })
+
   test('can skip the global settings read for embed rendering', async () => {
     const paths: string[] = []
     const restoreFetch = mockFetch((path) => {
       paths.push(path)
       if (path.startsWith('/api/v1/projects')) return jsonResponse([])
+      if (path.startsWith('/api/v1/runs/attention')) return jsonResponse(emptyActivity)
       if (path.startsWith('/api/v1/runs')) return jsonResponse([])
       if (path.startsWith('/api/v1/settings')) return jsonResponse({ error: 'settings should not be fetched' }, 500)
       return jsonResponse({})
@@ -202,6 +233,7 @@ describe('useDashboardOverview', () => {
         projectReads += 1
         return jsonResponse([])
       }
+      if (path.startsWith('/api/v1/runs/attention')) return jsonResponse(emptyActivity)
       if (path.startsWith('/api/v1/runs')) return jsonResponse([])
       return jsonResponse({ providers: [] })
     })

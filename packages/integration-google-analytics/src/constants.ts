@@ -32,9 +32,22 @@ export function resolveGa4SyncDays(days?: number | null): {
   return { requestedDays, effectiveDays, clamped: effectiveDays !== requestedDays }
 }
 
-// HTTP request timeout (30 s) — prevents the process from hanging indefinitely
-// on a slow or unresponsive GA4 Data API endpoint.
+// Timeout for the OAuth token exchange and Admin API reads (30 s): small
+// requests that answer in about a second. Keeps a stalled endpoint from
+// hanging a sync.
 export const GA4_REQUEST_TIMEOUT_MS = 30_000
+
+// Timeout for a Data API report (60 s). GA4 counts distinct users over each
+// whole date range, so the 90- and 180-day overview reports are the slow ones:
+// one property's took 20 to 30 s for days, then ran past 30 s on every attempt
+// and failed the whole sync. This is twice that observed worst case.
+export const GA4_REPORT_TIMEOUT_MS = 60_000
+
+// How many times a request that ran out its timeout is tried again. Each retry
+// waits out the full timeout once more, so a report GA4 is still computing is
+// given one more chance, not three: four 30 s attempts at the same report all
+// ran out. 429 and 5xx answers keep the full GA4_MAX_RETRIES budget.
+export const GA4_MAX_TIMEOUT_RETRIES = 1
 
 // Safety limit: max pagination iterations to prevent infinite loops.
 export const GA4_MAX_PAGES = 50

@@ -46,7 +46,7 @@ describe('CLI and MCP operation access metadata', () => {
     const bingCoverage = canonryMcpTools.find(tool => tool.name === 'canonry_bing_coverage')!
     expect(bingCoverage.access).toBe('write')
     expect(Boolean(bingCoverage.annotations.openWorldHint)).toBe(false)
-    for (const name of ['canonry_gbp_locations_discover', 'canonry_gbp_sync', 'canonry_ads_sync']) {
+    for (const name of ['canonry_gbp_locations_discover', 'canonry_gbp_sync', 'canonry_ads_sync', 'canonry_ga_sync']) {
       expect(canonryMcpTools.find(tool => tool.name === name)?.annotations.openWorldHint, name).toBe(true)
     }
   })

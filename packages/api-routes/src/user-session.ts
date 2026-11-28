@@ -473,7 +473,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
   // What the dashboard asks before it draws anything. Public on purpose: the
   // sign-in screen cannot ask whether a sign-in is needed while holding a
   // credential it does not have yet.
-  app.get('/auth/session', async (request, reply): Promise<AuthSessionDto> => {
+  app.get('/auth/session', { config: { skipInstanceAuth: true } }, async (request, reply): Promise<AuthSessionDto> => {
     if (!anyUsersExist(app.db)) return { authRequired: false, user: null }
     const signInMethods = opts.chatgptSignIn?.() ? { signInMethods: { chatgpt: true } } : {}
 
@@ -492,7 +492,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
     }
   })
 
-  app.post('/auth/login', async (request, reply) => {
+  app.post('/auth/login', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     const parsed = loginRequestSchema.safeParse(request.body)
     if (!parsed.success) {
       throw validationError('Enter a name and a password.', { issues: parsed.error.issues })
@@ -526,7 +526,7 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
 
   // Where this account is currently signed in. Only ever the caller's own
   // sessions — an admin cannot enumerate somebody else's from here.
-  app.get('/auth/sessions', async (request, reply) => {
+  app.get('/auth/sessions', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     const token = cookieSessionId(request)
     const resolved = token ? resolveUserSession(app.db, token) : null
     if (!token || !resolved) {
@@ -554,14 +554,14 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
   // This is the answer to "I think my laptop was stolen": without it, ending a
   // leaked cookie means finding somebody with the root key to delete the whole
   // account. Signing out only the current browser is what `/auth/logout` does.
-  app.delete('/auth/sessions', async (request, reply) => {
+  app.delete('/auth/sessions', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     const token = cookieSessionId(request)
     const resolved = token ? resolveUserSession(app.db, token) : null
     if (!token || !resolved) {
       const err = authRequired('Sign in to end your sessions.')
       return reply.status(err.statusCode).send(err.toJSON())
     }
-    // This route is on the auth skip-list so it keeps working from a session the
+    // This route handles its own session so it keeps working from a session the
     // rest of the API might refuse, which means the same-origin rule it would
     // normally inherit has to be applied here by hand. Without it, any site
     // could sign this person out of everything.
@@ -576,10 +576,10 @@ export async function userSessionRoutes(app: FastifyInstance, opts: UserSessionR
   // point is that the browser ends up holding nothing.
   //
   // It is still origin-checked, for the same reason its sibling above is: this
-  // route is on the auth skip-list, so it inherits nothing, and a same-site
+  // route handles its own session, and a same-site
   // sibling could otherwise sign a person out at will. Being annoying rather
   // than dangerous is not a reason to leave it open.
-  app.post('/auth/logout', async (request, reply) => {
+  app.post('/auth/logout', { config: { skipInstanceAuth: true } }, async (request, reply) => {
     assertCookieWriteOrigin(request)
     const sessionId = cookieSessionId(request)
     if (sessionId) deleteUserSession(app.db, sessionId)

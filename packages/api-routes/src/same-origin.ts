@@ -3,7 +3,7 @@
  *
  * Lives in its own module because two callers need exactly one implementation:
  * the auth plugin, which applies it to every gated write, and the sign-in
- * routes, which are on the auth skip-list and therefore have to apply it by
+ * routes, which resolve their own sessions and therefore have to apply it by
  * hand. Two copies would drift, and the copy that drifts is a hole.
  */
 import type { FastifyRequest } from 'fastify'

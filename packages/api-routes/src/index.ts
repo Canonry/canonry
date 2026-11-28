@@ -690,9 +690,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     })
 
     // Sign-in surface. Registered inside the authenticated scope so it shares
-    // the error handler and prefix, but each of its routes is on the auth
-    // skip-list — a sign-in screen cannot present a credential it has not been
-    // given yet.
+    // the error handler and prefix. Its handlers resolve their own sessions.
     await api.register(userSessionRoutes, {
       cookie: opts.userSessionCookie,
       trustProxyConfigured: opts.trustProxyConfigured ?? false,

@@ -7447,6 +7447,10 @@ export type Ga4SyncResponseDto = {
         };
     };
     syncedComponents?: Array<string>;
+    keptWindows?: Array<{
+        window: '7d' | '30d' | '90d' | '180d';
+        error: string;
+    }>;
 };
 
 export type GaAttributionTrendResponse = {

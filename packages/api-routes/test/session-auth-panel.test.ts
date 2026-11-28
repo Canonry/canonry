@@ -723,7 +723,7 @@ test('one account cannot end another account sessions', async () => {
 })
 
 test('another origin cannot end somebody else sessions for them', async () => {
-  // The revoke route is on the auth skip-list so it works from a session the
+  // The revoke route handles its own session so it works from a session the
   // rest of the API is refusing — which means it has to run the same-origin
   // check itself, or it becomes a cross-origin logout button.
   await createAccount('owner', ADMIN_PASSWORD, 'admin')
