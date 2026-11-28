@@ -136,11 +136,18 @@ const CONFIGURED_WARNS: Array<{ id: string; args?: string[]; env?: Record<string
  * The banner's open line. A first-run server mints a one-time setup token
  * (#1176), so a setup URL carries `token=<64 hex>` after its own query: the
  * table's `open` spells the URL without it, and this matches the token in
- * place instead of an exact string.
+ * place instead of an exact string. A project that already has a site audit
+ * opens the dashboard root, and the token rides on that URL the same way.
  */
 function expectOpenLine(line: string | undefined, open: string, token = true) {
-  if (!open.includes('/setup') || !token) {
+  if (!token) {
     expect(line).toBe(open)
+    return
+  }
+  if (!open.includes('/setup')) {
+    const prefix = `Open ${open.slice('Open '.length)}?token=`
+    expect(line?.startsWith(prefix)).toBe(true)
+    expect((line ?? '').slice(prefix.length)).toMatch(/^[0-9a-f]{64}$/)
     return
   }
   const marker = ' to '
