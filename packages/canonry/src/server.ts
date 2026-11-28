@@ -2913,14 +2913,11 @@ export async function createServer(opts: {
         error: { code: "AUTH_INVALID", message: "Invalid or expired setup token" },
       });
     }
-    // The token is spent before anything else can use it: a second request
-    // with the same token, however it arrives, finds it consumed.
     const defaultKey = getDefaultApiKey();
     if (!defaultKey || defaultKey.revokedAt) {
       const err = serverApiKeyMissing();
       return reply.status(err.statusCode).send(err.toJSON());
     }
-    stored.consumed = true;
     const sessionId = opts.db.transaction((tx) => {
       writeAuditLog(tx, auditFromRequest(request, {
         actor: `api-key:${defaultKey.id}`,
@@ -2932,6 +2929,12 @@ export async function createServer(opts: {
       }));
       return createSession(defaultKey, true, tx);
     });
+    // The token is spent only after the session and audit transaction
+    // commits: a failed persistence leaves the link usable, so the operator
+    // can retry it, and a successful retry leaves exactly one session and
+    // one audit event. This stays single-use — nothing awaits between the
+    // check above and the spend here, so no second request can interleave.
+    stored.consumed = true;
     setSessionCookie(reply, sessionId);
     return reply.send({ authenticated: true });
   });
