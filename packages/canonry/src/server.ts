@@ -347,6 +347,22 @@ export function allowsKeylessFirstRunSetup(app: FastifyInstance): boolean {
   return keylessFirstRunSetupByServer.get(app) ?? false;
 }
 
+const firstRunSetupTokenByServer = new WeakMap<FastifyInstance, {
+  token: string
+  tokenHash: string
+  consumed: boolean
+}>();
+
+/**
+ * The one-time first-run setup token for this server, if one was minted (see
+ * `/session/setup-token`). `canonry serve` prints it on the setup URL. Null
+ * when no token exists: a password is already configured, named accounts are
+ * in use, the password is disabled, or setup needs the root key.
+ */
+export function getFirstRunSetupToken(app: FastifyInstance): string | null {
+  return firstRunSetupTokenByServer.get(app)?.token ?? null;
+}
+
 const DEFAULT_QUOTA = DEFAULT_PROVIDER_QUOTA;
 
 const SESSION_COOKIE_NAME = "canonry_session";
@@ -2686,7 +2702,7 @@ export async function createServer(opts: {
   // so a caller must prove it already holds it by presenting that exact key.
   // Any other key, however valid, is narrower or a different credential, and
   // a password planted with it would outlive that key's revocation.
-  // `/session/setup` is in the auth skip-list, so this parses the bearer by
+  // `/session/setup` verifies its own credentials, so this parses the bearer by
   // authPlugin's rule and compares SHA-256 digests in constant time.
   const requestPresentsKey = (
     request: FastifyRequest,
@@ -2714,12 +2730,35 @@ export async function createServer(opts: {
   const serverApiKeyMissing = () =>
     new AppError("AUTH_INVALID", "Server API key not found — run canonry bootstrap", 401);
 
+  // First-run setup token (#1176): a one-time token, minted once per server
+  // start and printed by `canonry serve` on the setup URL. It exists only
+  // while a keyless local setup is possible and no password is configured
+  // yet: once a password exists the token is void, and a server that needs
+  // the root key never mints one. The token lives only in this process — it
+  // is never written to disk or config — and dies with the server. Only its
+  // SHA-256 digest is kept for comparison, like a session token.
+  const firstRunSetupToken = keylessLocalSetup
+    && dashboardRequirePassword
+    && !opts.config.dashboardPasswordHash
+    && !namedAccountsInUse()
+    ? crypto.randomBytes(32).toString("hex")
+    : null;
+  if (firstRunSetupToken !== null) {
+    firstRunSetupTokenByServer.set(app, {
+      token: firstRunSetupToken,
+      tokenHash: hashSessionToken(firstRunSetupToken),
+      consumed: false,
+    });
+  }
+
   const rejectLegacySessionStoredOnly = async (request: FastifyRequest, reply: FastifyReply) => {
     const header = request.headers[STORED_ONLY_HEADER];
     if (header !== '1' && header !== 'true') return;
     const route = request.routeOptions.url ?? request.url;
     const operation = route.endsWith('/session/setup')
       ? 'POST /api/v1/session/setup'
+      : route.endsWith('/session/setup-token')
+        ? 'POST /api/v1/session/setup-token'
       : `${request.method.toUpperCase()} /api/v1/session`;
     const error = storedOnlyRefused('Stored-only mode refuses this operation', { operation, access: OperationAccesses.write });
     return reply.status(error.statusCode).send(error.toJSON());
@@ -2829,6 +2868,74 @@ export async function createServer(opts: {
       throw err;
     }
 
+    setSessionCookie(reply, sessionId);
+    return reply.send({ authenticated: true });
+  });
+
+  // First-run setup with the one-time token `canonry serve` prints on the
+  // setup URL (#1176). Clicking the link mints the session without a password
+  // to invent or store: the trust is "you can read this terminal", the same
+  // trust the config file already assumes. The token is single-use, lives
+  // only in this process, and is void once a password is configured — it can
+  // never bypass a password that exists. The request must also be direct and
+  // local, so a token that leaks to a remote caller still cannot mint.
+  app.post<{
+    Body: { token?: string };
+  }>(apiPrefix + "/session/setup-token", { ...legacySessionRouteOptions, config: { skipInstanceAuth: true } }, async (request, reply) => {
+    if (namedAccountsInUse()) {
+      const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
+      return reply.status(err.statusCode).send(err.toJSON());
+    }
+    if (!dashboardRequirePassword) {
+      return reply.send({ authenticated: true, setupRequired: false });
+    }
+    if (!(keylessLocalSetup && isDirectLocalRequest(request))) {
+      const err = authRequired(
+        "Setting up with the first-run token requires a request made directly from this machine to a loopback-bound server that has no external URL, base path, or trusted proxy configured.",
+      );
+      return reply.status(err.statusCode).send(err.toJSON());
+    }
+    if (opts.config.dashboardPasswordHash) {
+      const err = validationError("Dashboard password is already configured");
+      return reply.status(err.statusCode).send(err.toJSON());
+    }
+    const stored = firstRunSetupTokenByServer.get(app);
+    if (stored === undefined || stored.consumed) {
+      return reply.status(401).send({
+        error: { code: "AUTH_INVALID", message: "Invalid or expired setup token" },
+      });
+    }
+    const presented = request.body?.token?.trim() ?? "";
+    const presentedHash = presented ? hashSessionToken(presented) : "";
+    // Compare digests in constant time; a wrong-length digest can never match.
+    if (presentedHash.length !== stored.tokenHash.length
+      || !crypto.timingSafeEqual(Buffer.from(presentedHash, "hex"), Buffer.from(stored.tokenHash, "hex"))) {
+      return reply.status(401).send({
+        error: { code: "AUTH_INVALID", message: "Invalid or expired setup token" },
+      });
+    }
+    const defaultKey = getDefaultApiKey();
+    if (!defaultKey || defaultKey.revokedAt) {
+      const err = serverApiKeyMissing();
+      return reply.status(err.statusCode).send(err.toJSON());
+    }
+    const sessionId = opts.db.transaction((tx) => {
+      writeAuditLog(tx, auditFromRequest(request, {
+        actor: `api-key:${defaultKey.id}`,
+        credentialId: null,
+        requestId: request.id,
+        action: "dashboard-session.created",
+        entityType: "dashboard-session",
+        diff: { authorizedBy: "setup-token" },
+      }));
+      return createSession(defaultKey, true, tx);
+    });
+    // The token is spent only after the session and audit transaction
+    // commits: a failed persistence leaves the link usable, so the operator
+    // can retry it, and a successful retry leaves exactly one session and
+    // one audit event. This stays single-use — nothing awaits between the
+    // check above and the spend here, so no second request can interleave.
+    stored.consumed = true;
     setSessionCookie(reply, sessionId);
     return reply.send({ authenticated: true });
   });

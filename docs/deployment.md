@@ -62,6 +62,12 @@ password. Every password sign-in uses the install's root API key (`apiKey` in
 - **On this machine:** with the default loopback bind, open
   `http://127.0.0.1:4100` and create the password. No API key is needed,
   unless the configuration names another way in (see the next item).
+  `canonry serve` also prints a one-time setup link with the first-run URL,
+  for example `http://127.0.0.1:4100/setup?token=<...>`: opening it signs
+  you in without creating a password. The link works once, only from a
+  request made directly on this machine, and only until a password is set;
+  the token lives only while that server runs and is never written to disk.
+  To set a password later, sign out and use the first-run form again.
 - **From another machine or through a proxy:** the dashboard also asks for the
   root API key. This applies to every request when Canonry binds a non-loopback
   address (`--host 0.0.0.0`, Docker), and to any request that comes through a

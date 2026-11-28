@@ -1111,6 +1111,18 @@ export function setupDashboardPassword(password: string, rootApiKey?: string): P
   })
 }
 
+/**
+ * First-run setup with the one-time token `canonry serve` prints on the
+ * setup URL (#1176). The token is single-use and only works from a direct
+ * local request; anything else answers 401, and the password form stays.
+ */
+export function setupWithToken(token: string): Promise<ApiSessionState> {
+  return apiFetch('/session/setup-token', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
 export function loginWithPassword(password: string): Promise<ApiSessionState> {
   return apiFetch('/session', {
     method: 'POST',

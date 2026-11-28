@@ -162,6 +162,7 @@ vi.mock('@canonry/canonry-db', () => ({
 vi.mock('../src/server.js', () => ({
   allowsKeylessFirstRunSetup: () => true,
   createServer: () => mockCreateServer(),
+  getFirstRunSetupToken: () => null,
   waitForServerRuntimeStartup: () => mockWaitForServerRuntimeStartup(),
 }))
 vi.mock('../src/telemetry.js', () => ({

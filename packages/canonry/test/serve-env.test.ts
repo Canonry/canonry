@@ -114,23 +114,52 @@ const BANNERS: BannerRow[] = [
   { id: 'name-tie-unscanned', projects: [{ id: 'p2', name: 'bravo', createdAt: JAN2 }, { id: 'p1', name: 'alpha', createdAt: JAN2 }, { id: 'p3', name: 'zulu', createdAt: JAN1 }], runs: [{ projectId: 'p3', status: RunStatuses.completed }], open: 'Open http://127.0.0.1:4100/setup?project=alpha to run its first Agent Readiness audit scan.' },
 ]
 const WARNS = [
-  { id: 'wildcard-ipv4', host: '0.0.0.0', url: 'http://127.0.0.1:4100', warn: true },
-  { id: 'wildcard-ipv6', host: '::', url: 'http://[::1]:4100', warn: true },
-  { id: 'bracketed-wildcard-ipv6', host: '[::]', url: 'http://[::1]:4100', warn: true },
-  { id: 'lan-ipv4', host: '192.168.1.10', url: 'http://192.168.1.10:4100', warn: true },
-  { id: 'loopback-ipv4', host: '127.0.0.1', url: 'http://127.0.0.1:4100', warn: false },
-  { id: 'loopback-ipv6', host: '::1', url: 'http://[::1]:4100', warn: false },
-  { id: 'localhost', host: 'localhost', url: 'http://localhost:4100', warn: false },
+  { id: 'wildcard-ipv4', host: '0.0.0.0', url: 'http://127.0.0.1:4100', warn: true, token: false },
+  { id: 'wildcard-ipv6', host: '::', url: 'http://[::1]:4100', warn: true, token: false },
+  { id: 'bracketed-wildcard-ipv6', host: '[::]', url: 'http://[::1]:4100', warn: true, token: false },
+  { id: 'lan-ipv4', host: '192.168.1.10', url: 'http://192.168.1.10:4100', warn: true, token: false },
+  { id: 'loopback-ipv4', host: '127.0.0.1', url: 'http://127.0.0.1:4100', warn: false, token: true },
+  { id: 'loopback-ipv6', host: '::1', url: 'http://[::1]:4100', warn: false, token: true },
+  { id: 'localhost', host: 'localhost', url: 'http://localhost:4100', warn: false, token: true },
 ]
 // A loopback bind still needs the root key once config names another way in.
-const CONFIGURED_WARNS: Array<{ id: string; args?: string[]; env?: Record<string, string>; config?: Partial<CanonryConfig>; notice?: string }> = [
+const CONFIGURED_WARNS: Array<{ id: string; args?: string[]; env?: Record<string, string>; config?: Partial<CanonryConfig>; notice?: string; token?: boolean }> = [
   { id: 'external-public-url', config: { publicUrl: 'https://canonry.example.com' }, notice: CONFIG_WARN },
   { id: 'external-api-url', config: { apiUrl: 'https://canonry.example.com' }, notice: CONFIG_WARN },
   { id: 'trusted-proxy', env: { CANONRY_TRUST_PROXY: 'loopback' }, notice: CONFIG_WARN },
-  { id: 'loopback-public-url', config: { publicUrl: 'http://localhost:4100' } },
+  { id: 'loopback-public-url', config: { publicUrl: 'http://localhost:4100' }, token: true },
   // The bind is the first reason, and the only one printed.
   { id: 'wildcard-bind-external-public-url', args: ['--host', '0.0.0.0'], config: { publicUrl: 'https://canonry.example.com' }, notice: WARN },
 ]
+
+/**
+ * The banner's open line. A first-run server mints a one-time setup token
+ * (#1176), so a setup URL carries `token=<64 hex>` after its own query: the
+ * table's `open` spells the URL without it, and this matches the token in
+ * place instead of an exact string. A project that already has a site audit
+ * opens the dashboard root, and the token rides on that URL the same way.
+ */
+function expectOpenLine(line: string | undefined, open: string, token = true) {
+  if (!token) {
+    expect(line).toBe(open)
+    return
+  }
+  if (!open.includes('/setup')) {
+    const prefix = `Open ${open.slice('Open '.length)}?token=`
+    expect(line?.startsWith(prefix)).toBe(true)
+    expect((line ?? '').slice(prefix.length)).toMatch(/^[0-9a-f]{64}$/)
+    return
+  }
+  const marker = ' to '
+  const at = open.indexOf(marker)
+  const url = open.slice('Open '.length, at)
+  const rest = open.slice(at)
+  const prefix = `Open ${url}${url.includes('?') ? '&' : '?'}token=`
+  expect(line?.startsWith(prefix)).toBe(true)
+  const tail = (line ?? '').slice(prefix.length)
+  expect(tail.slice(0, 64)).toMatch(/^[0-9a-f]{64}$/)
+  expect(tail.slice(64)).toBe(rest)
+}
 
 async function startNative(input: {
   args?: string[]
@@ -246,7 +275,10 @@ it.each(SETTINGS)('CLI serve resolves settings: $id', async row => {
 it.each(BANNERS)('CLI serve reads persisted onboarding state: $id', async row => {
   const { lines, endpoint } = await startNative({ seed: row })
   expect(native.binds).toEqual([{ host: '127.0.0.1', port: 4100 }])
-  expect(lines).toEqual(['\nCanonry server running at http://127.0.0.1:4100', row.open, 'Press Ctrl+C to stop.\n'])
+  expect(lines).toHaveLength(3)
+  expect(lines[0]).toBe('\nCanonry server running at http://127.0.0.1:4100')
+  expectOpenLine(lines[1], row.open)
+  expect(lines[2]).toBe('Press Ctrl+C to stop.\n')
   const health = await fetch(`${endpoint}/health`)
   expect(health.status).toBe(200)
   await health.text()
@@ -255,20 +287,18 @@ it.each(BANNERS)('CLI serve reads persisted onboarding state: $id', async row =>
 it.each(WARNS)('CLI serve reports bind setup guidance: $id', async row => {
   const { lines } = await startNative({ args: ['--host', row.host] })
   expect(native.binds).toEqual([{ host: row.host, port: 4100 }])
-  expect(lines).toEqual([
-    `\nCanonry server running at ${row.url}`,
-    `Open ${row.url}/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.`,
-    ...(row.warn ? [WARN] : []),
-    'Press Ctrl+C to stop.\n',
-  ])
+  expect(lines).toHaveLength(row.warn ? 4 : 3)
+  expect(lines[0]).toBe(`\nCanonry server running at ${row.url}`)
+  expectOpenLine(lines[1], `Open ${row.url}/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.`, row.token)
+  if (row.warn) expect(lines[2]).toBe(WARN)
+  expect(lines[row.warn ? 3 : 2]).toBe('Press Ctrl+C to stop.\n')
 }, 20_000)
 
 it.each(CONFIGURED_WARNS)('CLI serve reports configured setup guidance: $id', async row => {
   const { lines } = await startNative({ args: row.args, env: row.env, config: row.config })
-  expect(lines).toEqual([
-    '\nCanonry server running at http://127.0.0.1:4100',
-    'Open http://127.0.0.1:4100/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.',
-    ...(row.notice ? [row.notice] : []),
-    'Press Ctrl+C to stop.\n',
-  ])
+  expect(lines).toHaveLength(row.notice ? 4 : 3)
+  expect(lines[0]).toBe('\nCanonry server running at http://127.0.0.1:4100')
+  expectOpenLine(lines[1], 'Open http://127.0.0.1:4100/setup to set up your first project: a free Agent Readiness audit scan, then AI Visibility.', row.token ?? false)
+  if (row.notice) expect(lines[2]).toBe(row.notice)
+  expect(lines[row.notice ? 3 : 2]).toBe('Press Ctrl+C to stop.\n')
 }, 20_000)
