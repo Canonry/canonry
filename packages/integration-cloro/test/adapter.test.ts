@@ -127,6 +127,20 @@ describe('cloro market rankings', () => {
     expect(missing.results.marketRankings[0]).toMatchObject({ searchStatus: 'partial', rankOrganic: null, url: null, depth: 3 })
   })
 
+  it('needs every requested page before it reports a miss, not only the last one', async () => {
+    // A depth-30 search that came back with pages 1 and 3 but not page 2, and without the site.
+    const depth30 = { ...request, search: { ...request.search!, depth: 30 } }
+    const gapped = [
+      ...organic.filter(item => item.page === 1 && item.position !== 5),
+      { position: 24, page: 3, link: 'https://www.rival.com/third', displayedLink: 'https://www.rival.com' },
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer(gapped)))
+    const result = await createCloroSeoAdapter(credentials).execute(depth30)
+    // Results 4 to 30 are not all proven: page 2 is missing, so the row is partial at depth 3, and cloro's charge stays on the receipt.
+    expect(result).toMatchObject({ outcome: SeoAdapterOutcomes.partial, tasks: [{ remoteTaskId: 'request-1', costMicros: 5_600 }] })
+    expect(result.results.marketRankings[0]).toMatchObject({ searchStatus: 'partial', rankOrganic: null, url: null, depth: 3 })
+  })
+
   it('gives the runner a deadline that covers a whole cloro search', () => {
     // Two 6-minute requests (the search and one redirect lookup) and two 30-second waits before retries.
     expect(createCloroSeoAdapter(credentials).requestTimeoutMs).toBe(780_000)

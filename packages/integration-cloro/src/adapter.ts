@@ -150,14 +150,19 @@ function hostBelongsTo(host: string, target: SeoTarget): boolean {
 
 /**
  * How deep the results reach. A search that returned results from every requested page checked
- * the requested depth. When the last pages are missing, the search is partial: it checked only
- * as deep as its deepest organic result, so a site that is not in them is not a top-N miss.
+ * the requested depth. When any requested page is missing, the search is partial: it checked
+ * only as deep as its deepest organic result before the first missing page, so a site that is
+ * not in them is not a top-N miss. A later page does not prove the missing one was checked.
  */
 function checkedDepth(sites: OrganicSite[], request: SeoAdapterRequest): { depth: number; partial: boolean } {
   const depth = request.search!.depth
-  const lastPage = Math.max(...sites.map(site => site.page))
-  if (lastPage >= depth / RESULTS_PER_PAGE) return { depth, partial: false }
-  return { depth: Math.min(depth, Math.max(...sites.map(site => site.rank))), partial: true }
+  const pages = new Set(sites.map(site => site.page))
+  const requestedPages = Math.ceil(depth / RESULTS_PER_PAGE)
+  let firstMissing = 1
+  while (firstMissing <= requestedPages && pages.has(firstMissing)) firstMissing++
+  if (firstMissing > requestedPages) return { depth, partial: false }
+  const covered = sites.filter(site => site.page < firstMissing).map(site => site.rank)
+  return { depth: Math.min(depth, Math.max(0, ...covered)), partial: true }
 }
 
 /**
