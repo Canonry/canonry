@@ -708,6 +708,16 @@ export const ga4SyncResponseDtoSchema = z.object({
    * `measurement.searchLandingPages`.
    */
   syncedComponents: z.array(z.string()).optional(),
+  /**
+   * Overview windows GA4 did not answer this sync, each with GA4's error
+   * (usually a 90- or 180-day report running past its timeout). Their totals
+   * from an earlier sync stay stored with the dates they cover, and the daily
+   * data still synced. Absent when every window was read.
+   */
+  keptWindows: z.array(z.object({
+    window: z.enum(WINDOW_SETS.gaOverview),
+    error: z.string(),
+  })).optional(),
 })
 export type GA4SyncResponseDto = z.infer<typeof ga4SyncResponseDtoSchema>
 /** Legacy alias retained for callers that still import `GaSyncResponse`. */

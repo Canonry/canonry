@@ -1534,7 +1534,7 @@ export async function googleMarketingRoutes(app: FastifyInstance, opts: GoogleMa
 
     app.get<{
       Querystring: { code?: string; state?: string; error?: string }
-    }>('/google-marketing/callback', connectionRoute(app, (request) => {
+    }>('/google-marketing/callback', { config: { skipInstanceAuth: true } }, connectionRoute(app, (request) => {
       // An invalid or expired state still names its provider, read unverified for telemetry only.
       const verified = oauthStateSchema.safeParse(verifySignedGoogleOAuthState(request.query.state ?? '', stateSecret))
       return marketingConnection(verified.success ? verified.data.provider : unverifiedOAuthStateField(request.query.state, 'provider'))

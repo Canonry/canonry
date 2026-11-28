@@ -159,6 +159,7 @@ const expectedToolNames = [
   'canonry_gsc_sitemaps',
   'canonry_gsc_sitemaps_submit',
   'canonry_ga_status',
+  'canonry_ga_sync',
   'canonry_ga_oauth_start',
   'canonry_ga_properties',
   'canonry_ga_connect',
@@ -926,7 +927,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('monitoring')).toBe(84)
     expect(counts.get('setup')).toBe(76)
     expect(counts.get('gsc')).toBe(14)
-    expect(counts.get('ga')).toBe(16)
+    expect(counts.get('ga')).toBe(17)
     expect(counts.get('gbp')).toBe(18)
     expect(counts.get('ads')).toBe(26)
     expect(counts.get('google-ads')).toBe(6)

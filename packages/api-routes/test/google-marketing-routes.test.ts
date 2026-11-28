@@ -23,7 +23,6 @@ import {
   projects,
   runs,
 } from '@canonry/canonry-db'
-import { shouldSkipAuth } from '../src/auth.js'
 import {
   googleMarketingRoutes,
   type GoogleMarketingStoredCredential,
@@ -362,12 +361,6 @@ describe('Google Marketing routes', () => {
       { integration: 'google_ads', action: 'disconnect', status: 'succeeded', durationBucket: 'under_1s' },
       { integration: 'gtm', action: 'disconnect', status: 'cancelled', reasonCode: 'NOT_CONNECTED', durationBucket: 'under_1s' },
     ])
-  })
-
-  it('keeps the shared callback narrowly unauthenticated', () => {
-    expect(shouldSkipAuth('/api/v1/google-marketing/callback')).toBe(true)
-    expect(shouldSkipAuth('/api/v1/google-marketing/callback/extra')).toBe(false)
-    expect(shouldSkipAuth('/api/v1/projects/acme/google-marketing/callback')).toBe(true)
   })
 
   it('uses configured deployment bases once and preserves the mounted callback cookie path', async () => {

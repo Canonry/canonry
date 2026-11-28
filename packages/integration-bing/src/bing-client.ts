@@ -213,6 +213,16 @@ function openThrottleCooldown(apiKey: string, err: BingApiError): void {
   bingClientLog('error', 'http.cooldown-open', { cooldownMs: retryAt - now })
 }
 
+/**
+ * How long the key's throttle cooldown has left, in ms (0 when none is open).
+ * A job about to make several calls reads this to wait the cooldown out first:
+ * during it every call fails unattempted, so starting would only record a
+ * failure for work that could succeed minutes later.
+ */
+export function bingThrottleCooldownRemainingMs(apiKey: string): number {
+  return throttleCooldownRemainingMs(apiKey)
+}
+
 /** Test seam: reset cooldown state and optionally pin the clock. */
 export function __resetBingThrottleCooldownForTest(now?: () => number): void {
   throttleCooldownUntil.clear()
